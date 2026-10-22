@@ -1,0 +1,14 @@
+{
+  "product": "FM-1_913",
+  "package": "fm1-lsdj-template.fwsc",
+  "sha256": "547ef81e42432c025774f86430c541f065b25a90c4c939eadf27f3c2aa9ec163",
+  "cartridge_offset": 35936,
+  "cartridge_capacity": 524544,
+  "lsdj_slot": 1,
+  "usb_updater": true,
+  "usb_protocol": "fm1-ota-v1",
+  "protected_app_sha256": "de047050b90749b1fe7c06febc1f47b7397de6d3705b56c374ff669befe5a881",
+  "loader_sha256": "804ae28b788a037cb2c23c73ce08634fd84da541e0cb71103e402f8fc65e51f5",
+  "app_bytes": 568020,
+  "notice": "Empty LSDj slot. Each user's own LSDj is inserted locally in the browser."
+}

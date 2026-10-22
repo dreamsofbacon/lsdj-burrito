@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LSDj for FM-1</title>
+<style>
+:root{--bg:#f6f5f1;--card:#fff;--ink:#1d1d1b;--muted:#6b6a64;--line:#dddbd3;--accent:#2f6f4f;--warn:#9a5b00;--bad:#b3261e}
+@media (prefers-color-scheme:dark){:root{--bg:#161615;--card:#20201e;--ink:#ecebe6;--muted:#a3a29b;--line:#3a3935;--accent:#7cc39c;--warn:#e0a84a;--bad:#f2867e}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,sans-serif}
+main{max-width:760px;margin:0 auto;padding:24px 16px 64px}
+h1{font-size:26px;margin:0 0 4px}h2{font-size:17px;margin:0 0 10px}
+.sub{color:var(--muted);margin:0 0 20px}
+section{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin:0 0 14px}
+section[aria-disabled=true]{opacity:.5;pointer-events:none}
+.step{color:var(--muted);font-size:12px;letter-spacing:.06em;text-transform:uppercase}
+button{font:inherit;padding:8px 14px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--bg);font-weight:600}
+button:disabled{opacity:.45;cursor:not-allowed}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.kits{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:6px;margin:10px 0}
+.kits label{display:flex;gap:6px;align-items:center;border:1px solid var(--line);border-radius:6px;padding:4px 8px;font-family:ui-monospace,monospace;font-size:13px}
+meter,progress{width:100%;height:12px}
+.ok{color:var(--accent)}.warn{color:var(--warn)}.bad{color:var(--bad)}
+.hint{color:var(--muted);font-size:13px}
+pre{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:8px;max-height:200px;overflow:auto;font-size:12px;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<main>
+<h1>LSDj for FM-1</h1>
+<p class="sub">Install your own copy of LSDj on an M-VAVE FM-1. Your ROM and songs stay on this computer: nothing is uploaded.</p>
+
+<section id="rom-step">
+<p class="step">Step 1</p><h2>Choose your LSDj ROM</h2>
+<p class="hint">LSDj is made by Johan Kotlinski and isn't distributed here. Get it from <a href="https://www.littlesounddj.com" target="_blank" rel="noopener">littlesounddj.com</a>, then choose the <code>.gb</code> file.</p>
+<input id="rom" type="file" accept=".gb">
+<p id="rom-info" role="status"></p>
+<label id="untested" hidden><input type="checkbox" id="untested-ok"> Install anyway: I understand this version hasn't been tested on the FM-1.</label>
+</section>
+
+<section id="kit-step" aria-disabled="true">
+<p class="step">Step 2</p><h2>Pick sample kits</h2>
+<p class="hint">Kits you leave out show as empty kit slots in LSDj. Your songs aren't affected.</p>
+<div class="row"><button id="kits-all" type="button">Fit as many as possible</button><button id="kits-none" type="button">None</button></div>
+<div id="kits" class="kits"></div>
+<meter id="space" min="0" max="1" value="0"></meter>
+<p id="space-info" class="hint"></p>
+</section>
+
+<section id="install-step" aria-disabled="true">
+<p class="step">Step 3</p><h2>Install on the FM-1</h2>
+<p class="hint">Connect the FM-1 with a USB data cable and close other MIDI apps. Use Chrome or Edge. Keep it powered until it restarts.</p>
+<button id="install" class="primary" type="button">Install LSDj</button>
+<progress id="install-progress" value="0" max="1" hidden></progress>
+<p id="install-status" role="status"></p>
+</section>
+
+<section id="save-step">
+<p class="step">Songs</p><h2>Export or import your save</h2>
+<p class="hint">Export downloads the FM-1's songs as <code>lsdj.sav</code>. Import replaces them with a <code>.sav</code> from another LSDj (128 KiB); the FM-1 keeps your current songs if the import fails.</p>
+<div class="row"><button id="export" type="button">Export lsdj.sav</button><label class="row"><button id="import-pick" type="button">Import a .sav…</button><input id="import" type="file" accept=".sav" hidden></label></div>
+<progress id="save-progress" value="0" max="1" hidden></progress>
+<p id="save-status" role="status"></p>
+</section>
+
+<section>
+<p class="step">Undo</p><h2>Restore the stock firmware</h2>
+<p class="hint">Puts back M-VAVE's official FM-1 V15 firmware. Choose the V15 <code>.fwsc</code> file from M-VAVE; it is checked against the official file's fingerprint before anything is written.</p>
+<button id="restore" type="button">Choose V15 file and restore…</button><input id="restore-file" type="file" accept=".fwsc" hidden>
+<p id="restore-status" role="status"></p>
+</section>
+
+<details><summary>Log</summary><pre id="log"></pre></details>
+<p class="hint">The firmware is free software (GPL-3.0), based on <a href="https://github.com/ChanceTheMaker/gamedude-fm1-smk" target="_blank" rel="noopener">GameDude</a>. Source: <a href="https://github.com/dreamsofbacon/gamedude-fm1-lsdj" target="_blank" rel="noopener">gamedude-fm1-lsdj</a>. Not affiliated with M-VAVE or LSDj's author.</p>
+</main>
+<script type="module" src="lsdj/lsdj-app.js"></script>
+</body>
+</html>

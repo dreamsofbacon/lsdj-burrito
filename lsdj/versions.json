@@ -1,0 +1,3 @@
+[
+  {"version": "9.3.9", "sha256": "c6df654549c0b08741bcc12190946da3fd4bc2a1a1aed7445428453fe5dfcfc3", "notes": "Host-tested: boot, MIDI sync, envelopes with the zombie-mode APU fix."}
+]
