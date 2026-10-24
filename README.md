@@ -2,9 +2,15 @@
 
 LSDJ Burrito runs **your own copy** of [Little Sound Dj](https://www.littlesounddj.com) on an M-VAVE FM-1, with GameDude-based firmware (the source is in [lsdj-burrito-src](https://github.com/dreamsofbacon/lsdj-burrito-src)). This repository is its web page.
 
-**Installing from this page is switched off.** An earlier version of the installer left an FM-1 unable to start (it was recovered with a hardware tool). Until the cause is found and an install is proven safe, the page writes nothing to an FM-1: there is no install, restore or song import, and the code for them has been removed from this repository.
+With LSDJ Burrito running on the FM-1 (alpha 55 or later), connected by USB, the page talks to the running firmware over USB-MIDI (Chrome or Edge, MIDI with SysEx allowed). It never writes firmware.
 
-What the page does now: check that your own `lsdj.gb` is a version tested on the FM-1. The ROM is only read in your browser; nothing is uploaded.
+- **Live effects:** every channel's effects and the echo, following the FM-1 as you play; move a slider to change it on the FM-1, keep the setup on the FM-1.
+- **Songs:** export the FM-1's songs as `lsdj.sav`, import a 128 KiB `.sav` (the FM-1 keeps its songs if an import fails).
+- **Colours:** make a custom theme from a preset with a preview, send it (THEME: CUSTOM on the FM-1).
+- **Settings:** change them, back up settings + effects + colours to a file, restore it.
+- **ROM check:** is your own `lsdj.gb` a version tested on the FM-1 (read in the browser only).
+
+**Installing firmware from this page is switched off for now.** An earlier version of the installer left an FM-1 unable to start (a transfer stopped part way). Install LSDJ Burrito with M-UPGRADE until installing is proven safe.
 
 ## Licenses
 - This page is GPL-3.0-only (see `LICENSE`).
