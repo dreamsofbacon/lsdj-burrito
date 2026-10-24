@@ -1,6 +1,6 @@
-# LSDj installer for the M-VAVE FM-1
+# Dreamy_bacon's LSDJ Burrito
 
-A web page that installs **your own copy** of [Little Sound Dj](https://www.littlesounddj.com) on an M-VAVE FM-1. It runs GameDude-based firmware (the source is in [gamedude-fm1-lsdj](https://github.com/dreamsofbacon/gamedude-fm1-lsdj)).
+LSDJ Burrito is a web page that installs **your own copy** of [Little Sound Dj](https://www.littlesounddj.com) on an M-VAVE FM-1. It runs GameDude-based firmware (the source is in [lsdj-burrito-src](https://github.com/dreamsofbacon/lsdj-burrito-src)).
 
 LSDj isn't included and is never uploaded anywhere. Your browser trims your `lsdj.gb` and puts it into an empty firmware template. The result is flashed through the FM-1's USB-MIDI updater.
 
