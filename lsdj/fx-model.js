@@ -33,7 +33,9 @@ export function packFx(fx) {
   return wordsOf(b);
 }
 
-export const THEMES = ['Classic', 'Pocket', 'Sunset', 'Ice', 'Bacon', 'Virtual', 'Midnight', 'Custom'];
+export const THEMES = ['Classic', 'Pocket', 'Sunset', 'Ice', 'Bacon', 'Virtual', 'Midnight', 'Custom',
+  'White Grey', 'Black Green', 'Black', 'Orange', 'Purple', 'White Blue', 'White Green'];   // the last 7: the FM-1 colourways
+export const CUSTOM_THEME = 7;
 export const PRESETS = [   // gb[4] (lightest first), text, dark, accent, empty bar
   [0xE7DA, 0x9D50, 0x5308, 0x18E3, 0xFFFF, 0x18E3, 0xFD20, 0x4208],
   [0xFFFF, 0xAD55, 0x52AA, 0x0000, 0xFFFF, 0x0000, 0xFD20, 0x4208],
@@ -41,7 +43,15 @@ export const PRESETS = [   // gb[4] (lightest first), text, dark, accent, empty 
   [0xDFFF, 0x6E9C, 0x3274, 0x1108, 0xFFFF, 0x1108, 0xF81F, 0x4208],
   [0xFF9B, 0xF48C, 0xA226, 0x3082, 0xFFFF, 0x3082, 0x07E0, 0x4208],
   [0xF800, 0xA800, 0x5000, 0x0000, 0xFFFF, 0x0000, 0x07FF, 0x4208],
-  [0xB71F, 0x5C19, 0x29CF, 0x0843, 0xFFFF, 0x0843, 0xFD20, 0x4208]];
+  [0xB71F, 0x5C19, 0x29CF, 0x0843, 0xFFFF, 0x0843, 0xFD20, 0x4208],
+  null,   // 7: Custom
+  [0xE6FA, 0xBDB5, 0x4229, 0x2966, 0xFFFF, 0x2966, 0xDA63, 0x4208],
+  [0x8E99, 0x6D95, 0x4229, 0x2104, 0xFFFF, 0x2104, 0xDA63, 0x4208],
+  [0x94F4, 0x630C, 0x3186, 0x18E3, 0xFFFF, 0x18E3, 0xDA63, 0x4208],
+  [0xE369, 0xBA24, 0x6123, 0x18E3, 0xFFFF, 0x18E3, 0x7677, 0x4208],
+  [0xDD7A, 0xC417, 0x9B56, 0x51ED, 0xFFFF, 0x51ED, 0xDA63, 0x4208],
+  [0xEF5C, 0xC618, 0x5371, 0x320A, 0xFFFF, 0x320A, 0xDA63, 0x4208],
+  [0xEF5C, 0xAEB9, 0x7657, 0x4B8D, 0xFFFF, 0x4B8D, 0xDA63, 0x4208]];
 export const COLOR_NAMES = ['Lightest', 'Light', 'Dark', 'Darkest', 'Text', 'Box dark', 'Accent', 'Empty bar'];
 
 export const toHex = c => '#' + [((c >> 11) & 31) * 255 / 31, ((c >> 5) & 63) * 255 / 63, (c & 31) * 255 / 31]
@@ -56,7 +66,7 @@ export const SETTINGS = [
   {key: 'playIsSelect', bits: [3, 1], name: 'PLAY / REC', choices: ['PLAY = Start', 'PLAY = Select']},
   {key: 'selectKey', bits: [4, 2], name: 'Extra Select key', choices: ['Off', 'F#5', 'D#5']},
   {key: 'meter', bits: [6, 1], name: 'CPU meter', choices: ['Off', 'On']},
-  {key: 'theme', bits: [7, 3], name: 'Theme', choices: THEMES},
+  {key: 'theme', bits: [7, 3], hi: 12, name: 'Theme', choices: THEMES},   // hi: the value's top bit (themes 8+)
   {key: 'bluetooth', bits: [10, 2], name: 'Bluetooth', choices: ['Off', 'Device']}];
 /* The MIDI options (firmware/lsdj_midi.h, one word with 'M' on top; save-store record 16). */
 const CH16 = Array.from({length: 16}, (_, i) => `Channel ${i + 1}`);
@@ -85,10 +95,13 @@ export function packMidi(o) {
 }
 export function unpackSettings(v) {
   if (v >>> 24 !== 0x5A) throw Error('Not a settings word from this firmware.');
-  return Object.fromEntries(SETTINGS.map(s => [s.key, (v >>> s.bits[0]) & ((1 << s.bits[1]) - 1)]));
+  return Object.fromEntries(SETTINGS.map(s => [s.key, ((v >>> s.bits[0]) & ((1 << s.bits[1]) - 1)) | (s.hi ? ((v >>> s.hi) & 1) << s.bits[1] : 0)]));
 }
 export function packSettings(o) {
   let v = 0x5A000000;
-  for (const s of SETTINGS) v |= (o[s.key] & ((1 << s.bits[1]) - 1)) << s.bits[0];
+  for (const s of SETTINGS) {
+    v |= (o[s.key] & ((1 << s.bits[1]) - 1)) << s.bits[0];
+    if (s.hi) v |= ((o[s.key] >> s.bits[1]) & 1) << s.hi;
+  }
   return v >>> 0;
 }

@@ -168,7 +168,7 @@ $('import').onchange = e => {
 /* ---------- colours ---------- */
 function buildTheme() {
   const pick = $('theme-preset'); pick.replaceChildren(new Option('the current custom theme', -1));
-  THEMES.slice(0, 7).forEach((n, i) => pick.append(new Option(n, i)));
+  THEMES.forEach((n, i) => { if (PRESETS[i]) pick.append(new Option(n, i)); });   // every preset (not Custom)
   pick.onchange = () => { if (+pick.value >= 0) { theme = PRESETS[+pick.value].slice(); drawColors(); } };
   drawColors();
 }
