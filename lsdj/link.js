@@ -58,28 +58,37 @@ export class Link {
   }
   close() { this.input.onmidimessage = null; }
 
-  /* One request at a time; resolves {status, data}; rejects on a timeout or bad status. */
-  req(op, bytes = [], {timeout = 1500, allow = [0]} = {}) {
+  /* One request at a time; resolves {status, data, tries}; rejects on a timeout or bad status.
+     The USB link drops about one message in a hundred or more (measured on alpha 55: a request or
+     its reply never arrives; a late reply was never seen), so a request that is safe to repeat is
+     sent again after a timeout: retries more times. */
+  req(op, bytes = [], {timeout = 1500, allow = [0], retries = 0} = {}) {
     if (this.slow) timeout *= 3;
-    const run = () => new Promise((resolve, reject) => {
-      const t = setTimeout(() => { this.waiting = null; reject(new LinkError('The FM-1 did not answer. Is LSDJ Burrito running and the cable connected?')); }, timeout);
+    const once = () => new Promise((resolve, reject) => {
+      const t = setTimeout(() => { this.waiting = null; reject(new LinkError('The FM-1 did not answer. Is LSDJ Burrito running and the cable connected?', {cause: 'timeout'})); }, timeout);
       this.waiting = {op, resolve: r => { clearTimeout(t); if (!allow.includes(r.status)) reject(new LinkError(`FM-1: ${STATUS[r.status] || 'error ' + r.status}`)); else resolve(r); }};
       this.output.send(frame(op, bytes));
     });
+    const run = async () => {
+      for (let tries = 1; ; tries++) {
+        try { const r = await once(); r.tries = tries; return r; }
+        catch (e) { if (e.cause !== 'timeout' || tries > retries) throw e; this.retried = (this.retried || 0) + 1; }
+      }
+    };
     const p = this.queue.then(run, run);
     this.queue = p.catch(() => {});
     return p;
   }
 
   async info() {
-    const {data: d} = await this.req(OP.INFO);
+    const {data: d} = await this.req(OP.INFO, [], {retries: 2});
     const str = (a, b) => String.fromCharCode(...d.slice(a, b)).replace(/\0.*$/, '');
     return {protocol: d[0], firmware: str(1, 9), title: str(9, 25), saveSize: rd32(d, 25), saveCrc: rd32(d, 29), importing: d[33], liveKnown: !!(d[34] & 1)};
   }
   async exportSave(progress = () => {}) {
     const out = new Uint8Array(SAVE_SIZE);
     for (let off = 0; off < SAVE_SIZE; off += CHUNK) {
-      const {data} = await this.req(OP.READ, le32(off));
+      const {data} = await this.req(OP.READ, le32(off), {retries: 4});
       out.set(data.slice(0, CHUNK), off);
       progress(off + CHUNK, SAVE_SIZE);
     }
@@ -87,28 +96,42 @@ export class Link {
   }
   async importSave(bytes, progress = () => {}) {
     if (bytes.length !== SAVE_SIZE) throw new LinkError(`An LSDj save is ${SAVE_SIZE} bytes; this file is ${bytes.length}.`);
-    await this.req(OP.BEGIN, [...le32(SAVE_SIZE), ...le32(crc32(bytes))], {timeout: 20000});
+    const crc = crc32(bytes);
+    await this.req(OP.ABORT, [], {retries: 2});   // an import a closed page left behind: gone first
+    // BEGIN stores the current songs first (seconds). Sent again only if nothing came back; then
+    // "wrong state" means the first one arrived and the import is open.
+    const b = await this.req(OP.BEGIN, [...le32(SAVE_SIZE), ...le32(crc)], {timeout: 20000, retries: 1, allow: [0, 2]});
+    if (b.status === 2 && b.tries === 1) throw new LinkError('FM-1: wrong state (an import is already running)');
     try {
-      for (let off = 0; off < SAVE_SIZE; off += CHUNK) {
-        await this.req(OP.CHUNK, [...le32(off), ...bytes.slice(off, off + CHUNK)]);
+      for (let off = 0; off < SAVE_SIZE; off += CHUNK) {   // a chunk sent again is fine (the firmware takes the last one twice)
+        await this.req(OP.CHUNK, [...le32(off), ...bytes.slice(off, off + CHUNK)], {retries: 4});
         progress(off + CHUNK, SAVE_SIZE);
       }
-      await this.req(OP.COMMIT, [], {timeout: 20000});
+      // COMMIT: within the firmware's 5 s import timeout, so a lost one is sent again while the
+      // import still waits. "Wrong state" on a resend: the first arrived; INFO's checksum says
+      // whether the FM-1 now holds this file (stored) or restored its songs (not stored).
+      const c = await this.req(OP.COMMIT, [], {timeout: 4500, retries: 1, allow: [0, 2]});
+      if (c.status === 2) {
+        if (c.tries === 1) throw new LinkError('FM-1: wrong state (the import was given up)');
+        const info = await this.info();
+        if (info.importing || info.saveCrc !== crc) throw new LinkError('The import may not have been stored. Export the songs to check what the FM-1 holds.');
+      }
     } catch (e) {
-      await this.req(OP.ABORT).catch(() => {});
+      await this.req(OP.ABORT, [], {retries: 2}).catch(() => {});
       throw e;
     }
   }
-  async settingsGet() { return rd32((await this.req(OP.SETTINGS_GET)).data, 0); }
-  async settingsSet(v) { await this.req(OP.SETTINGS_SET, le32(v)); }
-  async fxGet() { const {data} = await this.req(OP.FX_GET); return Array.from({length: 11}, (_, i) => rd32(data, 4 * i)); }
-  async fxSet(words) { await this.req(OP.FX_SET, words.flatMap(le32)); }
-  async themeGet() { const {data} = await this.req(OP.THEME_GET); return Array.from({length: 8}, (_, i) => rd16(data, 2 * i)); }
-  async themeSet(colors) { await this.req(OP.THEME_SET, colors.flatMap(c => [c & 255, c >> 8])); }
-  async store() { await this.req(OP.STORE, [], {timeout: 10000}); }
+  // (gets and sets are safe to send again: a set writes the same value twice)
+  async settingsGet() { return rd32((await this.req(OP.SETTINGS_GET, [], {retries: 2})).data, 0); }
+  async settingsSet(v) { await this.req(OP.SETTINGS_SET, le32(v), {retries: 2}); }
+  async fxGet() { const {data} = await this.req(OP.FX_GET, [], {retries: 2}); return Array.from({length: 11}, (_, i) => rd32(data, 4 * i)); }
+  async fxSet(words) { await this.req(OP.FX_SET, words.flatMap(le32), {retries: 2}); }
+  async themeGet() { const {data} = await this.req(OP.THEME_GET, [], {retries: 2}); return Array.from({length: 8}, (_, i) => rd16(data, 2 * i)); }
+  async themeSet(colors) { await this.req(OP.THEME_SET, colors.flatMap(c => [c & 255, c >> 8]), {retries: 2}); }
+  async store() { await this.req(OP.STORE, [], {timeout: 10000, retries: 1}); }
   /* the FM-1's Bluetooth (firmware/lsdj_ble.h), or null in a build without it */
   async bluetooth() {
-    const r = await this.req(OP.BLUETOOTH, [], {allow: [0, 1]});
+    const r = await this.req(OP.BLUETOOTH, [], {allow: [0, 1], retries: 1});
     if (r.status) return null;
     const v = i => rd32(r.data, 4 * i);
     return {state: BT_STATES[v(0)] || 'state ' + v(0), error: BT_ERRORS[v(1)] || (v(1) ? 'error ' + v(1) : ''),
