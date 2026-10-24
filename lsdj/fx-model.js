@@ -56,7 +56,8 @@ export const SETTINGS = [
   {key: 'playIsSelect', bits: [3, 1], name: 'PLAY / REC', choices: ['PLAY = Start', 'PLAY = Select']},
   {key: 'selectKey', bits: [4, 2], name: 'Extra Select key', choices: ['Off', 'F#5', 'D#5']},
   {key: 'meter', bits: [6, 1], name: 'CPU meter', choices: ['Off', 'On']},
-  {key: 'theme', bits: [7, 3], name: 'Theme', choices: THEMES}];
+  {key: 'theme', bits: [7, 3], name: 'Theme', choices: THEMES},
+  {key: 'bluetooth', bits: [10, 2], name: 'Bluetooth', choices: ['Off', 'Device']}];
 export function unpackSettings(v) {
   if (v >>> 24 !== 0x5A) throw Error('Not a settings word from this firmware.');
   return Object.fromEntries(SETTINGS.map(s => [s.key, (v >>> s.bits[0]) & ((1 << s.bits[1]) - 1)]));

@@ -2,6 +2,7 @@
 // The page: connect to the FM-1's running LSDJ Burrito firmware (lsdj/link.js)
 // for live effects, songs, colours and settings. Never writes firmware.
 import {Link, midiPorts, LinkError, SAVE_SIZE} from './link.js';
+import {connectBleMidi} from './ble-midi.js';
 import {CHANNELS, CH_PARAMS, ECHO_PARAMS, PAGES, unpackFx, packFx, PRESETS, THEMES, COLOR_NAMES, toHex, fromHex,
         SETTINGS, unpackSettings, packSettings} from './fx-model.js';
 
@@ -9,20 +10,22 @@ const $ = id => document.getElementById(id);
 const say = (id, text, cls = 'hint') => { const el = $(id); el.textContent = text; el.className = cls; };
 const enable = on => ['live-sec', 'songs-sec', 'theme-sec', 'settings-sec'].forEach(id => $(id).setAttribute('aria-disabled', on ? 'false' : 'true'));
 
-let link = null, ports = null, fx = null, settings = null, theme = PRESETS[0].slice(), poll = null, busy = false, touched = 0;
+let link = null, ports = null, fx = null, settings = null, theme = PRESETS[0].slice(), poll = null, busy = false, touched = 0, ble = null;
 
 /* ---------- connect ---------- */
-async function connectTo(input, output) {
-  link?.close(); link = new Link(input, output);
+async function connectTo(input, output, how = 'USB') {
+  link?.close(); link = new Link(input, output, {slow: how === 'Bluetooth'});
+  if (how !== 'Bluetooth') { ble?.close(); ble = null; }
   try {
     const info = await link.info();
     if (info.protocol !== 1) throw new LinkError(`This page speaks link version 1; the FM-1 speaks ${info.protocol}. Update the page or the firmware.`);
-    say('device', `Connected: ${info.firmware} running ${info.title || 'a game'}` + (info.liveKnown ? '' : ' (live data needs LSDj 9.3.9)'), 'ok');
+    say('device', `Connected over ${how}: ${info.firmware} running ${info.title || 'a game'}` + (info.liveKnown ? '' : ' (live data needs LSDj 9.3.9)'), 'ok');
+    showBluetooth(how);
     fx = unpackFx(await link.fxGet());
     settings = unpackSettings(await link.settingsGet());
     theme = await link.themeGet();
     buildFx(); buildSettings(); buildTheme(); enable(true);
-    clearInterval(poll); poll = setInterval(tick, 250);
+    clearInterval(poll); poll = setInterval(tick, how === 'Bluetooth' ? 500 : 250);
   } catch (e) { enable(false); say('device', e.message, 'bad'); }
 }
 $('connect-btn').onclick = async () => {
@@ -35,6 +38,30 @@ $('connect-btn').onclick = async () => {
     say('device', 'The FM-1 was not recognised by name: choose its MIDI port.', 'warn');
   } catch (e) { say('device', e.name === 'SecurityError' || e.name === 'NotAllowedError' ? 'MIDI access was blocked. Allow it (with SysEx) for this page.' : e.message, 'bad'); }
 };
+/* Bluetooth: the FM-1 with BLUETOOTH = DEVICE (Settings) shows up as "LSDJ Burrito" */
+if (navigator.bluetooth) $('connect-ble').hidden = false;
+$('connect-ble').onclick = async () => {
+  try {
+    ble?.close();
+    ble = await connectBleMidi();
+    ble.ondisconnected(() => { clearInterval(poll); enable(false); say('device', 'Bluetooth disconnected. Connect again when the FM-1 is near.', 'warn'); });
+    await connectTo(ble.input, ble.output, 'Bluetooth');
+  } catch (e) {
+    if (e.name === 'NotFoundError') return say('device', 'No FM-1 chosen. Turn on BLUETOOTH: DEVICE in the FM-1\'s settings (GLO), then try again.', 'warn');
+    say('device', e.message, 'bad');
+  }
+};
+/* The FM-1's Bluetooth, as reported over the link */
+async function showBluetooth(how) {
+  const el = $('bt-status');
+  try {
+    const bt = await link.bluetooth();
+    if (!bt) { el.textContent = 'This firmware has no Bluetooth.'; return; }
+    el.textContent = `Bluetooth: ${bt.state}` + (bt.error ? ` (${bt.error})` : '') +
+      (bt.state === 'connected' ? ` · packets in ${bt.packetsIn}, out ${bt.packetsOut}` : '') +
+      (how === 'Bluetooth' ? ' · Songs move slower over Bluetooth than over USB.' : '');
+  } catch { el.textContent = ''; }
+}
 $('port-pick').onchange = e => {
   const i = +e.target.value, input = ports.ins[i];
   const output = ports.outs.find(o => o.name === input.name) || ports.outs[i];

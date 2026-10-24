@@ -42,10 +42,12 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 
 <section id="connect">
 <h2>Connect</h2>
-<p class="hint">Plug the FM-1 in with a USB data cable, with LSDJ Burrito running. Use Chrome or Edge and allow MIDI access when asked. This page only talks to the running firmware: songs, settings, effects and colours. It never writes firmware.</p>
-<div class="row"><button id="connect-btn" class="primary" type="button">Connect to the FM-1</button>
+<p class="hint">Plug the FM-1 in with a USB data cable, with LSDJ Burrito running. Use Chrome or Edge and allow MIDI access when asked. Or, with a Bluetooth build and <b>BLUETOOTH: DEVICE</b> on in the FM-1's settings (GLO), connect without a cable. This page only talks to the running firmware: songs, settings, effects and colours. It never writes firmware.</p>
+<div class="row"><button id="connect-btn" class="primary" type="button">Connect over USB</button>
+<button id="connect-ble" type="button" hidden>Connect over Bluetooth</button>
 <select id="port-pick" hidden></select></div>
 <p id="device" role="status"></p>
+<p id="bt-status" class="hint"></p>
 </section>
 
 <section id="live-sec" aria-disabled="true">

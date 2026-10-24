@@ -7,7 +7,9 @@
 
 export const OP = {INFO: 0x01, READ: 0x02, BEGIN: 0x03, CHUNK: 0x04, COMMIT: 0x05, ABORT: 0x06,
   SETTINGS_GET: 0x10, SETTINGS_SET: 0x11, FX_GET: 0x12, FX_SET: 0x13, THEME_GET: 0x14, THEME_SET: 0x15,
-  STORE: 0x16, LIVE: 0x20};
+  STORE: 0x16, LIVE: 0x20, BLUETOOTH: 0x21};
+export const BT_STATES = ['off', 'starting', 'ready', 'advertising', 'connected', 'failed'];
+export const BT_ERRORS = ['', 'no radio calibration in flash', 'start timed out', 'no task', 'address refused', 'advertising refused', 'link refused'];
 export const STATUS = ['ok', 'bad request', 'wrong state', 'checksum mismatch', 'flash error'];
 export const CHUNK = 128;
 export const SAVE_SIZE = 131072;
@@ -44,9 +46,11 @@ export function parse(msg) {
 export class LinkError extends Error {}
 
 export class Link {
-  /* input / output: Web MIDI ports (or anything with onmidimessage / send). */
-  constructor(input, output) {
+  /* input / output: Web MIDI ports (or anything with onmidimessage / send: lsdj/ble-midi.js).
+     slow: Bluetooth (each request waits longer). */
+  constructor(input, output, {slow = false} = {}) {
     this.input = input; this.output = output; this.waiting = null; this.queue = Promise.resolve();
+    this.slow = slow;
     input.onmidimessage = e => {
       const r = parse(Array.from(e.data));
       if (r && this.waiting && r.op === this.waiting.op) { const w = this.waiting; this.waiting = null; w.resolve(r); }
@@ -56,6 +60,7 @@ export class Link {
 
   /* One request at a time; resolves {status, data}; rejects on a timeout or bad status. */
   req(op, bytes = [], {timeout = 1500, allow = [0]} = {}) {
+    if (this.slow) timeout *= 3;
     const run = () => new Promise((resolve, reject) => {
       const t = setTimeout(() => { this.waiting = null; reject(new LinkError('The FM-1 did not answer. Is LSDJ Burrito running and the cable connected?')); }, timeout);
       this.waiting = {op, resolve: r => { clearTimeout(t); if (!allow.includes(r.status)) reject(new LinkError(`FM-1: ${STATUS[r.status] || 'error ' + r.status}`)); else resolve(r); }};
@@ -101,6 +106,14 @@ export class Link {
   async themeGet() { const {data} = await this.req(OP.THEME_GET); return Array.from({length: 8}, (_, i) => rd16(data, 2 * i)); }
   async themeSet(colors) { await this.req(OP.THEME_SET, colors.flatMap(c => [c & 255, c >> 8])); }
   async store() { await this.req(OP.STORE, [], {timeout: 10000}); }
+  /* the FM-1's Bluetooth (firmware/lsdj_ble.h), or null in a build without it */
+  async bluetooth() {
+    const r = await this.req(OP.BLUETOOTH, [], {allow: [0, 1]});
+    if (r.status) return null;
+    const v = i => rd32(r.data, 4 * i);
+    return {state: BT_STATES[v(0)] || 'state ' + v(0), error: BT_ERRORS[v(1)] || (v(1) ? 'error ' + v(1) : ''),
+            packetsIn: v(2), packetsOut: v(3), sysexIn: v(4), bad: v(5), mtu: v(6), heapHigh: v(7), heapFails: v(8)};
+  }
   async live() {
     const {data: d} = await this.req(OP.LIVE, [], {timeout: 800});
     return {page: d[0], cursor: d[1], bpm: rd16(d, 2), mute: d[4], freeze: d[5], playing: d[6],
