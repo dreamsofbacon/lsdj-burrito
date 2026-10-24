@@ -7,7 +7,7 @@
 
 export const OP = {INFO: 0x01, READ: 0x02, BEGIN: 0x03, CHUNK: 0x04, COMMIT: 0x05, ABORT: 0x06,
   SETTINGS_GET: 0x10, SETTINGS_SET: 0x11, FX_GET: 0x12, FX_SET: 0x13, THEME_GET: 0x14, THEME_SET: 0x15,
-  STORE: 0x16, LIVE: 0x20, BLUETOOTH: 0x21};
+  STORE: 0x16, MIDI_GET: 0x17, MIDI_SET: 0x18, LIVE: 0x20, BLUETOOTH: 0x21};
 export const BT_STATES = ['off', 'starting', 'ready', 'advertising', 'connected', 'failed'];
 export const BT_ERRORS = ['', 'no radio calibration in flash', 'start timed out', 'no task', 'address refused', 'advertising refused', 'link refused'];
 export const STATUS = ['ok', 'bad request', 'wrong state', 'checksum mismatch', 'flash error'];
@@ -128,6 +128,9 @@ export class Link {
   async fxSet(words) { await this.req(OP.FX_SET, words.flatMap(le32), {retries: 2}); }
   async themeGet() { const {data} = await this.req(OP.THEME_GET, [], {retries: 2}); return Array.from({length: 8}, (_, i) => rd16(data, 2 * i)); }
   async themeSet(colors) { await this.req(OP.THEME_SET, colors.flatMap(c => [c & 255, c >> 8]), {retries: 2}); }
+  /* the MIDI options word, or null for firmware before alpha 57 */
+  async midiGet() { const r = await this.req(OP.MIDI_GET, [], {retries: 2, allow: [0, 1]}); return r.status ? null : rd32(r.data, 0); }
+  async midiSet(v) { await this.req(OP.MIDI_SET, le32(v), {retries: 2}); }
   async store() { await this.req(OP.STORE, [], {timeout: 10000, retries: 1}); }
   /* the FM-1's Bluetooth (firmware/lsdj_ble.h), or null in a build without it */
   async bluetooth() {

@@ -80,6 +80,12 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <section id="settings-sec" aria-disabled="true">
 <h2>Settings</h2>
 <div class="grid2" id="settings-form"></div>
+<div id="midi-sec" hidden>
+<h3>MIDI</h3>
+<div class="grid2" id="midi-form"></div>
+<p class="hint">Clock in, Transport and Sync delay: LSDj with SYNC = MIDI follows the clock. Note in: LSDj with SYNC = KEYBD plays the notes (like the FM-1's keys in note mode). Clock out: LSDj with SYNC = LSDJ leads; the FM-1 sends MIDI clock, Start and Stop. CC to effects: the first channel controls PU1, the next PU2, then WAV and NOI.</p>
+<details><summary>CC numbers for the effects</summary><table class="fx" id="cc-map"></table></details>
+</div>
 <div class="row" style="margin-top:10px"><button id="settings-apply" type="button">Apply and keep</button>
 <button id="backup" type="button">Back up everything…</button>
 <button id="restore-pick" type="button">Restore a backup…</button><input id="restore" type="file" accept=".json" hidden></div>

@@ -4,12 +4,13 @@
 import {Link, midiPorts, LinkError, SAVE_SIZE} from './link.js';
 import {connectBleMidi} from './ble-midi.js';
 import {CHANNELS, CH_PARAMS, ECHO_PARAMS, PAGES, unpackFx, packFx, PRESETS, THEMES, COLOR_NAMES, toHex, fromHex,
-        SETTINGS, unpackSettings, packSettings} from './fx-model.js';
+        SETTINGS, unpackSettings, packSettings, MIDI_SETTINGS, MIDI_CC_MAP, unpackMidi, packMidi} from './fx-model.js';
 
 const $ = id => document.getElementById(id);
 const say = (id, text, cls = 'hint') => { const el = $(id); el.textContent = text; el.className = cls; };
 const enable = on => ['live-sec', 'songs-sec', 'theme-sec', 'settings-sec'].forEach(id => $(id).setAttribute('aria-disabled', on ? 'false' : 'true'));
 
+let midi = null;   // the MIDI options (null: firmware without them)
 let link = null, ports = null, fx = null, settings = null, theme = PRESETS[0].slice(), poll = null, busy = false, touched = 0, ble = null;
 
 /* ---------- connect ---------- */
@@ -23,6 +24,7 @@ async function connectTo(input, output, how = 'USB') {
     showBluetooth(how);
     fx = unpackFx(await link.fxGet());
     settings = unpackSettings(await link.settingsGet());
+    { const w = await link.midiGet(); midi = w === null ? null : unpackMidi(w); }
     theme = await link.themeGet();
     buildFx(); buildSettings(); buildTheme(); enable(true);
     clearInterval(poll); poll = setInterval(tick, how === 'Bluetooth' ? 500 : 250);
@@ -206,21 +208,31 @@ $('theme-send').onclick = () => run('theme-status', async () => {
 });
 
 /* ---------- settings and backup ---------- */
-function buildSettings() {
-  const box = $('settings-form'); box.replaceChildren();
-  SETTINGS.forEach(s => {
+function selects(box, list, obj) {
+  list.forEach(s => {
     const l = document.createElement('label'), sel = document.createElement('select');
-    s.choices.forEach((c, i) => sel.append(new Option(c, i))); sel.value = settings[s.key];
-    sel.onchange = () => { settings[s.key] = +sel.value; };
+    s.choices.forEach((c, i) => sel.append(new Option(c, i))); sel.value = obj[s.key];
+    sel.onchange = () => { obj[s.key] = +sel.value; };
     l.append(s.name, sel); box.append(l);
   });
 }
+function buildSettings() {
+  const box = $('settings-form'); box.replaceChildren();
+  selects(box, SETTINGS, settings);
+  const mbox = $('midi-form'); mbox.replaceChildren();
+  $('midi-sec').hidden = !midi;
+  if (midi) selects(mbox, MIDI_SETTINGS, midi);
+}
+$('cc-map').replaceChildren(...MIDI_CC_MAP.map(([cc, what]) => { const tr = document.createElement('tr'); tr.insertCell().textContent = 'CC ' + cc; tr.insertCell().textContent = what; return tr; }));
 $('settings-apply').onclick = () => run('settings-status', async () => {
-  await link.settingsSet(packSettings(settings)); await link.store();
+  await link.settingsSet(packSettings(settings));
+  if (midi) await link.midiSet(packMidi(midi));
+  await link.store();
   say('settings-status', 'Applied and kept on the FM-1.', 'ok');
 });
 $('backup').onclick = () => run('settings-status', async () => {
   const data = {format: 'lsdj-burrito-backup', version: 1, settings: await link.settingsGet(), fx: await link.fxGet(), theme: await link.themeGet()};
+  const m = await link.midiGet(); if (m !== null) data.midi = m;
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 1)], {type: 'application/json'})); a.download = 'lsdj-burrito-backup.json'; a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 10000);
@@ -234,8 +246,12 @@ $('restore').onchange = e => {
     if (d.format !== 'lsdj-burrito-backup' || d.version !== 1 || !Array.isArray(d.fx) || d.fx.length !== 11 || !Array.isArray(d.theme) || d.theme.length !== 8)
       throw new LinkError('This is not an LSDJ Burrito backup.');
     unpackSettings(d.settings); unpackFx(d.fx);   /* checks */
-    await link.themeSet(d.theme); await link.settingsSet(d.settings); await link.fxSet(d.fx); await link.store();
+    if (d.midi !== undefined) unpackMidi(d.midi);   /* checks */
+    await link.themeSet(d.theme); await link.settingsSet(d.settings); await link.fxSet(d.fx);
+    if (d.midi !== undefined && midi) await link.midiSet(d.midi);
+    await link.store();
     settings = unpackSettings(d.settings); fx = unpackFx(d.fx); theme = d.theme;
+    if (d.midi !== undefined && midi) midi = unpackMidi(d.midi);
     buildSettings(); buildFx(); drawColors();
     say('settings-status', `Restored ${file.name} and kept it on the FM-1.`, 'ok');
   });

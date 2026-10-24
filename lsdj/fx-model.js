@@ -58,6 +58,31 @@ export const SETTINGS = [
   {key: 'meter', bits: [6, 1], name: 'CPU meter', choices: ['Off', 'On']},
   {key: 'theme', bits: [7, 3], name: 'Theme', choices: THEMES},
   {key: 'bluetooth', bits: [10, 2], name: 'Bluetooth', choices: ['Off', 'Device']}];
+/* The MIDI options (firmware/lsdj_midi.h, one word with 'M' on top; save-store record 16). */
+const CH16 = Array.from({length: 16}, (_, i) => `Channel ${i + 1}`);
+export const MIDI_SETTINGS = [
+  {key: 'clockIn', bits: [0, 3], name: 'Clock in', choices: ['Off', 'All', 'USB', 'TRS', 'Bluetooth']},
+  {key: 'transport', bits: [3, 1], name: 'Transport (Start/Stop)', choices: ['Off', 'On']},
+  {key: 'delay', bits: [4, 2], name: 'Sync delay', choices: ['100 ms', '75 ms', '50 ms']},
+  {key: 'noteIn', bits: [6, 5], name: 'Note in (SYNC KEYBD)', choices: ['Off', 'All', ...CH16]},
+  {key: 'ccFx', bits: [11, 4], name: 'CC to effects', choices: ['Off', ...Array.from({length: 13}, (_, i) => `Channels ${i + 1}-${i + 4}`)]},
+  {key: 'clockOut', bits: [15, 2], name: 'Clock out (SYNC LSDJ)', choices: ['Off', 'USB', 'Bluetooth', 'USB + Bluetooth']},
+  {key: 'pcCue', bits: [17, 1], name: 'Program change cues row', choices: ['Off', 'On']}];
+/* CC -> effects (lsdj_midi_cc_apply): per channel, and the echo on any of the four */
+export const MIDI_CC_MAP = [
+  [70, 'Filter type (0-31 off, 32-63 LP, 64-95 HP, 96-127 BP)'], [71, 'Resonance'], [74, 'Cutoff'], [75, 'Drive'],
+  [76, 'Crush'], [77, 'Decimate'], [91, 'Echo send'], [80, 'Channel FX on (64+)'], [81, 'Mute (64+)'],
+  [12, 'Echo time'], [13, 'Echo feedback'], [14, 'Echo mix'], [15, 'Echo tone'], [16, 'Echo wobble'],
+  [17, 'Echo sync (64+)'], [18, 'Echo ping-pong (64+)'], [19, 'Freeze (64+)']];
+export function unpackMidi(v) {
+  if (v >>> 24 !== 0x4D) throw Error('Not a MIDI options word from this firmware.');
+  return Object.fromEntries(MIDI_SETTINGS.map(s => [s.key, (v >>> s.bits[0]) & ((1 << s.bits[1]) - 1)]));
+}
+export function packMidi(o) {
+  let v = 0x4D000000;
+  for (const s of MIDI_SETTINGS) v |= (o[s.key] & ((1 << s.bits[1]) - 1)) << s.bits[0];
+  return v >>> 0;
+}
 export function unpackSettings(v) {
   if (v >>> 24 !== 0x5A) throw Error('Not a settings word from this firmware.');
   return Object.fromEntries(SETTINGS.map(s => [s.key, (v >>> s.bits[0]) & ((1 << s.bits[1]) - 1)]));
