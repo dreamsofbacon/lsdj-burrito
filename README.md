@@ -1,20 +1,13 @@
 # Dreamy_bacon's LSDJ Burrito
 
-LSDJ Burrito is a web page that installs **your own copy** of [Little Sound Dj](https://www.littlesounddj.com) on an M-VAVE FM-1. It runs GameDude-based firmware (the source is in [lsdj-burrito-src](https://github.com/dreamsofbacon/lsdj-burrito-src)).
+LSDJ Burrito runs **your own copy** of [Little Sound Dj](https://www.littlesounddj.com) on an M-VAVE FM-1, with GameDude-based firmware (the source is in [lsdj-burrito-src](https://github.com/dreamsofbacon/lsdj-burrito-src)). This repository is its web page.
 
-LSDj isn't included and is never uploaded anywhere. Your browser trims your `lsdj.gb` and puts it into an empty firmware template. The result is flashed through the FM-1's USB-MIDI updater.
+**Installing from this page is switched off.** An earlier version of the installer left an FM-1 unable to start (it was recovered with a hardware tool). Until the cause is found and an install is proven safe, the page writes nothing to an FM-1: there is no install, restore or song import, and the code for them has been removed from this repository.
 
-Use Chrome or Edge with a USB data cable. The page needs Web MIDI with SysEx, so it must be served over HTTPS or from localhost.
-
-What the page does:
-- **Install:** choose `lsdj.gb` and pick sample kits, then install.
-- **Songs:** export the FM-1's songs as `lsdj.sav`, or import a 128 KiB `.sav`. If an import fails, the previous songs are kept.
-- **Restore:** reinstall M-VAVE's official V15 firmware, using a V15 `.fwsc` file you provide. The page checks it by hash before flashing.
-
-**Status: alpha, not yet tested on hardware through this page.** Keep a way to recover the FM-1 (M-VAVE's updater) at hand.
+What the page does now: check that your own `lsdj.gb` is a version tested on the FM-1. The ROM is only read in your browser; nothing is uploaded.
 
 ## Licenses
-- The firmware template and this page are GPL-3.0-only (see `LICENSE`).
-- It contains Peanut-GB and MiniGB APU (MIT), Felucca (GPL-3.0-only), and unmodified JieLi AC79 SDK boot files (Apache-2.0). See `licenses/`.
+- This page is GPL-3.0-only (see `LICENSE`).
+- The firmware (in lsdj-burrito-src) contains Peanut-GB and MiniGB APU (MIT), Felucca (GPL-3.0-only) and JieLi AC79 SDK boot files (Apache-2.0). See `licenses/`.
 
 Not affiliated with M-VAVE, Johan Kotlinski (LSDj) or Nintendo.

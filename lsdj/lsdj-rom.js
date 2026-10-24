@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // The user's own LSDj ROM, handled entirely in the browser: identify it, list
 // its kits, drop unused banks and build the firmware ROM slot (src/lsdj_slot.h).
-import {sha256hex} from '../vendor/fm1pkg.js?v=20261013';
+const sha256hex = async bytes => [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map(b => b.toString(16).padStart(2, '0')).join('');
 
 export const BANK = 16384;
 export const SLOT_HEADER = 256;
