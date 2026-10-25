@@ -67,6 +67,7 @@ export const SETTINGS = [
   {key: 'selectKey', bits: [4, 2], name: 'Extra Select key', choices: ['Off', 'F#5', 'D#5']},
   {key: 'meter', bits: [6, 1], name: 'CPU meter', choices: ['Off', 'On']},
   {key: 'theme', bits: [7, 3], hi: 12, name: 'Theme', choices: THEMES},   // hi: the value's top bit (themes 8+)
+  {key: 'popup', bits: [13, 2], name: 'Pop-up time (effects panel, messages)', choices: ['1.5 s', '3 s', '5 s', '10 s']},
   {key: 'bluetooth', bits: [10, 2], name: 'Bluetooth', choices: ['Off', 'Device']}];
 /* The MIDI options (firmware/lsdj_midi.h, one word with 'M' on top; save-store record 16). */
 const CH16 = Array.from({length: 16}, (_, i) => `Channel ${i + 1}`);
