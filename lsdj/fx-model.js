@@ -1,36 +1,120 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // The firmware's data, as the page sees it. Mirrors firmware/lsdj_fx_ui.h
-// (lsdj_fx_pack: 11 words), firmware/lsdj_settings.h (one word) and
+// (lsdj_fx_pack: 17 words since alpha 66, 11 before), firmware/lsdj_settings.h (one word) and
 // firmware/lsdj_theme.h (8 RGB565 colours).
 
 export const CHANNELS = ['PU1', 'PU2', 'WAV', 'NOI'];
+/* Every effect, as firmware/lsdj_fx.h / lsdj_fx_ui.h (alpha 66: 17 words; 11 before).
+   where: 'ch' per channel (bytes c*7+i), 'q' per channel, alpha 66 (bytes 44+c*6+i),
+   'echo' (bytes 28+i), 'comp' (byte 43), 'flags' (fxOff bits, mute / freeze: live only). */
+export const FILTERS = ['Off', 'Low-pass', 'High-pass', 'Band-pass', 'Notch', 'Low-pass 24 dB'];
 export const CH_PARAMS = [   // per channel, in the packed order
-  {key: 'type', name: 'Filter', choices: ['Off', 'Low-pass', 'High-pass', 'Band-pass']},
+  {key: 'type', name: 'Filter', choices: FILTERS},
   {key: 'cutoff', name: 'Cutoff'}, {key: 'reso', name: 'Resonance'}, {key: 'drive', name: 'Drive'},
   {key: 'crush', name: 'Crush'}, {key: 'decim', name: 'Decimate'}, {key: 'send', name: 'Echo send'}];
+export const Q_PARAMS = [    // per channel, alpha 66, in the packed order
+  {key: 'dist', name: 'Distortion', choices: ['Soft', 'Hard', 'Fold', 'Fuzz']},
+  {key: 'warm', name: 'Warm'}, {key: 'lfoRate', name: 'LFO rate'}, {key: 'lfoDepth', name: 'LFO depth'},
+  {key: 'lfoShape', name: 'LFO shape', choices: ['Sine', 'Triangle', 'Square', 'Saw', 'Random']},
+  {key: 'lfoDest', name: 'LFO to', choices: ['Cutoff', 'Volume', 'Pan']}];
 export const ECHO_PARAMS = [
   {key: 'time', name: 'Time'}, {key: 'feedback', name: 'Feedback'}, {key: 'mix', name: 'Mix'},
   {key: 'sync', name: 'Sync', choices: ['Free', 'Tempo']}, {key: 'mode', name: 'Mode', choices: ['Mono', 'Ping-pong']},
   {key: 'tone', name: 'Tone'}, {key: 'wobble', name: 'Wobble'}];
-export const PAGES = ['FILTER', 'LO-FI', 'ECHO', 'ECHO MORE'];
+/* The FM-1's effects pages: KNOB 1-4 in order (firmware lsdj_fx_page_knob). Before alpha 66 only the old four. */
+export const PAGES = [
+  {name: 'FILTER', knobs: [['ch', 'drive'], ['ch', 'type'], ['ch', 'cutoff'], ['ch', 'reso']]},
+  {name: 'TONE', knobs: [['ch', 'drive'], ['q', 'dist'], ['q', 'warm'], ['comp', 'comp']], v2: true},
+  {name: 'LFO', knobs: [['q', 'lfoRate'], ['q', 'lfoDepth'], ['q', 'lfoShape'], ['q', 'lfoDest']], v2: true},
+  {name: 'LO-FI', knobs: [['ch', 'crush'], ['ch', 'decim'], ['ch', 'send'], ['flags', 'fxOn']]},
+  {name: 'ECHO', knobs: [['echo', 'time'], ['echo', 'feedback'], ['echo', 'mix'], ['echo', 'tone']]},
+  {name: 'ECHO MORE', knobs: [['echo', 'wobble'], ['echo', 'sync'], ['echo', 'mode'], ['echo', 'freeze']]}];
+export const PAGES_OLD = [0, 3, 4, 5];   // the old firmware's page numbers -> these pages
+export const PARAM = Object.fromEntries([
+  ...CH_PARAMS.map(p => [p.key, {...p, where: 'ch'}]), ...Q_PARAMS.map(p => [p.key, {...p, where: 'q'}]),
+  ...ECHO_PARAMS.map(p => [p.key, {...p, where: 'echo'}]),
+  ['comp', {key: 'comp', name: 'Compressor', where: 'comp'}],
+  ['fxOn', {key: 'fxOn', name: 'Channel FX', where: 'flags', choices: ['Off', 'On']}],
+  ['freeze', {key: 'freeze', name: 'Freeze', where: 'flags', choices: ['Off', 'On'], live: true}]]);
 const MARK = 0xF2;
 
-const bytesOf = words => { const b = new Uint8Array(44); words.forEach((w, i) => { for (let j = 0; j < 4; j++) b[4 * i + j] = (w >>> (8 * j)) & 255; }); return b; };
-const wordsOf = b => Array.from({length: 11}, (_, i) => (b[4 * i] | b[4 * i + 1] << 8 | b[4 * i + 2] << 16 | b[4 * i + 3] << 24) >>> 0);
+const bytesOf = (words, n) => { const b = new Uint8Array(4 * n); words.slice(0, n).forEach((w, i) => { for (let j = 0; j < 4; j++) b[4 * i + j] = (w >>> (8 * j)) & 255; }); return b; };
+const wordsOf = (b, n) => Array.from({length: n}, (_, i) => (b[4 * i] | b[4 * i + 1] << 8 | b[4 * i + 2] << 16 | b[4 * i + 3] << 24) >>> 0);
 
+/* 17 words (alpha 66 and later: v2) or 11 */
 export function unpackFx(words) {
-  const b = bytesOf(words);
+  const v2 = words.length >= 17, b = bytesOf(words, v2 ? 17 : 11);
   if (b[42] !== MARK) throw Error('Not an effects setup from this firmware.');
   const ch = CHANNELS.map((_, c) => Object.fromEntries(CH_PARAMS.map((p, i) => [p.key, b[c * 7 + i]])));
+  const q = CHANNELS.map((_, c) => Object.fromEntries(Q_PARAMS.map((p, i) => [p.key, v2 ? b[44 + c * 6 + i] : 0])));
   const echo = Object.fromEntries(ECHO_PARAMS.map((p, i) => [p.key, b[28 + i]]));
-  return {ch, echo, fxOff: b[35], target: b[36], page: b[38] & 3};
+  const page = v2 ? b[38] % PAGES.length : PAGES_OLD[b[38] & 3];
+  return {v2, ch, q, echo, comp: v2 ? b[43] : 0, fxOff: b[35], target: b[36], page};
 }
 export function packFx(fx) {
-  const b = new Uint8Array(44);
+  const n = fx.v2 ? 17 : 11, b = new Uint8Array(4 * n);
   fx.ch.forEach((c, ci) => CH_PARAMS.forEach((p, i) => { b[ci * 7 + i] = c[p.key] & 127; }));
   ECHO_PARAMS.forEach((p, i) => { b[28 + i] = fx.echo[p.key] & 127; });
-  b[35] = fx.fxOff & 15; b[36] = fx.target; b[37] = 1; b[38] = fx.page & 3; b[42] = MARK;
-  return wordsOf(b);
+  b[35] = fx.fxOff & 15; b[36] = fx.target; b[37] = 1; b[42] = MARK;
+  if (fx.v2) {
+    b[38] = fx.page; b[43] = fx.comp & 127;
+    fx.q.forEach((c, ci) => Q_PARAMS.forEach((p, i) => { b[44 + ci * 6 + i] = c[p.key] & 127; }));
+  } else b[38] = Math.max(0, PAGES_OLD.indexOf(fx.page));
+  return wordsOf(b, n);
+}
+
+/* Values as the FM-1 shows them (lsdj_fxk_value). */
+const LFO_NOTES = ['1/32', '1/16T', '1/16', '1/8T', '1/16.', '1/8', '1/4T', '1/8.', '1/4', '1/2T', '1/4.', '1/2', '1 bar', '2 bars', '4 bars'];
+const ECHO_NOTES = LFO_NOTES.slice(0, 12), ECHO_U = [3, 4, 6, 8, 9, 12, 16, 18, 24, 32, 36, 48];
+export function lfoRateText(v) {
+  if (v >= 64) return LFO_NOTES[Math.floor((v - 64) * 15 / 64)];
+  const step = Math.floor((4870 * 2 ** (v >> 3)) * (8 + (v & 7)) / 8);
+  return (step * 44100 / 2 ** 32).toFixed(2).replace(/0$/, '') + ' Hz';
+}
+export function echoTimeText(fx, bpm) {
+  const t = fx.echo.time;
+  if (fx.echo.sync) return ECHO_NOTES[Math.floor(t * 12 / 128)];
+  const max = 32768 - (4 * 96 + 4), m = fx.echo.mode ? Math.floor(max / 2) : max;
+  return Math.round((64 + Math.floor(t * (m - 64) / 127)) * 1000 / 22050) + ' ms';
+}
+export function valueText(fx, key, c, bpm) {
+  const p = PARAM[key], v = paramGet(fx, key, c);
+  if (p.choices) return p.choices[v] ?? String(v);
+  if (key === 'lfoRate') return lfoRateText(v);
+  if (key === 'time') return echoTimeText(fx, bpm);
+  if (key === 'tone') return v === 64 ? 'flat' : v < 64 ? `darker ${64 - v}` : `thinner ${v - 64}`;
+  return String(v);
+}
+export function paramGet(fx, key, c) {
+  const p = PARAM[key];
+  switch (p.where) {
+  case 'ch': return fx.ch[c][key];
+  case 'q': return fx.q[c][key];
+  case 'echo': return fx.echo[key];
+  case 'comp': return fx.comp;
+  default: return key === 'fxOn' ? ((fx.fxOff >> c) & 1 ? 0 : 1) : (fx.freeze ? 1 : 0);
+  }
+}
+export function paramSet(fx, key, c, v) {
+  const p = PARAM[key];
+  switch (p.where) {
+  case 'ch': fx.ch[c][key] = v; if ((key === 'cutoff' || key === 'reso') && !fx.ch[c].type) fx.ch[c].type = 1; break;
+  case 'q': fx.q[c][key] = v; if ((key === 'warm' || (key === 'lfoDepth' && fx.q[c].lfoDest === 0)) && v && !fx.ch[c].type) fx.ch[c].type = 1; break;
+  case 'echo': fx.echo[key] = v; break;
+  case 'comp': fx.comp = v; break;
+  default: if (key === 'fxOn') fx.fxOff = v ? fx.fxOff & ~(1 << c) : fx.fxOff | (1 << c);
+  }
+}
+/* A short line per channel: what is on. */
+export function channelSummary(fx, c) {
+  const ch = fx.ch[c], q = fx.q[c], on = [];
+  if ((fx.fxOff >> c) & 1) return 'dry';
+  if (ch.type) on.push(['', 'LP', 'HP', 'BP', 'Notch', 'LP24'][ch.type] + ' ' + ch.cutoff);
+  if (ch.drive) on.push(['Soft', 'Hard', 'Fold', 'Fuzz'][q.dist] + ' ' + ch.drive);
+  if (q.lfoDepth) on.push('LFO→' + ['cut', 'vol', 'pan'][q.lfoDest]);
+  if (ch.crush || ch.decim) on.push('lo-fi');
+  if (ch.send) on.push('echo ' + ch.send);
+  return on.join(' · ') || 'clean';
 }
 
 export const THEMES = [

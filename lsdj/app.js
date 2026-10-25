@@ -5,7 +5,7 @@ import {Link, midiPorts, LinkError, SAVE_SIZE} from './link.js';
 import {confirmSaveImport} from './save-file.js';
 import {connectBleMidi} from './ble-midi.js';
 import {setBeforeInstall, installing} from './install-ui.js';
-import {CHANNELS, CH_PARAMS, ECHO_PARAMS, PAGES, unpackFx, packFx, PRESETS, THEMES, COLOR_NAMES, toHex, fromHex,
+import {CHANNELS, PAGES, PARAM, paramGet, paramSet, valueText, channelSummary, unpackFx, packFx, PRESETS, THEMES, COLOR_NAMES, toHex, fromHex,
         SETTINGS, unpackSettings, packSettings, MIDI_SETTINGS, MIDI_CC_MAP, unpackMidi, packMidi} from './fx-model.js';
 
 const $ = id => document.getElementById(id);
@@ -72,67 +72,118 @@ $('port-pick').onchange = e => {
   if (input && output) connectTo(input, output);
 };
 
-/* ---------- live effects ---------- */
-function slider(value, onInput) {
-  const td = document.createElement('td'), r = document.createElement('input'), o = document.createElement('output');
-  r.type = 'range'; r.min = 0; r.max = 127; r.value = value;
-  o.textContent = value.toString(16).toUpperCase().padStart(2, '0');
-  r.oninput = () => { o.textContent = (+r.value).toString(16).toUpperCase().padStart(2, '0'); onInput(+r.value); };
-  td.append(r, o); td._set = v => { if (document.activeElement !== r) { r.value = v; o.textContent = v.toString(16).toUpperCase().padStart(2, '0'); } };
-  return td;
-}
-function choice(list, value, onInput) {
-  const td = document.createElement('td'), s = document.createElement('select');
-  list.forEach((c, i) => s.append(new Option(c, i))); s.value = value;
-  s.onchange = () => onInput(+s.value);
-  td.append(s); td._set = v => { if (document.activeElement !== s) s.value = v; };
-  return td;
-}
-let cells = {}, sendTimer = null;
+/* ---------- live effects ----------
+   One channel at a time (it follows the FM-1's cursor unless a channel is picked),
+   in cards that are the FM-1's effects pages, each control named with the knob that
+   plays it there. Two or three choices: buttons; more: a list; ranges: a slider.
+   A control the FM-1 just changed flashes. */
+let editCh = null, followCursor = true, cursorCh = 0, lastLive = null, bpm = 120, sendTimer = null;
+const controls = [];   // {key, where, el, set(v)}
+const curCh = () => followCursor ? cursorCh : editCh;
 function changed() {
   touched = Date.now();
   clearTimeout(sendTimer);
   sendTimer = setTimeout(() => link.fxSet(packFx(fx)).catch(e => say('fx-status', e.message, 'bad')), 80);
 }
+function control(key) {
+  const p = PARAM[key], wrap = document.createElement('div'), c = () => curCh();
+  wrap.className = 'fx-ctl'; wrap.dataset.key = key;
+  const out = document.createElement('output');
+  let input, set;
+  if (p.choices && p.choices.length <= 3) {          // a toggle: one button per choice
+    input = document.createElement('div'); input.className = 'seg'; input.setAttribute('role', 'radiogroup');
+    const btns = p.choices.map((name, i) => {
+      const b = document.createElement('button'); b.type = 'button'; b.textContent = name; b.setAttribute('role', 'radio');
+      if (p.live) b.disabled = true;                 // freeze: shown, set on the FM-1 (hold FX + D5)
+      b.onclick = () => { paramSet(fx, key, c(), i); set(i); changed(); };
+      input.append(b); return b;
+    });
+    set = v => btns.forEach((b, i) => { b.classList.toggle('on', i === v); b.setAttribute('aria-checked', i === v); });
+  } else if (p.choices) {                            // a list
+    input = document.createElement('select');
+    p.choices.forEach((name, i) => input.append(new Option(name, i)));
+    input.onchange = () => { paramSet(fx, key, c(), +input.value); changed(); refresh(); };
+    set = v => { if (document.activeElement !== input) input.value = v; };
+  } else {                                           // a range
+    input = document.createElement('input'); input.type = 'range'; input.min = 0; input.max = 127;
+    input.oninput = () => { paramSet(fx, key, c(), +input.value); out.textContent = valueText(fx, key, c(), bpm); changed(); };
+    set = v => { if (document.activeElement !== input) input.value = v; };
+  }
+  input.setAttribute('aria-label', p.name);
+  wrap.append(input, out);
+  const item = {key, where: p.where, set: v => { set(v); out.textContent = valueText(fx, key, c(), bpm); }, wrap};
+  controls.push(item);
+  return wrap;
+}
 function buildFx() {
-  cells = {};
-  const t = $('fx-table'); t.replaceChildren();
-  const head = t.insertRow(); head.append(document.createElement('th'));
-  CHANNELS.forEach((c, i) => { const th = document.createElement('th'); th.id = 'ch-head-' + i; th.textContent = c; head.append(th); });
-  CH_PARAMS.forEach(p => {
-    const tr = t.insertRow(); const th = document.createElement('th'); th.textContent = p.name; tr.append(th);
-    CHANNELS.forEach((_, c) => {
-      const set = v => { fx.ch[c][p.key] = v; changed(); };
-      const td = p.choices ? choice(p.choices, fx.ch[c][p.key], set) : slider(fx.ch[c][p.key], set);
-      td.dataset.ch = c; tr.append(td); cells[`ch${c}.${p.key}`] = td;
+  controls.length = 0;
+  const box = $('fx-pages'); box.replaceChildren();
+  PAGES.forEach((pg, i) => {
+    if (pg.v2 && !fx.v2) return;                     // the new pages need alpha 66
+    const card = document.createElement('div'); card.className = 'fx-card'; card.dataset.page = i;
+    const perCh = pg.knobs.some(([w]) => w === 'ch' || w === 'q' || w === 'flags');
+    card.innerHTML = `<h3>${pg.name}<span class="fx-who">${perCh ? '' : 'all channels'}</span><span class="fx-onfm1">on the FM-1's knobs</span></h3>`;
+    pg.knobs.forEach(([where, key], k) => {
+      const row = document.createElement('div'); row.className = 'fx-row';
+      const p = PARAM[key];
+      row.innerHTML = `<span class="knob">K${k + 1}</span><span class="fx-name">${p.name}${(where === 'comp' || where === 'echo') && perCh ? ' <small>(all)</small>' : ''}</span>`;
+      row.append(control(key)); card.append(row);
+    });
+    box.append(card);
+  });
+  const tabs = $('fx-channels'); tabs.replaceChildren();
+  const follow = document.createElement('button'); follow.type = 'button'; follow.id = 'fx-follow'; follow.textContent = 'Follow FM-1 cursor';
+  follow.onclick = () => { followCursor = true; refresh(); };
+  tabs.append(follow);
+  CHANNELS.forEach((name, c) => {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'chan'; b.dataset.ch = c;
+    b.innerHTML = `<b>${name}</b><small></small>`;
+    b.onclick = () => { followCursor = false; editCh = c; refresh(); };
+    tabs.append(b);
+  });
+  refresh();
+}
+/* Everything shown from fx (and the live state): values, the channel, which page is on the FM-1. */
+function refresh(hot = []) {
+  if (!fx) return;
+  const c = curCh();
+  controls.forEach(it => it.set(paramGet(fx, it.key, c)));
+  document.querySelectorAll('#fx-channels .chan').forEach(b => {
+    const n = +b.dataset.ch;
+    b.classList.toggle('on', n === c); b.classList.toggle('cursor', n === cursorCh);
+    const tags = [];
+    if (lastLive && (lastLive.mute >> n) & 1) tags.push('muted');
+    if (lastLive && (lastLive.playing >> n) & 1) tags.push('▶');
+    b.querySelector('small').textContent = [channelSummary(fx, n), ...tags].join(' · ');
+  });
+  $('fx-follow').classList.toggle('on', followCursor);
+  $('fx-editing').innerHTML = `Editing <b>${CHANNELS[c]}</b>` + (followCursor ? ' <span class="hint">(the channel under the FM-1\'s cursor)</span>' : ' <span class="hint">(picked here)</span>');
+  document.querySelectorAll('#fx-pages .fx-card').forEach(card => card.classList.toggle('fm1', lastLive && +card.dataset.page === lastLive.page));
+  hot.forEach(key => {
+    document.querySelectorAll(`#fx-pages .fx-ctl[data-key="${key}"]`).forEach(el => {
+      const row = el.closest('.fx-row'); row.classList.remove('hot'); void row.offsetWidth; row.classList.add('hot');
     });
   });
-  const e = $('echo-table'); e.replaceChildren();
-  ECHO_PARAMS.forEach(p => {
-    const tr = e.insertRow(); const th = document.createElement('th'); th.textContent = p.name; tr.append(th);
-    const set = v => { fx.echo[p.key] = v; changed(); };
-    const td = p.choices ? choice(p.choices, fx.echo[p.key], set) : slider(fx.echo[p.key], set);
-    tr.append(td); cells[`echo.${p.key}`] = td;
-  });
+}
+/* what changed between two setups, for the channel shown (and the shared effects) */
+function changedKeys(a, b, c) {
+  if (!a || !b) return [];
+  return Object.keys(PARAM).filter(k => k !== 'freeze' && (PARAM[k].where !== 'q' || b.v2) && paramGet(a, k, c) !== paramGet(b, k, c));
 }
 async function tick() {
   if (!link || busy || document.hidden) return;
   try {
     const l = await link.live();
     const live = unpackFx(l.fx);
-    if (Date.now() - touched > 1000) {   /* not while the user is moving a slider */
+    live.freeze = l.freeze; cursorCh = l.cursor < 4 ? l.cursor : cursorCh; bpm = l.bpm;
+    let hot = [];
+    if (Date.now() - touched > 1000) {   /* not while the user is moving a control */
+      hot = changedKeys(fx, live, curCh());
       fx = live;
-      CHANNELS.forEach((_, c) => CH_PARAMS.forEach(p => cells[`ch${c}.${p.key}`]?._set(fx.ch[c][p.key])));
-      ECHO_PARAMS.forEach(p => cells[`echo.${p.key}`]?._set(fx.echo[p.key]));
-    }
-    document.querySelectorAll('#fx-table th[id^=ch-head], #fx-table td').forEach(el => {
-      const c = el.id ? +el.id.slice(8) : +el.dataset.ch; el.classList.toggle('cur', c === l.cursor);
-    });
-    CHANNELS.forEach((name, c) => {
-      const tags = [((live.fxOff >> c) & 1) && 'dry', ((l.mute >> c) & 1) && 'muted', ((l.playing >> c) & 1) && '▶'].filter(Boolean);
-      $('ch-head-' + c).textContent = name + (tags.length ? ' · ' + tags.join(' ') : '');
-    });
-    $('live-badges').innerHTML = `<span class="badge">${PAGES[l.page] || ''}</span><span class="badge">${l.bpm} BPM</span>` +
+    } else fx.freeze = l.freeze;
+    lastLive = l;
+    refresh(hot);
+    $('live-badges').innerHTML = `<span class="badge">${PAGES[live.page]?.name || ''}</span><span class="badge">${l.bpm} BPM</span>` +
       (l.freeze ? '<span class="badge on">FROZEN</span>' : '');
   } catch (e) { /* a missed poll: try again on the next */ }
 }

@@ -124,7 +124,8 @@ export class Link {
   // (gets and sets are safe to send again: a set writes the same value twice)
   async settingsGet() { return rd32((await this.req(OP.SETTINGS_GET, [], {retries: 2})).data, 0); }
   async settingsSet(v) { await this.req(OP.SETTINGS_SET, le32(v), {retries: 2}); }
-  async fxGet() { const {data} = await this.req(OP.FX_GET, [], {retries: 2}); return Array.from({length: 11}, (_, i) => rd32(data, 4 * i)); }
+  /* 17 words (alpha 66 and later) or 11 */
+  async fxGet() { const {data} = await this.req(OP.FX_GET, [], {retries: 2}); return Array.from({length: data.length >> 2}, (_, i) => rd32(data, 4 * i)); }
   async fxSet(words) { await this.req(OP.FX_SET, words.flatMap(le32), {retries: 2}); }
   async themeGet() { const {data} = await this.req(OP.THEME_GET, [], {retries: 2}); return Array.from({length: 8}, (_, i) => rd16(data, 2 * i)); }
   async themeSet(colors) { await this.req(OP.THEME_SET, colors.flatMap(c => [c & 255, c >> 8]), {retries: 2}); }
@@ -143,7 +144,7 @@ export class Link {
   async live() {
     const {data: d} = await this.req(OP.LIVE, [], {timeout: 800});
     return {page: d[0], cursor: d[1], bpm: rd16(d, 2), mute: d[4], freeze: d[5], playing: d[6],
-            fx: Array.from({length: 11}, (_, i) => rd32(d, 7 + 4 * i))};
+            fx: Array.from({length: (d.length - 7) >> 2}, (_, i) => rd32(d, 7 + 4 * i))};
   }
 }
 

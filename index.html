@@ -23,6 +23,35 @@ progress{width:100%;height:10px}
 .ok{color:var(--accent)}.warn{color:var(--warn)}.bad{color:var(--bad)}
 .hint{color:var(--muted);font-size:13px}
 table.fx{border-collapse:collapse;width:100%;font-size:13px}
+.chan-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0}
+.chan-tabs button{display:flex;flex-direction:column;align-items:flex-start;text-align:left;min-width:120px;flex:1}
+.chan-tabs button small{color:var(--muted);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.chan-tabs button.on{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent) inset}
+.chan-tabs button.cursor b::after{content:" ◀ cursor";font-weight:400;font-size:11px;color:var(--warn)}
+#fx-follow{flex:0 0 auto;min-width:0;align-self:stretch;justify-content:center}
+#fx-follow.on{background:var(--accent);color:var(--bg);border-color:var(--accent)}
+.fx-editing{font-size:18px;margin:4px 0 10px}
+.fx-pages{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
+.fx-card{border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.fx-card h3{margin:0 0 8px;display:flex;gap:8px;align-items:baseline;font-size:14px;letter-spacing:.04em}
+.fx-who{color:var(--muted);font-weight:400;font-size:12px;letter-spacing:0}
+.fx-onfm1{display:none;margin-left:auto;font-size:11px;font-weight:600;color:#000;background:var(--hi);border-radius:6px;padding:1px 6px;letter-spacing:0}
+.fx-card.fm1{border-color:var(--hi);box-shadow:0 0 0 2px var(--hi) inset}
+.fx-card.fm1 .fx-onfm1{display:inline}
+.fx-row{display:grid;grid-template-columns:2.2em minmax(4.5em,7.5em) minmax(0,1fr);gap:6px;align-items:center;padding:3px 2px;border-radius:6px}
+.fx-row .knob{font:600 11px ui-monospace,monospace;color:var(--muted);border:1px solid var(--line);border-radius:50%;width:2em;height:2em;display:grid;place-items:center}
+.fx-name small{color:var(--muted)}
+.fx-ctl{display:flex;gap:6px;align-items:center;min-width:0}
+.fx-ctl input[type=range]{flex:1;min-width:60px}
+.fx-ctl select{flex:1;min-width:0}
+.fx-ctl output{font:12px ui-monospace,monospace;min-width:4em;text-align:right;color:var(--muted)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;flex:1}
+.seg button{flex:1;border:0;border-radius:0;padding:5px 6px;font-size:13px;background:var(--card)}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button.on{background:var(--accent);color:var(--bg);font-weight:600}
+.seg+output,.fx-ctl select+output{display:none}
+@keyframes fxhot{from{background:color-mix(in srgb,var(--hi) 45%,transparent)}to{background:transparent}}
+.fx-row.hot{animation:fxhot 1.6s ease-out}
 table.fx th,table.fx td{padding:3px 6px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
 table.fx th.cur,table.fx td.cur{background:color-mix(in srgb,var(--hi) 18%,transparent)}
 table.fx input[type=range]{width:100%;min-width:70px}
@@ -57,10 +86,10 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 
 <section id="live-sec" aria-disabled="true">
 <h2>Live effects <span id="live-badges"></span></h2>
-<p class="hint">Follows the FM-1 as you play. Move a slider to change an effect on the FM-1 straight away; <b>Keep on FM-1</b> stores the setup (as SAVE does).</p>
-<table class="fx" id="fx-table"></table>
-<h3>Echo</h3>
-<table class="fx" id="echo-table"></table>
+<p class="hint">Follows the FM-1 as you play: a control the FM-1 changes lights up. Changes here go to the FM-1 straight away; <b>Keep on FM-1</b> stores the setup (as SAVE does). The cards are the FM-1's effects pages; K1-K4 are the knobs that play them there.</p>
+<div id="fx-channels" class="chan-tabs"></div>
+<p id="fx-editing" class="fx-editing"></p>
+<div id="fx-pages" class="fx-pages"></div>
 <div class="row" style="margin-top:10px"><button id="fx-keep" type="button">Keep on FM-1</button><span id="fx-status" class="hint"></span></div>
 </section>
 
