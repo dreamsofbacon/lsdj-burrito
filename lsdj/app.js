@@ -3,6 +3,7 @@
 // for live effects, songs, colours and settings. Never writes firmware.
 import {Link, midiPorts, LinkError, SAVE_SIZE} from './link.js';
 import {connectBleMidi} from './ble-midi.js';
+import {setBeforeInstall} from './install-ui.js';
 import {CHANNELS, CH_PARAMS, ECHO_PARAMS, PAGES, unpackFx, packFx, PRESETS, THEMES, COLOR_NAMES, toHex, fromHex,
         SETTINGS, unpackSettings, packSettings, MIDI_SETTINGS, MIDI_CC_MAP, unpackMidi, packMidi} from './fx-model.js';
 
@@ -256,3 +257,10 @@ $('restore').onchange = e => {
     say('settings-status', `Restored ${file.name} and kept it on the FM-1.`, 'ok');
   });
 };
+
+/* Installing firmware restarts the FM-1: the page lets go of it first */
+setBeforeInstall(async () => {
+  clearInterval(poll); poll = null;
+  link?.close(); link = null; ble?.close(); ble = null;
+  enable(false); say('device', 'Disconnected for the install. Connect again when it is done.', 'hint');
+});

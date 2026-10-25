@@ -42,7 +42,7 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 
 <section id="connect">
 <h2>Connect</h2>
-<p class="hint">Plug the FM-1 in with a USB data cable, with LSDJ Burrito running. Use Chrome or Edge and allow MIDI access when asked. Or, with a Bluetooth build and <b>BLUETOOTH: DEVICE</b> on in the FM-1's settings (GLO), connect without a cable. This page only talks to the running firmware: songs, settings, effects and colours. It never writes firmware.</p>
+<p class="hint">Plug the FM-1 in with a USB data cable, with LSDJ Burrito running. Use Chrome or Edge and allow MIDI access when asked. Or, with a Bluetooth build and <b>BLUETOOTH: DEVICE</b> on in the FM-1's settings (GLO), connect without a cable. Connecting reaches the running firmware: songs, settings, effects and colours. Installing firmware is its own section below.</p>
 <div class="row"><button id="connect-btn" class="primary" type="button">Connect over USB</button>
 <button id="connect-ble" type="button" hidden>Connect over Bluetooth</button>
 <select id="port-pick" hidden></select></div>
@@ -99,14 +99,20 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <p id="rom-info" role="status"></p>
 </section>
 
-<section class="notice">
-<h2>Installing from this page is switched off for now</h2>
-<p>An earlier version of this page installed firmware and left an FM-1 unable to start. Until installing is proven safe it stays off: install LSDJ Burrito with M-UPGRADE. Everything above works with the firmware that is already running.</p>
+<section id="install-sec">
+<h2>Install firmware</h2>
+<p class="hint">Install an LSDJ Burrito <span class="mono">.fwsc</span> file over USB, as M-UPGRADE does. The file is checked whole first. Keep this tab in front and the cable in until it says done (about a minute). If an install is cut off, the FM-1 starts in update mode: press Install again with the same file to finish it.</p>
+<div class="row"><input id="fw-file" type="file" accept=".fwsc"><button id="fw-install" class="primary" type="button" disabled>Install</button></div>
+<p id="fw-info"></p>
+<progress id="fw-progress" value="0" max="1" hidden></progress>
+<p id="fw-status" role="status"></p>
+<details><summary>Install log</summary><pre id="fw-log" class="mono" style="white-space:pre-wrap;font-size:12px"></pre></details>
 </section>
 
 <p class="hint">The firmware is free software (GPL-3.0), based on <a href="https://github.com/ChanceTheMaker/gamedude-fm1-smk" target="_blank" rel="noopener">GameDude</a>. Source: <a href="https://github.com/dreamsofbacon/lsdj-burrito-src" target="_blank" rel="noopener">lsdj-burrito-src</a>. Not affiliated with M-VAVE or LSDj's author.</p>
 </main>
 <script type="module" src="lsdj/lsdj-app.js"></script>
 <script type="module" src="lsdj/app.js"></script>
+<script type="module" src="lsdj/install-ui.js"></script>
 </body>
 </html>
