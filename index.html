@@ -33,6 +33,11 @@ table.fx output{font-family:ui-monospace,monospace;display:inline-block;width:2.
 .grid2 label{display:flex;justify-content:space-between;gap:8px;align-items:center}
 canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;max-width:100%}
 .mono{font-family:ui-monospace,monospace}
+#emu-view{min-height:220px;margin:12px 0;background:radial-gradient(ellipse at center,#424653,#161820);border-radius:10px;overflow:hidden}
+#emu-view canvas{display:block;width:100%;height:auto;border:0;border-radius:0;touch-action:none;image-rendering:auto}
+#emu-view canvas:focus-visible{outline:3px solid var(--hi);outline-offset:-4px}
+.emu-settings{display:flex;flex-wrap:wrap;gap:12px;margin-top:10px}
+.emu-settings label{display:flex;gap:6px;align-items:center}
 </style>
 </head>
 <body>
@@ -62,6 +67,7 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <section id="songs-sec" aria-disabled="true">
 <h2>Songs</h2>
 <p class="hint">Export the FM-1's songs as <span class="mono">lsdj.sav</span>, or replace them with a 128 KiB <span class="mono">.sav</span>. The FM-1 keeps its songs if an import fails.</p>
+<p class="hint">Files with exactly 16 extra trailing bytes can be imported only after you confirm using the first 131072 bytes. The extra bytes' format is not verified; your original file is never changed.</p>
 <div class="row"><button id="export" type="button">Export lsdj.sav</button>
 <button id="import-pick" type="button">Import a .sav…</button><input id="import" type="file" accept=".sav" hidden></div>
 <progress id="save-progress" value="0" max="1" hidden></progress>
@@ -93,15 +99,21 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 </section>
 
 <section id="rom-step">
-<h2>Is your LSDj ROM supported?</h2>
+<h2>Prepare firmware from your LSDj ROM</h2>
 <p class="hint">Choose your own <code>lsdj.gb</code>. It is only read here, in your browser: nothing is uploaded or sent anywhere.</p>
 <input id="rom" type="file" accept=".gb">
 <p id="rom-info" role="status"></p>
+<p class="warn">Experimental FM-1_967 template: ordinary Game Boy controls and emulation; version-specific tempo shortcuts, MIDI clock integration, song cues and cursor-following effects are disabled. Sample banks keep their original numbers. Back up your songs before switching LSDj versions; save compatibility is not guaranteed.</p>
+<fieldset id="rom-kits"><legend>Sample kits (all selected initially)</legend></fieldset>
+<p id="rom-budget" role="status"></p>
+<label><input id="rom-experimental" type="checkbox"> I accept that this ROM/template combination is experimental and may not boot or sound correct. I have backed up my songs.</label>
+<div class="row"><button id="rom-build" type="button" disabled>Prepare firmware (no device writes)</button>
+<a id="rom-download" hidden>Download private firmware</a></div>
 </section>
 
 <section id="install-sec">
 <h2>Install firmware</h2>
-<p class="hint">Install an LSDJ Burrito <span class="mono">.fwsc</span> file over USB, as M-UPGRADE does. The file is checked whole first. Keep this tab in front and the cable in until it says done (about a minute). If an install is cut off, the FM-1 starts in update mode: press Install again with the same file to finish it.</p>
+<p class="warn">USB flashing is a separate, explicit action. Back up songs first and keep stable power, this tab in front and the USB cable connected. A previous interrupted web install left a device unable to boot. Package validation and simulated recovery tests do not guarantee recovery on hardware. M-UPGRADE is an alternative for the downloaded package.</p>
 <div class="row"><input id="fw-file" type="file" accept=".fwsc"><button id="fw-install" class="primary" type="button" disabled>Install</button></div>
 <p id="fw-info"></p>
 <progress id="fw-progress" value="0" max="1" hidden></progress>
@@ -109,10 +121,40 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <details><summary>Install log</summary><pre id="fw-log" class="mono" style="white-space:pre-wrap;font-size:12px"></pre></details>
 </section>
 
-<p class="hint">The firmware is free software (GPL-3.0), based on <a href="https://github.com/ChanceTheMaker/gamedude-fm1-smk" target="_blank" rel="noopener">GameDude</a>. Source: <a href="https://github.com/dreamsofbacon/lsdj-burrito-src" target="_blank" rel="noopener">lsdj-burrito-src</a>. Not affiliated with M-VAVE or LSDj's author.</p>
+<section id="emulator-sec">
+<h2>Virtual FM-1 <span class="badge">Experimental</span></h2>
+<p class="hint">Runs the actual FM-1 firmware package locally using <a href="https://github.com/joakimeriksson/fm1-emu" target="_blank" rel="noopener">Joakim Eriksson's FM-1 emulator</a>, with a 3D instrument view. No firmware uploads, MIDI connections or physical device writes.</p>
+<div class="row">
+<label>Firmware <input id="emu-file" type="file" accept=".fwsc"></label>
+<button id="emu-start" type="button" disabled>Start virtual FM-1</button>
+<button id="emu-selected" type="button">Preview selected installer firmware</button>
+</div>
+<div class="emu-settings">
+<label>CPU <select id="emu-clock"><option value="240">240 MHz (hardware clock)</option><option value="160">160 MHz (underclocked)</option><option value="100">100 MHz (underclocked)</option></select></label>
+<label>Volume <input id="emu-volume" type="range" min="0" max="100" value="25"></label>
+<button id="emu-pause" type="button" disabled>Pause</button>
+<button id="emu-stop" type="button" disabled>Stop (discard state)</button>
+</div>
+<p id="emu-status" role="status">Choose a firmware file, or preview the package you prepared above. The emulator loads on demand.</p>
+<div id="emu-view" aria-label="Virtual FM-1 instrument"></div>
+<div class="emu-settings">
+<button id="emu-front" type="button" aria-pressed="false">Front view</button>
+<button id="emu-zoom" type="button" aria-expanded="false" aria-controls="emu-lcd">Enlarge screen</button>
+<label>Tilt <input id="emu-tilt" type="range" min="-35" max="45" value="24"></label>
+<label>Turn <input id="emu-yaw" type="range" min="-40" max="40" value="-12"></label>
+</div>
+<canvas id="emu-lcd" width="240" height="240" style="width:480px" aria-label="Enlarged virtual FM-1 display" hidden></canvas>
+<p class="hint">Click instrument keys; drag knobs vertically or scroll over them. Focus the instrument for keyboard controls: arrows = directions, Z/X = B/A, Shift/Enter = Select/Start. These press FM-1 keys; their behavior depends on the firmware. Switching tabs pauses emulation.</p>
+<p id="emu-stats" class="hint" role="status"></p>
+<p class="hint">A VS Code embedded-browser tab crashed during testing; a fresh tab passed longer checks. That issue is unresolved. Prefer regular Chrome or Edge for experimentation.</p>
+<p class="warn">Session only: Stop, restart or reload discards virtual songs/settings, including changes saved inside the virtual device. The Songs and Settings sections above control the physical FM-1, not this emulator. Firmware simulation does not prove hardware safety or accurate audio timing. Emulating LSDj inside the FM-1 is demanding and may run below real-time.</p>
+</section>
+
+<p class="hint">The firmware is free software (GPL-3.0), based on <a href="https://github.com/ChanceTheMaker/gamedude-fm1-smk" target="_blank" rel="noopener">GameDude</a>. Source: <a href="https://github.com/dreamsofbacon/lsdj-burrito-src" target="_blank" rel="noopener">lsdj-burrito-src</a>; <a href="lsdj/fm1-lsdj-template-source.zip" download>matching FM-1_967 template source</a>. Not affiliated with M-VAVE or LSDj's author.</p>
 </main>
 <script type="module" src="lsdj/lsdj-app.js"></script>
 <script type="module" src="lsdj/app.js"></script>
 <script type="module" src="lsdj/install-ui.js"></script>
+<script type="module" src="emulator/app.js"></script>
 </body>
 </html>

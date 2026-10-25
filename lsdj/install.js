@@ -6,9 +6,8 @@
 //   2. the FM-1 restarts into the loader, which reads the whole firmware and
 //      writes it; 3. it restarts into the new firmware, which must report the
 //      package's version.
-// From step 2 on the FM-1 starts into the loader every time until a write has
-// finished, so an interrupted install is finished by installing again: the
-// page finds the loader and serves the same file (resume).
+// Recovery may be possible if an interrupted install still answers in loader mode.
+// Host simulations cannot guarantee recovery after power loss on physical hardware.
 import {Updater, UPGRADE, STAGE_DONE, WRITE_DONE, isFm1} from '../vendor/fm1ota.js';
 import {Package, logicalImage} from '../vendor/fm1pkg.js';
 
@@ -26,6 +25,8 @@ export function checkPackage(bytes) {
   if (!/^FM-1_\d{3}$/.test(product)) throw new InstallError(`This firmware is for "${product}", not the FM-1. Nothing was installed.`);
   if (p.appBase !== 0x4000 || p.appOff !== 0x4120 || p.flashSize !== 0x93000)
     throw new InstallError('This FM-1 firmware has an unknown layout. Nothing was installed.');
+  if (p.entries.filter(e => e.type === 100 && e.name === 'ota.bin').length !== 1)
+    throw new InstallError('The firmware must include exactly one checked update loader.');
   const version = +product.slice(5);
   return {product, version, burrito: version >= 955 && version <= 999, image: logicalImage(bytes)};
 }
@@ -49,7 +50,7 @@ export async function install(access, pkg, {log = () => {}, onStep = () => {}, o
       onStep('loader');
       await sleep(1500);
       dev = await up.waitForAny((id) => id.model === 'ota-FM-1', 30000);
-      if (!dev) throw new InstallError('The FM-1 did not come back in update mode. Unplug and replug the USB cable, then press Install again: it will finish the update.', {resumable: true});
+      if (!dev) throw new InstallError('The FM-1 did not come back in update mode. Keep it powered and check USB. Retry the same file only if update mode responds; recovery is not guaranteed.', {resumable: true});
     } else log('The FM-1 is in update mode (an install that was cut off): finishing it.');
     // step 2: the loader reads everything and writes it
     onStep('write');
@@ -59,12 +60,12 @@ export async function install(access, pkg, {log = () => {}, onStep = () => {}, o
     dev.link.close();
     if (!s2.finished)
       throw new InstallError(`The write stopped after ${s2.served} parts${s2.lost ? ' (the FM-1 was disconnected)' : ''}. ` +
-        'The FM-1 stays in update mode: keep it powered, replug the USB cable if needed, and press Install again with the same file to finish.', {resumable: true});
+        'Keep the FM-1 powered. If it still responds in update mode, retry the same file. Recovery is not guaranteed.', {resumable: true});
     // step 3: the new firmware must say who it is
     onStep('restart');
     await sleep(2000);
     const back = await up.waitForAny((id) => id.model === 'FM-1', 40000);
-    if (!back) throw new InstallError('The write finished, but the FM-1 did not report back. Check its screen; if it shows nothing, replug it and press Install again.', {resumable: true});
+    if (!back) throw new InstallError('The write finished, but the FM-1 did not report back. Check its screen and USB connection. Installation is unconfirmed; recovery is not guaranteed.', {resumable: true});
     back.link.close();
     if (back.id.text !== pkg.product) throw new InstallError(`The FM-1 now reports ${back.id.text}, not ${pkg.product}. Press Install again.`, {resumable: true});
     onStep('done', back.id.text);

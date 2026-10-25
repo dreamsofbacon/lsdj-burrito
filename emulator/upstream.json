@@ -1,0 +1,25 @@
+{
+  "fm1Emu": {
+    "repository": "https://github.com/joakimeriksson/fm1-emu",
+    "sourceRevision": "51ca41af6734ea23871685450fe1f2e1e357bb0e",
+    "license": "MIT",
+    "wasmUrl": "https://joakimeriksson.github.io/fm1-emu/fm1_web.wasm",
+    "wasmSha256": "b08ec9a3dbb2c7e7e7ba6151b8911fa6f834511d4f6837cbb1cd68be1cfc8ac0",
+    "wasmProvenance": "Upstream deployed binary, hash-pinned locally; not rebuilt from source here."
+  },
+  "three": {
+    "version": "0.180.0",
+    "repository": "https://github.com/mrdoob/three.js",
+    "license": "MIT",
+    "distribution": "https://cdn.jsdelivr.net/npm/three@0.180.0/"
+  },
+  "assets": {
+    "fm1_web.wasm": "b08ec9a3dbb2c7e7e7ba6151b8911fa6f834511d4f6837cbb1cd68be1cfc8ac0",
+    "worklet.js": "60762c376ef9e463d4f8acbeea3c7bd20f1ea06a1e1fee5ec2285364c1a50b36",
+    "jit.js": "dd4ffe84d260eb3a9fe379cad1053587e3767937e51436a121b21252aec4ee3c",
+    "LICENSE-fm1-emu.txt": "de303af17a9bed9ac5ab105f33ef72b3aa5c658d30132d13609db45f7fc7f257",
+    "three.module.min.js": "e2b5ee6bccd38fd6d8a2428546b83c5f2426d84b152ef82be8055556e3b40eb6",
+    "three.core.min.js": "61ba0df005b05991361d040d8ff670e1aadfd0ce7aeebd1fdb0725957a8957de",
+    "LICENSE-three.txt": "bfe119ea4fd413f5f7ca3fcd63adb0c4a073ed39daa2fe7d3e6b769e21272601"
+  }
+}

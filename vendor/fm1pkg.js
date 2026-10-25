@@ -50,6 +50,7 @@ function w32(b, o, v) { w16(b, o, v & 0xFFFF); w16(b, o + 2, (v >>> 16) & 0xFFFF
 
 class Entry {                                   // JLFS head, 32 bytes
   constructor(raw, off) {
+    if (!Number.isInteger(off) || off < 0 || off + 32 > raw.length) throw new Error("Truncated JLFS header");
     this.hdrOff = off;
     this.hcrc = u16(raw, off);
     this.dcrc = u16(raw, off + 2);
@@ -75,6 +76,7 @@ class Entry {                                   // JLFS head, 32 bytes
 
 export class Package {
   constructor(bytes) {
+    if (bytes.length < BLOCKS * BLK || bytes.length > 2 * 1024 * 1024) throw new Error("Invalid FM-1 package length");
     this.raw = new Uint8Array(bytes);
     this.parseUfw();
     this.flash = this.raw.slice(this.flashFileOff, this.flashFileOff + this.flashSize);
@@ -109,6 +111,7 @@ export class Package {
     this.ufw = h;
     this.nent = nent;
     const hsize = 0x40 + nent * 0x50;
+    if (!nent || hsize > h.length) throw new Error("Invalid UFW entry count");
     if (crc16(h.subarray(0x40, hsize)) !== lcrc) throw new Error("UFW entry list CRC mismatch");
     this.entries = [];
     for (let off = 0x40; off < hsize; off += 0x50) {
@@ -118,6 +121,17 @@ export class Package {
       this.entries.push({ off, type: u16(e, 0), dcrc: u16(e, 4), dataOff: u32(e, 8), size: u32(e, 12),
         name: String.fromCharCode(...e.subarray(0x40, z < 0 ? 0x50 : 0x40 + z)), plain: e });
     }
+    for (const e of this.entries) {
+      const start = e.dataOff + this.skew;
+      if (!e.size || e.dataOff < hsize || start + e.size > this.raw.length)
+        throw new Error(`Invalid payload bounds: ${e.name}`);
+      if (crc16(this.raw.subarray(start, start + e.size)) !== e.dcrc)
+        throw new Error(`Payload CRC mismatch: ${e.name}`);
+    }
+    const ranges = [...this.entries].sort((a, b) => a.dataOff - b.dataOff);
+    for (let i = 1; i < ranges.length; i++)
+      if (ranges[i - 1].dataOff + ranges[i - 1].size > ranges[i].dataOff) throw new Error("Overlapping package payloads");
+    if (this.entries.filter(e => e.type === 0).length !== 1) throw new Error("Expected exactly one flash image");
     const fl = this.entries.find((e) => e.type === 0);
     if (!fl) throw new Error("no flash.bin in the package");
     this.flashEntry = fl;
@@ -147,6 +161,7 @@ export class Package {
     sfc(dec, b, end - b, b, k);
     const head = new Entry(dec, b);
     const blkEnd = b + head.size;
+    if (head.size < 32 || blkEnd > dec.length) throw new Error("Invalid application area bounds");
     if (blkEnd > end) sfc(dec, end, blkEnd - end, b, k);
     this.sfcEnd = Math.max(end, blkEnd);
     this.cfgLen = 0;
@@ -171,6 +186,10 @@ export class Package {
     }
     if (!this.app) throw new Error("app.bin not found in app area");
     this.appOff = b + this.app.offset;
+    if (this.appOff < b + 32 || this.appOff + this.app.size > blkEnd ||
+        crc16(dec.subarray(this.appOff, this.appOff + this.app.size)) !== this.app.dcrc)
+      throw new Error("Application bounds or CRC mismatch");
+    if (crc16(dec.subarray(b + 32, blkEnd)) !== head.dcrc) throw new Error("Application area CRC mismatch");
     this.dec = dec;
   }
 

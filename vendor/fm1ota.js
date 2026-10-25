@@ -139,33 +139,38 @@ export class Updater {
      from the message event itself. Resolves {served, finished, lost}. */
   serve(link, image, finishAddr, idleMs, onProgress = () => {}) {
     return new Promise((resolve, reject) => {
-      let served = 0, last = Date.now(), done = false;
+      let served = 0, last = Date.now(), done = false, watch, progress = 0;
       const end = (r) => { if (done) return; done = true; clearInterval(watch); link.onSysex = null; resolve(r); };
+      const fail = (message) => { if (done) return; done = true; clearInterval(watch); link.onSysex = null; reject(new Error(message)); };
       link.onSysex = (pkt) => {
         const r = parseRequest(pkt);
         if (!r) return false;
         last = Date.now();
         if (r.addr === STAGE_DONE || r.addr === WRITE_DONE) {
+          if (r.addr !== finishAddr || r.len !== 8) {
+            fail('Unexpected update completion request. No success acknowledgement was sent.');
+            return true;
+          }
           if (!link.send(response(r.addr, [...new TextEncoder().encode('success'), 0]))) end({served, finished: false, lost: true});
           else if (r.addr === finishAddr) end({served, finished: true});
           return true;
         }
-        if (r.len > MAXDATA || r.addr + r.len > image.length) {
-          done = true; clearInterval(watch); link.onSysex = null;
-          reject(new Error(`The FM-1 asked for bytes outside the firmware (${r.addr.toString(16)}+${r.len}). Nothing more was sent.`));
+        if (!r.len || r.len > MAXDATA || r.addr + r.len > image.length) {
+          fail(`The FM-1 asked for invalid firmware bytes (${r.addr.toString(16)}+${r.len}). Nothing more was sent.`);
           return true;
         }
         if (!link.send(response(r.addr, Array.from(image.subarray(r.addr, r.addr + r.len)), r.fl))) { end({served, finished: false, lost: true}); return true; }
         served++;
-        onProgress(r.addr + r.len, image.length);
+        progress = Math.max(progress, r.addr + r.len);
+        onProgress(progress, image.length);
         return true;
       };
-      for (const m of link.q.splice(0)) if (!done) link.onSysex?.(m);   // requests that came before we listened
       // (only for giving up: a stretched timer here never slows the answers)
-      const watch = setInterval(() => {
+      watch = setInterval(() => {
         if (link.lost) end({served, finished: false, lost: true});
         else if (Date.now() - last > idleMs) end({served, finished: false});
       }, 500);
+      for (const m of link.q.splice(0)) if (!done) link.onSysex?.(m);   // requests that came before we listened
     });
   }
 }

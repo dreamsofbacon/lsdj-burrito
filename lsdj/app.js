@@ -2,8 +2,9 @@
 // The page: connect to the FM-1's running LSDJ Burrito firmware (lsdj/link.js)
 // for live effects, songs, colours and settings. Never writes firmware.
 import {Link, midiPorts, LinkError, SAVE_SIZE} from './link.js';
+import {confirmSaveImport} from './save-file.js';
 import {connectBleMidi} from './ble-midi.js';
-import {setBeforeInstall} from './install-ui.js';
+import {setBeforeInstall, installing} from './install-ui.js';
 import {CHANNELS, CH_PARAMS, ECHO_PARAMS, PAGES, unpackFx, packFx, PRESETS, THEMES, COLOR_NAMES, toHex, fromHex,
         SETTINGS, unpackSettings, packSettings, MIDI_SETTINGS, MIDI_CC_MAP, unpackMidi, packMidi} from './fx-model.js';
 
@@ -139,10 +140,13 @@ $('fx-keep').onclick = () => run('fx-status', async () => { await link.fxSet(pac
 
 /* ---------- songs ---------- */
 async function run(statusId, fn) {
+  if (installing()) return say(statusId, 'Wait for the firmware installation to finish.', 'warn');
   if (busy) return; busy = true;
-  document.querySelectorAll('section button').forEach(b => b.disabled = true);
+  const buttons = [...document.querySelectorAll('section:not(#rom-step):not(#install-sec):not(#emulator-sec) button')];
+  const disabled = buttons.map(b => b.disabled);
+  buttons.forEach(b => b.disabled = true);
   try { await fn(); } catch (e) { say(statusId, e.message, 'bad'); }
-  finally { busy = false; document.querySelectorAll('section button').forEach(b => b.disabled = false); $('save-progress').hidden = true; }
+  finally { busy = false; buttons.forEach((b, i) => b.disabled = disabled[i]); $('save-progress').hidden = true; }
 }
 const progress = () => { const p = $('save-progress'); p.hidden = false; p.value = 0; return (n, t) => { p.max = t; p.value = n; }; };
 $('export').onclick = () => run('save-status', async () => {
@@ -158,11 +162,12 @@ $('import').onchange = e => {
   const file = e.target.files[0]; e.target.value = ''; if (!file) return;
   run('save-status', async () => {
     const bytes = new Uint8Array(await file.arrayBuffer());
-    if (bytes.length !== SAVE_SIZE) throw new LinkError(`An LSDj save is 128 KiB (${SAVE_SIZE} bytes); ${file.name} is ${bytes.length}.`);
-    if (!confirm(`Replace the songs on the FM-1 with ${file.name}? Export first if you want to keep them.`)) return say('save-status', 'Import cancelled.');
-    say('save-status', 'Sending songs to the FM-1…');
-    await link.importSave(bytes, progress());
-    say('save-status', `Imported ${file.name}. LSDj restarted with it.`, 'ok');
+    const payload = confirmSaveImport(bytes, file.name, message => confirm(message));
+    if (!payload) return say('save-status', 'Import cancelled. Nothing was sent.');
+    const note = bytes.length > SAVE_SIZE ? ' The final 16 bytes were excluded with your confirmation; the original file is unchanged.' : '';
+    say('save-status', 'Sending songs to the FM-1…' + note);
+    await link.importSave(payload, progress());
+    say('save-status', `Imported ${file.name}. LSDj restarted with it.${note}`, 'ok');
   });
 };
 
@@ -260,6 +265,7 @@ $('restore').onchange = e => {
 
 /* Installing firmware restarts the FM-1: the page lets go of it first */
 setBeforeInstall(async () => {
+  if (busy) throw new LinkError('A song or settings operation is running. Wait for it to finish before installing firmware.');
   clearInterval(poll); poll = null;
   link?.close(); link = null; ble?.close(); ble = null;
   enable(false); say('device', 'Disconnected for the install. Connect again when it is done.', 'hint');
