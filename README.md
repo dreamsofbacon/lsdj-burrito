@@ -10,6 +10,19 @@ With LSDJ Burrito running on the FM-1 (alpha 55 or later), connected by USB, the
 - **Settings:** change them, back up settings + effects + colours to a file, restore it.
 - **Prepare firmware:** use your own LSDj ROM and explicitly choose its sample kits, entirely in the browser.
 
+The section shortcuts distinguish physical-device controls from local firmware
+tools. After preparation, links take you to the download, local preview or USB
+installer; navigating never starts emulation or installation. Virtual FM-1 shows
+the selected package's name and disables its selected-package preview button
+while no package is available or preparation is in progress. Changing that
+selection does not replace an already running virtual machine.
+
+USB Connect and Install are disabled with an explanation when Web MIDI is absent
+or the page is not a secure context (HTTPS/localhost). This checks browser API
+availability, not device presence or permission. ROM preparation/download still
+work on secure browsers without Web MIDI; emulator support has its own WebGL,
+WebAssembly and audio requirements below.
+
 ## Importing saves with extra bytes
 
 Raw LSDj saves are 131072 bytes. For a 131088-byte file (such as the reported LSDj
@@ -28,10 +41,23 @@ conversion without writing any files or contacting a device.
 
 1. Back up songs and settings before changing firmware or LSDj versions. Save compatibility between versions is not guaranteed.
 2. Choose your own `.gb` file under **Prepare firmware**. The page checks its LSDj title, MBC5 mapper, size, 128 KiB RAM requirement and header checksum. GBC-only and rumble cartridges are refused.
-3. All recognized sample kits start selected. The ROM-free **FM-1_967** template holds **31 banks plus a 256-byte header (508,160 bytes)**. A typical ROM with 13 required program/data banks leaves 18 kit banks. If necessary, deselect kits yourself; the page never silently removes them. Unknown data and zero-filled banks remain mandatory. Some modified ROMs cannot fit even with no kits.
+3. All recognized sample kits start selected. The ROM-free **FM-1_972** template holds **31 banks plus a 256-byte header (508,160 bytes)**. A typical ROM with 13 required program/data banks leaves 18 kit banks. If necessary, deselect kits yourself; the page never silently removes them. Unknown data and zero-filled banks remain mandatory. Some modified ROMs cannot fit even with no kits.
 4. Kit bank numbers and retained sample bytes are preserved. Songs referring to omitted kits lose those samples. The global ROM checksum is recalculated for the sparse image.
 5. Read the experimental/backup acknowledgement, then choose **Prepare firmware**. Template hashes, protected firmware, loader, slot mapping and package CRCs are checked before and after insertion.
 6. Download the private `.fwsc` for M-UPGRADE, or use the separate USB installer. Preparing or downloading does **not** write to a device. Changing ROM options invalidates the generated installer selection.
+
+The preparation status explains the next step and why the button is disabled.
+If kits exceed the budget, it reports how many kit banks you must deselect. If
+the required program/data alone exceeds capacity, removing kits cannot help;
+choose a smaller compatible ROM instead. Files with no recognized kits retain
+all required data. Invalid ROM headers are rejected before fetching the catalogue
+or template. Failed file checks allow selecting the same file again; a later
+file selection takes precedence over an earlier read or template request.
+Installer file errors are shown explicitly and clear the invalid selection.
+
+FM-1_972 refreshes the template from the alpha 71 source: theme-accent FX bars,
+meaningful segments, choice selectors, no channel-column tint and CPU1 save fixes.
+Its identity is newer than 971; normal alpha 71 builds are unchanged.
 
 The template is **not hardware-validated**. It intentionally disables version-specific tempo shortcuts, MIDI clock integration, song cues and cursor-following effects for every ROM, including 9.3.9. An exact ROM hash or matching program fingerprint is evidence of identity, not proof that this firmware/ROM combination boots or plays correctly. Other structurally valid LSDj versions remain experimental.
 
@@ -43,7 +69,7 @@ The template's matching [firmware source archive](lsdj/fm1-lsdj-template-source.
 includes build instructions, licenses and a per-file source manifest. It contains
 no LSDj ROM or save. Rebuilding this archive reproduced the published template
 and metadata byte-for-byte. Archive SHA-256:
-`aa6010d2c5a630b1168039a701c8eb1436a6576d1924495d9bddf4f3d28c1f31`.
+`6d63bb46b828d7d18b41f2a65b81fe490a789a7b43482a926c3acadf055d8c57`.
 
 ## Local preview and checks
 
@@ -86,6 +112,12 @@ One VS Code embedded-browser tab crashed during testing; a fresh tab subsequentl
 passed a 50+ second emulated 967 run, pause/resume and 3D key/knob checks. That crash is unresolved, so this
 remains an experimental preview, not a stable audio-production tool.
 
+The refreshed FM-1_972 template also passed local package-generation and
+15-second firmware-emulator checks with LSDj 9.3.9: 661376 audio frames, LCD output,
+input accepted and CPU not halted. Its erased cartridge window and matching
+source-archive rebuild were verified. These checks do not validate physical
+flashing, audible fidelity or save compatibility.
+
 Upstream source revision, deployed WASM provenance, versions and asset hashes are
 pinned in [emulator/upstream.json](emulator/upstream.json). The WASM was obtained
 from upstream's deployed page, not rebuilt here; source is MIT-licensed. The
@@ -99,6 +131,24 @@ optional `.gb` arguments prepare an experimental package in memory and test it.
 Tests select fitting kits explicitly and do not save ROM-bearing packages.
 
 Serve this repository on loopback, for example `python -m http.server 8891 --bind 127.0.0.1`, and open `http://localhost:8891/` in Chrome or Edge. Loading directly from `file:` is not supported.
+
+For browser UI regressions, open a fresh local preview with the browser cache
+disabled, then run this in its developer console:
+
+```js
+await (await import('./tests/loader-ui.mjs')).runLoaderUiTests()
+```
+
+This uses synthetic files and simulated network failures to check visible errors,
+same-file retries, file-selection races, capacity guidance, consent and stale
+download/installer invalidation. It never connects to or installs on a device.
+It changes the form selections; reload afterward to discard the test state.
+The suite also checks navigation targets and selected-package preview state.
+On a fresh localhost page in a browser without Web MIDI, run
+`await (await import('./tests/loader-ui.mjs')).runUnsupportedMidiUiTests()`
+to check disabled USB controls, early rejection before install confirmation and
+continued local preparation/download/preview selection. This test does not start
+the emulator or access a device.
 
 Run `node tests/loader.mjs` with Node 22+ for synthetic ROM, sample selection, slot, protected-template, package and simulated transport regressions. Optional positional arguments are local ROM paths; these test package round trips without saving ROM-bearing packages. With `LSDJ_SLOT_SMOKE` set to the firmware's compiled `tests/lsdj_rom.c` executable, they also test each generated slot with the emulator for 600 frames. This is not an audible sample or hardware test.
 

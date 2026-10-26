@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-import {getSelectedFirmware, installing} from '../lsdj/install-ui.js';
+import {getSelectedFirmware, getFirmwareSelection, installing} from '../lsdj/install-ui.js';
 import {firmwareForEmulator, loadRuntime, KEY_IDS} from './core.js';
 import {createPanel} from './panel.js';
 
@@ -29,9 +29,13 @@ function draw(frame) {
 }
 function buttons() {
   const loading = phase === 'loading', running = phase === 'running', paused = phase === 'paused';
+  const selected = getFirmwareSelection();
   $('emu-file').disabled = loading;
   $('emu-start').disabled = loading || !file || installing();
-  $('emu-selected').disabled = loading || installing();
+  $('emu-selected').disabled = loading || installing() || !selected;
+  $('emu-selection').textContent = selected ?
+    `Available to preview: ${selected.name} (${selected.product}). This does not change an already running virtual FM-1.` :
+    'No prepared/installer package available. Prepare firmware above, select an installer package, or choose a separate local file here.';
   $('emu-pause').disabled = !running && !paused;
   $('emu-pause').textContent = paused ? 'Resume' : 'Pause';
   $('emu-stop').disabled = phase === 'idle';
@@ -199,6 +203,7 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden && phase === 'running') $('emu-pause').click();
 });
 window.addEventListener('blur', releaseAll);
+document.addEventListener('firmware-selection-state', buttons);
 document.addEventListener('firmware-install-state', () => {
   if (installing() && phase !== 'idle') void stop('Emulator stopped to free resources for the physical firmware installation.');
   buttons();

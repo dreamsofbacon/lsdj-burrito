@@ -92,7 +92,7 @@ const template = new Uint8Array(readFileSync(new URL('../lsdj/fm1-lsdj-template.
 const templateBefore = template.slice();
 await assert.rejects(prepareLsdjFirmware(rom, [26, 40], template, metadata), /consent/);
 const result = await prepareLsdjFirmware(rom, [26, 40], template, metadata, {experimental: true});
-assert.equal(checkPackage(result.bytes).product, 'FM-1_967');
+assert.equal(checkPackage(result.bytes).product, 'FM-1_972');
 assert.deepEqual(template, templateBefore);
 const p = new Package(result.bytes);
 assert.equal(crc16(p.dec.subarray(p.appOff, p.appOff + p.app.size)), p.app.dcrc);

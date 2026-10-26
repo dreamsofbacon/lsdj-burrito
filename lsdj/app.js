@@ -4,7 +4,7 @@
 import {Link, midiPorts, LinkError, SAVE_SIZE} from './link.js';
 import {confirmSaveImport} from './save-file.js';
 import {connectBleMidi} from './ble-midi.js';
-import {setBeforeInstall, installing} from './install-ui.js';
+import {setBeforeInstall, installing, usbMidiUnavailable} from './install-ui.js';
 import {CHANNELS, PAGES, PARAM, paramGet, paramSet, valueText, channelSummary, unpackFx, packFx, PRESETS, THEMES, COLOR_NAMES, toHex, fromHex,
         SETTINGS, unpackSettings, packSettings, MIDI_SETTINGS, MIDI_CC_MAP, unpackMidi, packMidi} from './fx-model.js';
 
@@ -33,6 +33,8 @@ async function connectTo(input, output, how = 'USB') {
   } catch (e) { enable(false); say('device', e.message, 'bad'); }
 }
 $('connect-btn').onclick = async () => {
+  const unavailable = usbMidiUnavailable();
+  if (unavailable) return say('device', unavailable, 'warn');
   try {
     ports = await midiPorts();
     if (ports.input && ports.output) return connectTo(ports.input, ports.output);
@@ -42,6 +44,10 @@ $('connect-btn').onclick = async () => {
     say('device', 'The FM-1 was not recognised by name: choose its MIDI port.', 'warn');
   } catch (e) { say('device', e.name === 'SecurityError' || e.name === 'NotAllowedError' ? 'MIDI access was blocked. Allow it (with SysEx) for this page.' : e.message, 'bad'); }
 };
+if (usbMidiUnavailable()) {
+  $('connect-btn').disabled = true;
+  say('device', usbMidiUnavailable(), 'warn');
+}
 /* Bluetooth: the FM-1 with BLUETOOTH = DEVICE (Settings) shows up as "LSDJ Burrito" */
 if (navigator.bluetooth) $('connect-ble').hidden = false;
 $('connect-ble').onclick = async () => {

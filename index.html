@@ -19,6 +19,15 @@ button,select{padding:7px 12px;border-radius:8px;border:1px solid var(--line);ba
 button.primary{background:var(--accent);border-color:var(--accent);color:var(--bg);font-weight:600}
 button:disabled{opacity:.45;cursor:not-allowed}
 .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.row>label{min-width:0;max-width:100%}
+[hidden]{display:none!important}
+.page-nav{display:grid;gap:8px;margin:0 0 20px}
+.page-nav .row>span{font-size:13px;color:var(--muted)}
+.page-nav a,.button-link{display:inline-block;padding:7px 12px;border:1px solid var(--line);border-radius:8px;color:var(--accent);text-decoration:none}
+a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--hi);outline-offset:2px}
+section{scroll-margin-top:16px;min-width:0}
+input[type=file]{max-width:100%}
+#rom-info,#fw-info,#emu-selection{overflow-wrap:anywhere}
 progress{width:100%;height:10px}
 .ok{color:var(--accent)}.warn{color:var(--warn)}.bad{color:var(--bad)}
 .hint{color:var(--muted);font-size:13px}
@@ -73,6 +82,10 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <main>
 <h1>Dreamy_bacon's LSDJ Burrito</h1>
 <p class="sub">LSDj on the M-VAVE FM-1, played from its keys and knobs.</p>
+<nav class="page-nav" aria-label="Page sections">
+<div class="row"><span>Physical FM-1:</span><a href="#connect">Connect</a><a href="#live-sec">Effects</a><a href="#songs-sec">Songs</a><a href="#theme-sec">Colours</a><a href="#settings-sec">Settings</a></div>
+<div class="row"><span>Firmware tools:</span><a href="#rom-step">Prepare locally</a><a href="#emulator-sec">Preview locally</a><a href="#install-sec">Install over USB</a></div>
+</nav>
 
 <section id="connect">
 <h2>Connect</h2>
@@ -130,20 +143,28 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <section id="rom-step">
 <h2>Prepare firmware from your LSDj ROM</h2>
 <p class="hint">Choose your own <code>lsdj.gb</code>. It is only read here, in your browser: nothing is uploaded or sent anywhere.</p>
-<input id="rom" type="file" accept=".gb">
+<label for="rom">1. Choose your LSDj ROM (.gb)</label>
+<input id="rom" type="file" accept=".gb" aria-describedby="rom-info">
 <p id="rom-info" role="status"></p>
-<p class="warn">Experimental FM-1_967 template: ordinary Game Boy controls and emulation; version-specific tempo shortcuts, MIDI clock integration, song cues and cursor-following effects are disabled. Sample banks keep their original numbers. Back up your songs before switching LSDj versions; save compatibility is not guaranteed.</p>
-<fieldset id="rom-kits"><legend>Sample kits (all selected initially)</legend></fieldset>
+<p class="hint">FM-1_972 includes the latest accent-colour FX bars, choice selectors, no channel tint, and CPU1 save fixes from alpha 71. Preparing firmware never installs it automatically.</p>
+<p class="warn">Experimental FM-1_972 template: ordinary Game Boy controls and emulation; version-specific tempo shortcuts, MIDI clock integration, song cues and cursor-following effects are disabled. Sample banks keep their original numbers. Back up your songs before switching LSDj versions; save compatibility is not guaranteed.</p>
+<fieldset id="rom-kits" disabled><legend>Sample kits (all selected initially)</legend></fieldset>
 <p id="rom-budget" role="status"></p>
-<label><input id="rom-experimental" type="checkbox"> I accept that this ROM/template combination is experimental and may not boot or sound correct. I have backed up my songs.</label>
-<div class="row"><button id="rom-build" type="button" disabled>Prepare firmware (no device writes)</button>
-<a id="rom-download" hidden>Download private firmware</a></div>
+<label><input id="rom-experimental" type="checkbox" disabled> I accept that this ROM/template combination is experimental and may not boot or sound correct. I have backed up my songs.</label>
+<p id="rom-next" class="hint" role="status">Step 1: choose your LSDj .gb file.</p>
+<div class="row"><button id="rom-build" type="button" aria-describedby="rom-next" disabled>Prepare firmware (no device writes)</button></div>
+<div id="rom-actions" class="row" hidden>
+<a id="rom-download" class="button-link" hidden>Download private firmware</a>
+<a class="button-link" href="#emulator-sec">Go to local preview</a>
+<a class="button-link" href="#install-sec">Go to USB installer</a>
+</div>
 </section>
 
 <section id="install-sec">
 <h2>Install firmware</h2>
 <p class="warn">USB flashing is a separate, explicit action. Back up songs first and keep stable power, this tab in front and the USB cable connected. A previous interrupted web install left a device unable to boot. Package validation and simulated recovery tests do not guarantee recovery on hardware. M-UPGRADE is an alternative for the downloaded package.</p>
-<div class="row"><input id="fw-file" type="file" accept=".fwsc"><button id="fw-install" class="primary" type="button" disabled>Install</button></div>
+<p id="fw-support" class="hint" role="status"></p>
+<div class="row"><label>Firmware package (.fwsc) <input id="fw-file" type="file" accept=".fwsc" aria-describedby="fw-info fw-status"></label><button id="fw-install" class="primary" type="button" disabled>Install</button></div>
 <p id="fw-info"></p>
 <progress id="fw-progress" value="0" max="1" hidden></progress>
 <p id="fw-status" role="status"></p>
@@ -156,8 +177,9 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <div class="row">
 <label>Firmware <input id="emu-file" type="file" accept=".fwsc"></label>
 <button id="emu-start" type="button" disabled>Start virtual FM-1</button>
-<button id="emu-selected" type="button">Preview selected installer firmware</button>
+<button id="emu-selected" type="button" aria-describedby="emu-selection" disabled>Preview selected installer firmware</button>
 </div>
+<p id="emu-selection" class="hint" role="status"></p>
 <div class="emu-settings">
 <label>CPU <select id="emu-clock"><option value="240">240 MHz (hardware clock)</option><option value="160">160 MHz (underclocked)</option><option value="100">100 MHz (underclocked)</option></select></label>
 <label>Volume <input id="emu-volume" type="range" min="0" max="100" value="25"></label>
@@ -179,7 +201,7 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <p class="warn">Session only: Stop, restart or reload discards virtual songs/settings, including changes saved inside the virtual device. The Songs and Settings sections above control the physical FM-1, not this emulator. Firmware simulation does not prove hardware safety or accurate audio timing. Emulating LSDj inside the FM-1 is demanding and may run below real-time.</p>
 </section>
 
-<p class="hint">The firmware is free software (GPL-3.0), based on <a href="https://github.com/ChanceTheMaker/gamedude-fm1-smk" target="_blank" rel="noopener">GameDude</a>. Source: <a href="https://github.com/dreamsofbacon/lsdj-burrito-src" target="_blank" rel="noopener">lsdj-burrito-src</a>; <a href="lsdj/fm1-lsdj-template-source.zip" download>matching FM-1_967 template source</a>. Not affiliated with M-VAVE or LSDj's author.</p>
+<p class="hint">The firmware is free software (GPL-3.0), based on <a href="https://github.com/ChanceTheMaker/gamedude-fm1-smk" target="_blank" rel="noopener">GameDude</a>. Source: <a href="https://github.com/dreamsofbacon/lsdj-burrito-src" target="_blank" rel="noopener">lsdj-burrito-src</a>; <a href="lsdj/fm1-lsdj-template-source.zip" download>matching FM-1_972 template source</a>. Not affiliated with M-VAVE or LSDj's author.</p>
 </main>
 <script type="module" src="lsdj/lsdj-app.js"></script>
 <script type="module" src="lsdj/app.js"></script>

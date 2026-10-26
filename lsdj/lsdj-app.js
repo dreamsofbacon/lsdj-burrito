@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
-import {identifyRom, listKits, planRom, BANK, SLOT_MAX_BANKS} from './lsdj-rom.js';
+import {validateRom, identifyRom, listKits, planRom, BANK, SLOT_MAX_BANKS} from './lsdj-rom.js';
 import {loadTemplate, prepareLsdjFirmware} from './lsdj-firmware.js';
 import {selectFirmware, installing, clearPreparedFirmware, setPreparingFirmware} from './install-ui.js';
 
 const $ = id => document.getElementById(id);
 const say = (text, cls = '') => { $('rom-info').textContent = text; $('rom-info').className = cls; };
 let rom = null, template = null, metadata = null, versions = [], generation = 0, busy = false;
+let loading = false, currentPlan = null;
 let downloadUrl = null;
 const selected = () => [...$('rom-kits').querySelectorAll('input:checked')].map(el => Number(el.value));
 
@@ -15,35 +16,54 @@ function clearDownload() {
     say('ROM options changed. Prepare the firmware again.', 'warn');
   }
   downloadUrl = null;
+  $('rom-actions').hidden = true;
   $('rom-download').hidden = true;
+  $('rom-download').removeAttribute('href');
+  $('rom-download').removeAttribute('download');
 }
 function updatePlan() {
   clearDownload();
   clearPreparedFirmware();
-  $('rom-build').disabled = true;
-  if (!rom || !metadata) return;
+  currentPlan = null;
+  if (!rom || !metadata) return updateControls();
   try {
     const p = planRom(rom, selected(), metadata.cartridge_capacity);
+    currentPlan = p;
+    const excess = Math.max(0, Math.ceil((p.needed - p.capacity) / BANK));
+    const cannotFit = excess > p.kept;
     $('rom-budget').textContent = `${p.codeBanks} required program/data banks + ${p.kept} selected kit banks: ` +
       `${p.needed.toLocaleString()} / ${p.capacity.toLocaleString()} bytes. ` +
       (p.omitted.length ? `Omitted banks: ${p.omitted.map(k => k.bank.toString(16).toUpperCase().padStart(2, '0')).join(', ')}. Songs using these kits will lose those samples. ` : 'All kits preserved. ') +
-      (p.fits ? 'Fits.' : 'Does not fit. Deselect kits; program/data banks cannot be removed.');
+      (p.fits ? 'Fits.' : cannotFit ? 'The required program/data alone exceeds this template. Removing kits cannot make this ROM fit. Choose a smaller compatible ROM.' :
+        `Deselect at least ${excess} kit ${excess === 1 ? 'bank' : 'banks'} to fit. No kits are removed automatically.`);
     $('rom-budget').className = p.fits ? 'hint' : 'warn';
-    $('rom-build').disabled = busy || installing() || !p.fits || !$('rom-experimental').checked;
   } catch (err) { say(err.message, 'bad'); }
+  updateControls();
 }
 $('rom-experimental').onchange = updatePlan;
 $('rom-kits').onchange = updatePlan;
 function updateControls() {
-  $('rom').disabled = $('rom-experimental').disabled = $('rom-kits').disabled = busy || installing();
-  $('rom-build').disabled = busy || installing() || !rom || !metadata ||
-    !planRom(rom, selected(), metadata.cartridge_capacity).fits || !$('rom-experimental').checked;
+  const blocked = busy || installing();
+  $('rom').disabled = blocked;
+  $('rom-experimental').disabled = $('rom-kits').disabled = blocked || loading || !currentPlan;
+  $('rom-build').disabled = blocked || loading || !currentPlan?.fits || !$('rom-experimental').checked;
+  $('rom-step').setAttribute('aria-busy', String(loading || busy));
+  $('rom-next').textContent = installing() ? 'Wait for the current installation to finish.' :
+    busy ? 'Preparing and verifying the private package...' :
+    loading ? 'Checking your ROM and loading the template. You can choose another file while waiting.' :
+    !rom ? 'Step 1: choose your LSDj .gb file.' :
+    !currentPlan ? 'Resolve the ROM/template error above, then choose the file again.' :
+    !currentPlan.fits ? 'Step 2: resolve the capacity warning above.' :
+    !$('rom-experimental').checked ? 'Step 3: read and accept the experimental/backup acknowledgement to enable preparation.' :
+    downloadUrl ? 'Step 4: download the private package, preview it in Virtual FM-1, or explicitly install it below.' :
+    'Ready: prepare firmware. This does not install anything.';
 }
 document.addEventListener('firmware-install-state', updateControls);
 $('rom').onchange = async e => {
   if (busy || installing()) return;
   const seq = ++generation, file = e.target.files[0];
   rom = template = metadata = null;
+  loading = !!file;
   const legend = document.createElement('legend');
   legend.textContent = 'Sample kits (all selected initially)';
   $('rom-kits').replaceChildren(legend); $('rom-budget').textContent = '';
@@ -54,32 +74,49 @@ $('rom').onchange = async e => {
     if (file.size > BANK * SLOT_MAX_BANKS) throw Error('ROM is larger than the supported 2 MiB limit.');
     say('Checking ROM and loading the ROM-free template...');
     const bytes = new Uint8Array(await file.arrayBuffer());
+    if (seq !== generation) return;
+    validateRom(bytes);
     const response = await fetch('lsdj/versions.json', {cache: 'no-store', signal: AbortSignal.timeout(20000)});
     if (!response.ok) throw Error(`Version catalogue unavailable (${response.status}).`);
     const catalog = await response.json();
+    if (!Array.isArray(catalog) || catalog.some(v => !v || typeof v !== 'object'))
+      throw Error('Invalid version catalogue. Reload the page or choose the file again to retry.');
     const info = await identifyRom(bytes, catalog);
+    if (seq !== generation) return;
     const loaded = await loadTemplate();
     if (seq !== generation) return;
+    const kits = listKits(bytes);
+    planRom(bytes, kits.map(k => k.bank), loaded.metadata.cartridge_capacity);
     rom = bytes; versions = catalog; ({template, metadata} = loaded);
-    say(`${info.title}: ${info.tested ? 'exact ROM has prior host-test evidence' :
+    say(`${file.name} (${info.title}): ${info.tested ? 'exact ROM has prior host-test evidence' :
       info.sameProgram ? 'program banks match a tested ROM; sample content differs' : 'unverified program build'}. ` +
       'This generic firmware template is experimental, not hardware-validated. ' +
       (!info.globalChecksumValid ? 'The source global checksum is stale; the prepared ROM checksum will be recalculated. ' : '') +
       'No files are uploaded.', 'warn');
-    for (const kit of listKits(rom)) {
+    for (const kit of kits) {
       const label = document.createElement('label'), input = document.createElement('input');
       input.type = 'checkbox'; input.value = String(kit.bank); input.checked = true;
       label.append(input, ` Bank ${kit.bank.toString(16).toUpperCase().padStart(2, '0')}: ${kit.name || '(unnamed kit)'}`);
       $('rom-kits').append(label, document.createElement('br'));
     }
+    if (!kits.length) {
+      const note = document.createElement('p');
+      note.textContent = 'No sample-kit banks were recognized. All required program/data banks are preserved.';
+      $('rom-kits').append(note);
+    }
     updatePlan();
   } catch (err) {
     if (seq === generation) {
+      rom = template = metadata = currentPlan = null;
       $('rom').value = '';
-      say(err.message, 'bad');
+      say(err.name === 'TimeoutError' ? 'ROM checking timed out. Choose the same file again to retry.' :
+        `${err.message} Choose the file again to retry.`, 'bad');
     }
+  } finally {
+    if (seq === generation) { loading = false; updateControls(); }
   }
 };
+updateControls();
 $('rom-build').onclick = async () => {
   if (!rom || !template || busy || installing()) return;
   const seq = generation, keep = selected();
@@ -93,6 +130,7 @@ $('rom-build').onclick = async () => {
     selectFirmware(result.bytes, name, true);
     downloadUrl = URL.createObjectURL(new Blob([result.bytes], {type: 'application/octet-stream'}));
     $('rom-download').href = downloadUrl; $('rom-download').download = name; $('rom-download').hidden = false;
+    $('rom-actions').hidden = false;
     say(`Prepared ${result.product}; package checks passed. SHA-256: ${result.sha256}. ` +
       'Download for M-UPGRADE or use the separate USB installer below. Nothing has been sent to the device. ' +
       'The package contains your ROM: keep it private.', 'ok');

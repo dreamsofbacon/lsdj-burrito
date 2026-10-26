@@ -11,6 +11,21 @@ const log = (text) => { const el = $('fw-log'); el.textContent += `${new Date().
 let pkg = null, fileName = '', busy = false, wake = null;
 let selection = 0, generated = false, preparing = false;
 let firmwareBytes = null;
+export const getFirmwareSelection = () => pkg && !preparing ? {name: fileName, product: pkg.product} : null;
+export function usbMidiUnavailable() {
+  if (!globalThis.isSecureContext) return 'USB MIDI requires HTTPS or localhost.';
+  if (typeof navigator.requestMIDIAccess !== 'function') return 'This browser does not provide Web MIDI. Use a supported desktop Chrome or Edge browser for USB.';
+  return '';
+}
+function updateControls() {
+  const unavailable = usbMidiUnavailable();
+  $('fw-file').disabled = busy || preparing;
+  $('fw-install').disabled = busy || preparing || !pkg || !!unavailable;
+  $('fw-support').textContent = unavailable ? `${unavailable} You can still prepare and download firmware for M-UPGRADE.` :
+    'USB installation requires MIDI/SysEx permission and a connected FM-1. Selecting a file does not request device access.';
+  $('fw-support').className = unavailable ? 'warn' : 'hint';
+  document.dispatchEvent(new Event('firmware-selection-state'));
+}
 export function getSelectedFirmware() {
   if (!firmwareBytes || preparing) throw new InstallError('Prepare firmware or select a .fwsc file in the installer first.');
   return {bytes: firmwareBytes.slice(), name: fileName};
@@ -20,8 +35,10 @@ export let beforeInstall = async () => {};   // the page closes its own link to 
 export function setBeforeInstall(f) { beforeInstall = f; }
 
 function clearFirmware() {
-  ++selection; pkg = null; generated = false; firmwareBytes = null;
+  ++selection; pkg = null; generated = false; firmwareBytes = null; fileName = '';
   $('fw-install').disabled = true; $('fw-info').textContent = '';
+  $('fw-progress').hidden = true;
+  updateControls();
 }
 export function clearPreparedFirmware() {
   if (!busy && generated) {
@@ -31,30 +48,36 @@ export function clearPreparedFirmware() {
 }
 export function setPreparingFirmware(value) {
   preparing = value;
-  $('fw-file').disabled = busy || preparing;
-  $('fw-install').disabled = busy || preparing || !pkg;
+  updateControls();
 }
 export function selectFirmware(bytes, name, fromRom = false) {
   if (busy) throw new InstallError('An installation is already running.');
-  clearFirmware();
   const checked = checkPackage(bytes);
+  clearFirmware();
   pkg = checked; fileName = name; generated = fromRom; firmwareBytes = bytes.slice();
+  $('fw-file').value = '';
   $('fw-info').textContent = `${name}: ${pkg.product} (package checks passed; hardware compatibility is not guaranteed)`;
-  $('fw-info').className = 'warn'; $('fw-install').disabled = preparing;
-  say('Ready for an explicit install. No data has been sent to the FM-1.');
+  $('fw-info').className = 'warn';
+  updateControls();
+  say('Ready for local preview or an explicit install in a supported browser. No data has been sent to the FM-1.');
 }
 $('fw-file').onchange = async (e) => {
   if (busy || preparing) return;
   clearFirmware();
   const seq = selection, f = e.target.files[0];
-  if (!f) return;
-  fileName = f.name;
+  if (!f) return say('Choose a .fwsc file, or prepare firmware from your ROM above.');
+  say(`Checking ${f.name}... Nothing has been sent to the FM-1.`);
   try {
     if (f.size > 2 * 1024 * 1024) throw new InstallError('Firmware file is too large.');
     const bytes = new Uint8Array(await f.arrayBuffer());
     if (seq !== selection) return;
     selectFirmware(bytes, f.name);
-  } catch (err) { if (seq === selection) { $('fw-info').textContent = err.message; $('fw-info').className = 'bad'; } }
+  } catch (err) {
+    if (seq === selection) {
+      $('fw-file').value = '';
+      say(err.message, 'bad');
+    }
+  }
 };
 
 const onHidden = () => {
@@ -67,10 +90,12 @@ window.addEventListener('beforeunload', (e) => { if (busy) { e.preventDefault();
 
 $('fw-install').onclick = async () => {
   if (!pkg || busy || preparing) return;
+  const unavailable = usbMidiUnavailable();
+  if (unavailable) return say(unavailable + ' Nothing was installed.', 'warn');
   if (document.hidden) return say('Bring this tab to the front first.', 'warn');
   if (!pkg.burrito && !confirm(`${fileName} is ${pkg.product}, not an LSDJ Burrito build. Install it anyway?`)) return;
   if (!confirm(`Install ${pkg.product} on the FM-1?\n\nBack up songs first. Keep stable power, the USB cable in and this tab open until it says done. An interrupted write can leave the device unable to boot; recovery is not guaranteed. Proceed?`)) return;
-  busy = true; $('fw-install').disabled = true; $('fw-file').disabled = true;
+  busy = true; updateControls();
   document.dispatchEvent(new Event('firmware-install-state'));
   const bar = $('fw-progress'); bar.hidden = false; bar.value = 0; bar.max = 1;
   try { wake = await navigator.wakeLock?.request('screen'); } catch (_) { wake = null; }
@@ -92,10 +117,11 @@ $('fw-install').onclick = async () => {
     log('Stopped: ' + err.message);
     say(err.message, err.resumable ? 'warn' : 'bad');
   } finally {
-    busy = false; $('fw-install').disabled = !pkg; $('fw-file').disabled = false;
+    busy = false; updateControls();
     document.dispatchEvent(new Event('firmware-install-state'));
     document.title = "Dreamy_bacon's LSDJ Burrito";
     try { await wake?.release(); } catch (_) {}
     wake = null;
   }
 };
+updateControls();
