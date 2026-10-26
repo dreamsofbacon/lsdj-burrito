@@ -158,3 +158,16 @@ export function parseSlot(w, capacity) {
   if (v.getUint32(16, true) !== crc32(w.subarray(SLOT_HEADER, SLOT_HEADER + stored * BANK))) return {error: 'data'};
   return {logical, stored, kits, cursorProfile: w[148], map: map.slice(0, logical)};
 }
+
+// Recover exactly what the emulator can read, not sample banks previously omitted.
+export function romFromSlot(slot) {
+  const parsed = parseSlot(slot, slot.length);
+  if (parsed.error || slot.length !== slotBytes(parsed.stored))
+    throw Error('Installed cartridge failed slot integrity/layout checks. Nothing was prepared.');
+  const rom = new Uint8Array(parsed.logical * BANK).fill(0xff);
+  parsed.map.forEach((stored, logical) => {
+    if (stored !== 0xff) rom.set(slot.subarray(SLOT_HEADER + stored * BANK, SLOT_HEADER + (stored + 1) * BANK), logical * BANK);
+  });
+  validateRom(rom);
+  return rom;
+}

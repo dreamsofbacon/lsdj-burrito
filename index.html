@@ -145,9 +145,13 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <p class="hint">Choose your own <code>lsdj.gb</code>. It is only read here, in your browser: nothing is uploaded or sent anywhere.</p>
 <label for="rom">1. Choose your LSDj ROM (.gb)</label>
 <input id="rom" type="file" accept=".gb" aria-describedby="rom-info">
+<div class="row"><button id="rom-device" type="button">Read installed LSDj (no device writes)</button>
+<button id="rom-cancel" type="button" hidden>Cancel cartridge read</button></div>
+<progress id="rom-read-progress" value="0" max="1" hidden></progress>
+<p class="hint">For updates without choosing a ROM, connect to the running FM-1 above, then read its installed LSDj. Requires FM-1_974 or newer: install that once using your ROM first. Reading may take several minutes. All installed kit banks are preserved; previously omitted kits cannot be recovered. This does not back up songs/settings, upload files, or install automatically.</p>
 <p id="rom-info" role="status"></p>
-<p class="hint">FM-1_973 restores cursor-following FX for verified LSDj 9.3.9 program code, including custom sample kits. The channel highlight stays removed. Accent-colour FX bars, choice selectors and CPU1 save fixes are retained. Preparing firmware never installs it automatically.</p>
-<p class="warn">Experimental FM-1_973 template: unknown program builds use ALL-channel FX; the ROM status below the file picker shows whether cursor-following is available. Version-specific tempo shortcuts, MIDI clock integration and song cues remain disabled. Sample banks keep their original numbers. Back up your songs before switching LSDj versions; save compatibility is not guaranteed.</p>
+<p class="hint">FM-1_974 adds read-only cartridge export for future updates, retaining cursor-following FX for verified LSDj 9.3.9 program code, including custom sample kits. The channel highlight stays removed. Accent-colour FX bars, choice selectors and CPU1 save fixes are retained. Preparing firmware never installs it automatically.</p>
+<p class="warn">Experimental FM-1_974 template: unknown program builds use ALL-channel FX; the ROM status below the file picker shows whether cursor-following is available. Version-specific tempo shortcuts, MIDI clock integration and song cues remain disabled. Sample banks keep their original numbers. Back up your songs before switching LSDj versions; save compatibility is not guaranteed.</p>
 <fieldset id="rom-kits" disabled><legend>Sample kits (all selected initially)</legend></fieldset>
 <p id="rom-budget" role="status"></p>
 <label><input id="rom-experimental" type="checkbox" disabled> I accept that this ROM/template combination is experimental and may not boot or sound correct. I have backed up my songs.</label>
@@ -201,7 +205,7 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <p class="warn">Session only: Stop, restart or reload discards virtual songs/settings, including changes saved inside the virtual device. The Songs and Settings sections above control the physical FM-1, not this emulator. Firmware simulation does not prove hardware safety or accurate audio timing. Emulating LSDj inside the FM-1 is demanding and may run below real-time.</p>
 </section>
 
-<p class="hint">The firmware is free software (GPL-3.0), based on <a href="https://github.com/ChanceTheMaker/gamedude-fm1-smk" target="_blank" rel="noopener">GameDude</a>. Source: <a href="https://github.com/dreamsofbacon/lsdj-burrito-src" target="_blank" rel="noopener">lsdj-burrito-src</a>; <a href="lsdj/fm1-lsdj-template-source.zip" download>matching FM-1_973 template source</a>. Not affiliated with M-VAVE or LSDj's author.</p>
+<p class="hint">The firmware is free software (GPL-3.0), based on <a href="https://github.com/ChanceTheMaker/gamedude-fm1-smk" target="_blank" rel="noopener">GameDude</a>. Source: <a href="https://github.com/dreamsofbacon/lsdj-burrito-src" target="_blank" rel="noopener">lsdj-burrito-src</a>; <a href="lsdj/fm1-lsdj-template-source.zip" download>matching FM-1_974 template source</a>. Not affiliated with M-VAVE or LSDj's author.</p>
 </main>
 <script type="module" src="lsdj/lsdj-app.js"></script>
 <script type="module" src="lsdj/app.js"></script>

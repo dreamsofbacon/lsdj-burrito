@@ -1,18 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // The page's link to the FM-1's running LSDJ Burrito firmware, over USB-MIDI
-// SysEx (firmware/lsdj_link.h). Songs, settings, effects and themes only: this
+// SysEx (firmware/lsdj_link.h). Songs, settings, effects, themes and cartridge export: this
 // never writes firmware.
 //   request  F0 7D 'G' 'S' op [data] F7
 //   reply    F0 7D 'G' 'S' op status [data] F7      data bytes as 7-bit pairs
 
 export const OP = {INFO: 0x01, READ: 0x02, BEGIN: 0x03, CHUNK: 0x04, COMMIT: 0x05, ABORT: 0x06,
   SETTINGS_GET: 0x10, SETTINGS_SET: 0x11, FX_GET: 0x12, FX_SET: 0x13, THEME_GET: 0x14, THEME_SET: 0x15,
-  STORE: 0x16, MIDI_GET: 0x17, MIDI_SET: 0x18, LIVE: 0x20, BLUETOOTH: 0x21};
+  STORE: 0x16, MIDI_GET: 0x17, MIDI_SET: 0x18, LIVE: 0x20, BLUETOOTH: 0x21, CART_INFO: 0x22, CART_READ: 0x23};
 export const BT_STATES = ['off', 'starting', 'ready', 'advertising', 'connected', 'failed'];
 export const BT_ERRORS = ['', 'no radio calibration in flash', 'start timed out', 'no task', 'address refused', 'advertising refused', 'link refused'];
 export const STATUS = ['ok', 'bad request', 'wrong state', 'checksum mismatch', 'flash error'];
 export const CHUNK = 128;
 export const SAVE_SIZE = 131072;
+export const CART_CHUNK = 120;
 
 export function crc32(bytes) {
   let crc = ~0 >>> 0;
@@ -53,21 +54,37 @@ export class Link {
     this.slow = slow;
     input.onmidimessage = e => {
       const r = parse(Array.from(e.data));
-      if (r && this.waiting && r.op === this.waiting.op) { const w = this.waiting; this.waiting = null; w.resolve(r); }
+      if (r && this.waiting && r.op === this.waiting.op && (r.status || this.waiting.accept(r))) {
+        const w = this.waiting; w.resolve(r);
+      }
     };
   }
-  close() { this.input.onmidimessage = null; }
+  close() {
+    this.closed = true;
+    this.waiting?.reject(new LinkError('Disconnected from the FM-1.'));
+    this.input.onmidimessage = null;
+  }
 
   /* One request at a time; resolves {status, data, tries}; rejects on a timeout or bad status.
      The USB link drops about one message in a hundred or more (measured on alpha 55: a request or
      its reply never arrives; a late reply was never seen), so a request that is safe to repeat is
      sent again after a timeout: retries more times. */
-  req(op, bytes = [], {timeout = 1500, allow = [0], retries = 0} = {}) {
+  req(op, bytes = [], {timeout = 1500, allow = [0], retries = 0, signal, accept = () => true} = {}) {
     if (this.slow) timeout *= 3;
     const once = () => new Promise((resolve, reject) => {
-      const t = setTimeout(() => { this.waiting = null; reject(new LinkError('The FM-1 did not answer. Is LSDJ Burrito running and the cable connected?', {cause: 'timeout'})); }, timeout);
-      this.waiting = {op, resolve: r => { clearTimeout(t); if (!allow.includes(r.status)) reject(new LinkError(`FM-1: ${STATUS[r.status] || 'error ' + r.status}`)); else resolve(r); }};
-      this.output.send(frame(op, bytes));
+      if (this.closed) return reject(new LinkError('Disconnected from the FM-1.'));
+      if (signal?.aborted) return reject(new LinkError('Cartridge read cancelled.'));
+      const cleanup = () => { clearTimeout(t); this.waiting = null; signal?.removeEventListener('abort', abort); };
+      const fail = e => { cleanup(); reject(e); };
+      const abort = () => fail(new LinkError('Cartridge read cancelled.'));
+      const t = setTimeout(() => fail(new LinkError('The FM-1 did not answer. Is LSDJ Burrito running and the cable connected?', {cause: 'timeout'})), timeout);
+      this.waiting = {op, accept, reject: fail, resolve: r => {
+        cleanup();
+        if (!allow.includes(r.status)) reject(new LinkError(`FM-1: ${STATUS[r.status] || 'error ' + r.status}`));
+        else resolve(r);
+      }};
+      signal?.addEventListener('abort', abort, {once: true});
+      try { this.output.send(frame(op, bytes)); } catch (e) { fail(e); }
     });
     const run = async () => {
       for (let tries = 1; ; tries++) {
@@ -84,6 +101,32 @@ export class Link {
     const {data: d} = await this.req(OP.INFO, [], {retries: 2});
     const str = (a, b) => String.fromCharCode(...d.slice(a, b)).replace(/\0.*$/, '');
     return {protocol: d[0], firmware: str(1, 9), title: str(9, 25), saveSize: rd32(d, 25), saveCrc: rd32(d, 29), importing: d[33], liveKnown: !!(d[34] & 1)};
+  }
+  async cartridgeInfo(signal) {
+    const r = await this.req(OP.CART_INFO, [], {retries: 2, allow: [0, 1], signal});
+    if (r.status === 1) throw new LinkError('This firmware cannot read back its cartridge. Install FM-1_974 or newer once using your original LSDj ROM, then reconnect. Nothing was prepared.');
+    if (r.data.length !== 12) throw new LinkError('Invalid cartridge information from the FM-1.');
+    const size = rd32(r.data, 0);
+    if (size < 256 + 16384 || size > 256 + 128 * 16384 || (size - 256) % 16384)
+      throw new LinkError('Invalid installed cartridge size.');
+    return {size, headerCrc: rd32(r.data, 4), dataCrc: rd32(r.data, 8)};
+  }
+  async exportCartridge(progress = () => {}, signal) {
+    const before = await this.cartridgeInfo(signal), out = new Uint8Array(before.size);
+    for (let off = 0; off < out.length; off += CART_CHUNK) {
+      const count = Math.min(CART_CHUNK, out.length - off);
+      const {data} = await this.req(OP.CART_READ, le32(off), {retries: 4, signal,
+        accept: r => r.data.length < 4 || rd32(r.data, 0) === off});
+      if (data.length !== 4 + count || rd32(data, 0) !== off) throw new LinkError('Invalid cartridge chunk. Nothing was prepared.');
+      out.set(data.subarray(4), off);
+      progress(off + count, out.length);
+    }
+    const after = await this.cartridgeInfo(signal);
+    if (before.size !== after.size || before.headerCrc !== after.headerCrc || before.dataCrc !== after.dataCrc ||
+        rd32(out, 252) !== before.headerCrc || crc32(out.subarray(0, 252)) !== before.headerCrc ||
+        rd32(out, 16) !== before.dataCrc || crc32(out.subarray(256)) !== before.dataCrc)
+      throw new LinkError('Installed cartridge changed or failed its transfer checksum. Nothing was prepared.');
+    return out;
   }
   async exportSave(progress = () => {}) {
     const out = new Uint8Array(SAVE_SIZE);

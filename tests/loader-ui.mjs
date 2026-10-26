@@ -1,6 +1,7 @@
 // Run on a fresh local preview page; uses synthetic files and never installs firmware.
-import {BANK} from '../lsdj/lsdj-rom.js';
-import {getSelectedFirmware, selectFirmware, setPreparingFirmware} from '../lsdj/install-ui.js';
+import {BANK, buildSlot} from '../lsdj/lsdj-rom.js';
+import {OP, le32, rd32, CART_CHUNK} from '../lsdj/link.js';
+import {getSelectedFirmware, selectFirmware, setPreparingFirmware, beforeInstall} from '../lsdj/install-ui.js';
 
 const $ = id => document.getElementById(id);
 const assert = (condition, message) => { if (!condition) throw Error(message); };
@@ -147,7 +148,7 @@ export async function runLoaderUiTests() {
     assert($('rom').disabled && $('fw-file').disabled, 'Preparation locks conflicting file inputs');
     assert($('emu-selected').disabled, 'Preparation blocks preview of the previous installer selection');
     await preparing;
-    text('rom-info', /Prepared FM-1_973/);
+    text('rom-info', /Prepared FM-1_974/);
     text('rom-info', /Cursor-following FX unavailable: FX targets ALL channels/);
     text('rom-next', /Step 4/);
     assert(!$('rom-download').hidden && !$('fw-install').disabled, 'Prepared package available for download and explicit install');
@@ -199,11 +200,107 @@ export async function runUnsupportedMidiUiTests() {
     $('rom-experimental').checked = true;
     $('rom-experimental').onchange();
     await $('rom-build').onclick();
-    text('rom-info', /Prepared FM-1_973/);
+    text('rom-info', /Prepared FM-1_974/);
     assert(!$('rom-download').hidden && $('fw-install').disabled && !$('emu-selected').disabled,
       'Unsupported USB still allows preparing, downloading and selecting local previews');
     return 'PASS unsupported Web MIDI: no device access/confirmation, USB disabled, local preparation/download/preview preserved';
   } finally {
     globalThis.confirm = confirmOriginal;
   }
+}
+
+export async function runDeviceUpdateUiTests() {
+  assert(location.hostname === 'localhost' || location.hostname === '127.0.0.1', 'Run only on a local preview');
+  const descriptor = Object.getOwnPropertyDescriptor(navigator, 'requestMIDIAccess');
+  const {slot} = await buildSlot(synthetic(2, [40, 41]), [40, 41], 256 + 4 * BANK);
+  const input = {name: 'FM-1 test'}, ops = [], fx = Array(68).fill(0);
+  fx[42] = 0xf2;
+  let mode = 'old', held, started;
+  const output = {name: 'FM-1 test', send(message) {
+    const op = message[4], args = [];
+    for (let i = 5; i < message.length - 1; i += 2) args.push(message[i] | message[i + 1] << 7);
+    ops.push(op);
+    const send = (data = [], status = 0) => queueMicrotask(() => input.onmidimessage?.({
+      data: [0xf0, 0x7d, 0x47, 0x53, op, status, ...data.flatMap(b => [b & 127, b >> 7]), 0xf7]
+    }));
+    if (op === OP.INFO) {
+      const data = Array(35).fill(0); data[0] = 1;
+      [...'FM-1_974'].forEach((c, i) => data[i + 1] = c.charCodeAt(0));
+      [...'LSDj-test'].forEach((c, i) => data[i + 9] = c.charCodeAt(0));
+      return send(data);
+    }
+    if (op === OP.FX_GET) return send(fx);
+    if (op === OP.SETTINGS_GET) return send(le32(0x5a000000));
+    if (op === OP.THEME_GET) return send(Array(16).fill(0));
+    if (op === OP.MIDI_GET || op === OP.BLUETOOTH) return send([], 1);
+    if (op === OP.LIVE) return send([0, 0, 120, 0, 0, 0, 0, ...fx]);
+    if (op === OP.CART_INFO) return mode === 'old' ? send([], 1) :
+      send([...le32(slot.length), ...le32(rd32(slot, 252)), ...le32(rd32(slot, 16))]);
+    if (op === OP.CART_READ) {
+      const off = rd32(args, 0), data = [...slot.slice(off, off + CART_CHUNK)];
+      if (mode === 'corrupt' && off === 240) data[20] ^= 1;
+      if (mode === 'hold') { held = () => send([...le32(off), ...data]); started?.(); return; }
+      return send([...le32(off), ...data]);
+    }
+    throw Error(`Unexpected write/device operation ${op}`);
+  }};
+  const originalFetch = globalThis.fetch;
+  try {
+    await $('rom-device').onclick();
+    text('rom-info', /Connect to the running FM-1/);
+    noFirmware();
+    Object.defineProperty(navigator, 'requestMIDIAccess', {configurable: true,
+      value: async () => ({inputs: new Map([['test', input]]), outputs: new Map([['test', output]])})});
+    await $('connect-btn').onclick();
+    text('device', /Connected over USB/);
+    await $('rom-device').onclick();
+    text('rom-info', /Install FM-1_974 or newer once/);
+    noFirmware();
+
+    mode = 'hold';
+    const ready = new Promise(resolve => { started = resolve; });
+    const pending = $('rom-device').onclick();
+    await ready;
+    assert($('rom').disabled && $('fw-file').disabled && $('fw-install').disabled && $('connect-btn').disabled,
+      'Reading locks competing file/install/connection actions');
+    assert(!$('rom-cancel').hidden, 'Cancellation available');
+    $('rom-cancel').onclick();
+    await pending;
+    text('rom-info', /cancelled/); noFirmware();
+    held(); held = null;
+    assert(!$('rom').disabled && !$('connect-btn').disabled, 'Controls restored after cancellation');
+
+    mode = 'corrupt';
+    await $('rom-device').onclick();
+    text('rom-info', /checksum/); noFirmware();
+
+    mode = 'ok';
+    await $('rom-device').onclick();
+    text('rom-info', /All currently installed kit banks are preserved/);
+    assert($('rom-kits').disabled && $('rom-kits').querySelectorAll('input:checked').length === 2, 'Installed kits retained and locked');
+    assert(!$('rom-experimental').checked && $('rom-build').disabled, 'Read does not grant install/preparation consent');
+    noFirmware();
+    $('rom-experimental').checked = true; $('rom-experimental').onchange();
+    await $('rom-build').onclick();
+    text('rom-info', /Prepared FM-1_974/);
+    assert(!$('rom-download').hidden, 'Device-based package available for explicit download/install');
+
+    globalThis.fetch = async (path, options) => {
+      const response = await originalFetch(path, options);
+      if (String(path).endsWith('template.json')) return Response.json({...await response.json(), cartridge_capacity: 256 + 3 * BANK});
+      return response;
+    };
+    await $('rom-device').onclick();
+    text('rom-budget', /installed cartridge does not fit/);
+    assert($('rom-kits').disabled && $('rom-build').disabled, 'Smaller update refuses without dropping installed kits');
+    noFirmware();
+    assert(ops.every(op => [OP.INFO, OP.FX_GET, OP.SETTINGS_GET, OP.MIDI_GET, OP.THEME_GET,
+      OP.BLUETOOTH, OP.LIVE, OP.CART_INFO, OP.CART_READ].includes(op)), 'Only read-only device requests');
+    return 'PASS device update UI: connect/bootstrap guidance, cancellation, competing-action locks, corrupt transfer, retained kits, explicit preparation, capacity refusal, no device writes';
+  } finally {
+    globalThis.fetch = originalFetch;
+    await beforeInstall();
+    if (descriptor) Object.defineProperty(navigator, 'requestMIDIAccess', descriptor);
+    else delete navigator.requestMIDIAccess;
+}
 }

@@ -41,7 +41,7 @@ conversion without writing any files or contacting a device.
 
 1. Back up songs and settings before changing firmware or LSDj versions. Save compatibility between versions is not guaranteed.
 2. Choose your own `.gb` file under **Prepare firmware**. The page checks its LSDj title, MBC5 mapper, size, 128 KiB RAM requirement and header checksum. GBC-only and rumble cartridges are refused.
-3. All recognized sample kits start selected. The ROM-free **FM-1_973** template holds **31 banks plus a 256-byte header (508,160 bytes)**. A typical ROM with 13 required program/data banks leaves 18 kit banks. If necessary, deselect kits yourself; the page never silently removes them. Unknown data and zero-filled banks remain mandatory. Some modified ROMs cannot fit even with no kits.
+3. All recognized sample kits start selected. The ROM-free **FM-1_974** template holds **31 banks plus a 256-byte header (508,160 bytes)**. A typical ROM with 13 required program/data banks leaves 18 kit banks. If necessary, deselect kits yourself; the page never silently removes them. Unknown data and zero-filled banks remain mandatory. Some modified ROMs cannot fit even with no kits.
 4. Kit bank numbers and retained sample bytes are preserved. Songs referring to omitted kits lose those samples. The global ROM checksum is recalculated for the sparse image.
 5. Read the experimental/backup acknowledgement, then choose **Prepare firmware**. Template hashes, protected firmware, loader, slot mapping and package CRCs are checked before and after insertion.
 6. Download the private `.fwsc` for M-UPGRADE, or use the separate USB installer. Preparing or downloading does **not** write to a device. Changing ROM options invalidates the generated installer selection.
@@ -55,14 +55,14 @@ or template. Failed file checks allow selecting the same file again; a later
 file selection takes precedence over an earlier read or template request.
 Installer file errors are shown explicitly and clear the invalid selection.
 
-FM-1_973 restores **cursor-following FX without the channel highlight** for
+FM-1_974 retains **cursor-following FX without the channel highlight** for
 verified LSDj 9.3.9 program code, including custom or omitted sample kits.
 The browser compares the program SHA-256, not the title, and writes a cursor
 profile into the CRC-protected slot header. The firmware uses it only to read
 the current cursor channel; no version-specific RAM writes are enabled.
 Unknown programs use ALL-channel FX, explicitly reported before and after
 preparation. Theme-accent bars, meaningful segments, choice selectors and CPU1
-save fixes remain unchanged. The identity is newer than 972; normal alpha 71
+save fixes remain unchanged. The identity is newer than 973; normal alpha 71
 builds are unchanged.
 
 The template is **not hardware-validated**. Version-specific tempo shortcuts,
@@ -72,6 +72,47 @@ firmware/ROM compatibility. Other structurally valid LSDj versions remain
 experimental. The user reported successful webpage flashing of 972 but loss
 of cursor-following; 973 corrects that behavior for the verified program.
 
+### Updating from the installed LSDj
+
+**One-time bootstrap:** firmware 973 and earlier cannot export their cartridge.
+Use your original ROM once to prepare and install 974, then reconnect. Normal
+private non-slot builds do not advertise cartridge export either.
+
+For subsequent supported updates:
+
+1. Back up songs and settings separately. Connect to the running FM-1.
+2. Choose **Read installed LSDj (no device writes)**. A progress bar and Cancel
+   button are available; reading may take several minutes over MIDI.
+3. The page verifies the transferred slot and loads the latest template.
+   All currently installed kit banks are retained and locked. Missing banks
+   remain FF; previously omitted samples cannot be recovered from the device.
+4. Accept the experimental/backup acknowledgement and choose **Prepare firmware**.
+5. Download or preview the private package, then explicitly choose **Install**.
+
+Reading never writes firmware, pauses LSDj or backs up songs/settings. Data stays
+in browser memory, is not uploaded or persisted, and is discarded on reload.
+This updates Burrito around the existing LSDj; changing LSDj itself still needs
+a newer ROM. If the installed cartridge cannot fit a future template, the page
+refuses preparation rather than dropping kits. Use the original-ROM path to
+choose different kits explicitly.
+
+The read-only protocol uses `CART_INFO` (0x22) and offset-echoed `CART_READ`
+(0x23, 120-byte chunks). Timed-out reads retry; stale-offset replies are ignored;
+short chunks, checksum/layout failures and changed cartridge metadata fail
+explicitly. Cancel/disconnect releases the request and restores controls.
+Preparation/installation and physical controls are locked during the read.
+Old firmware gets bootstrap guidance, not a save-memory fallback.
+
+Run `node tests/device-update.mjs` for synthetic transfer/failure tests.
+Optional private ROM arguments compare device-readback preparation with the
+original-ROM package byte-for-byte, including kit numbering and cursor profile.
+For the actual C protocol bridge, compile source `tests/lsdj_cartridge_link.c`
+with `gcc -std=c99 -O2 -Ifirmware -Isrc ...` and set `LSDJ_CARTRIDGE_LINK` to
+that executable when running the Node test. Private temporary slots are removed.
+On a fresh localhost page, run
+`await (await import('./tests/loader-ui.mjs')).runDeviceUpdateUiTests()`
+for mocked-MIDI UI checks. This suite never contacts a physical device.
+
 **Flashing risk:** an earlier interrupted web install left an FM-1 unable to start. Keep stable power, the cable connected and this tab open/in front. Simulated transfer/retry tests and package integrity checks do not guarantee physical recovery. M-UPGRADE is an alternative transport, not proof that an experimental image is safe.
 
 ROMs and samples stay local. The checked-in template contains an erased ROM window only. Generated firmware contains your ROM: keep it private and do not commit or publish it.
@@ -80,7 +121,7 @@ The template's matching [firmware source archive](lsdj/fm1-lsdj-template-source.
 includes build instructions, licenses and a per-file source manifest. It contains
 no LSDj ROM or save. Rebuilding this archive reproduced the published template
 and metadata byte-for-byte. Archive SHA-256:
-`91ebcc9c5751fff2512209732be2a841ae2e5c3327eddc2d65255b6986c796d5`.
+`15b103c23be2b17c9b8a8ff6ffd2a3e6e5680a60361404971a8f6d7de0a6556c`.
 
 ## Local preview and checks
 
@@ -123,7 +164,7 @@ One VS Code embedded-browser tab crashed during testing; a fresh tab subsequentl
 passed a 50+ second emulated 967 run, pause/resume and 3D key/knob checks. That crash is unresolved, so this
 remains an experimental preview, not a stable audio-production tool.
 
-The refreshed FM-1_973 template also passed local package-generation and
+The refreshed FM-1_974 template also passed local package-generation and
 15-second firmware-emulator checks with LSDj 9.3.9: 661376 audio frames, LCD output,
 input accepted and CPU not halted. Its erased cartridge window and matching
 source-archive rebuild were verified. These checks do not validate physical

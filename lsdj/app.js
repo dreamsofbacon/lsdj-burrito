@@ -14,9 +14,12 @@ const enable = on => ['live-sec', 'songs-sec', 'theme-sec', 'settings-sec'].forE
 
 let midi = null;   // the MIDI options (null: firmware without them)
 let link = null, ports = null, fx = null, settings = null, theme = PRESETS[0].slice(), poll = null, busy = false, touched = 0, ble = null;
+let connected = false;
 
 /* ---------- connect ---------- */
 async function connectTo(input, output, how = 'USB') {
+  if (busy || installing()) return;
+  connected = false;
   link?.close(); link = new Link(input, output, {slow: how === 'Bluetooth'});
   if (how !== 'Bluetooth') { ble?.close(); ble = null; }
   try {
@@ -29,10 +32,12 @@ async function connectTo(input, output, how = 'USB') {
     { const w = await link.midiGet(); midi = w === null ? null : unpackMidi(w); }
     theme = await link.themeGet();
     buildFx(); buildSettings(); buildTheme(); enable(true);
+    connected = true;
     clearInterval(poll); poll = setInterval(tick, how === 'Bluetooth' ? 500 : 250);
   } catch (e) { enable(false); say('device', e.message, 'bad'); }
 }
 $('connect-btn').onclick = async () => {
+  if (busy || installing()) return;
   const unavailable = usbMidiUnavailable();
   if (unavailable) return say('device', unavailable, 'warn');
   try {
@@ -51,10 +56,11 @@ if (usbMidiUnavailable()) {
 /* Bluetooth: the FM-1 with BLUETOOTH = DEVICE (Settings) shows up as "LSDJ Burrito" */
 if (navigator.bluetooth) $('connect-ble').hidden = false;
 $('connect-ble').onclick = async () => {
+  if (busy || installing()) return;
   try {
     ble?.close();
     ble = await connectBleMidi();
-    ble.ondisconnected(() => { clearInterval(poll); enable(false); say('device', 'Bluetooth disconnected. Connect again when the FM-1 is near.', 'warn'); });
+    ble.ondisconnected(() => { connected = false; link?.close(); clearInterval(poll); enable(false); say('device', 'Bluetooth disconnected. Connect again when the FM-1 is near.', 'warn'); });
     await connectTo(ble.input, ble.output, 'Bluetooth');
   } catch (e) {
     if (e.name === 'NotFoundError') return say('device', 'No FM-1 chosen. Turn on BLUETOOTH: DEVICE in the FM-1\'s settings (GLO), then try again.', 'warn');
@@ -87,9 +93,13 @@ let editCh = null, followCursor = true, cursorCh = 0, lastLive = null, bpm = 120
 const controls = [];   // {key, where, el, set(v)}
 const curCh = () => followCursor ? cursorCh : editCh;
 function changed() {
+  if (busy || installing()) return;
   touched = Date.now();
   clearTimeout(sendTimer);
-  sendTimer = setTimeout(() => link.fxSet(packFx(fx)).catch(e => say('fx-status', e.message, 'bad')), 80);
+  sendTimer = setTimeout(() => {
+    sendTimer = null;
+    link.fxSet(packFx(fx)).catch(e => say('fx-status', e.message, 'bad'));
+  }, 80);
 }
 function control(key) {
   const p = PARAM[key], wrap = document.createElement('div'), c = () => curCh();
@@ -204,6 +214,24 @@ async function run(statusId, fn) {
   buttons.forEach(b => b.disabled = true);
   try { await fn(); } catch (e) { say(statusId, e.message, 'bad'); }
   finally { busy = false; buttons.forEach((b, i) => b.disabled = disabled[i]); $('save-progress').hidden = true; }
+}
+export async function readInstalledCartridge(progress, signal) {
+  if (!link || !connected) throw new LinkError('Connect to the running FM-1 in the Connect section first, then try Read installed LSDj again.');
+  if (busy || installing() || sendTimer) throw new LinkError('Wait for the current device operation to finish.');
+  const active = link;
+  busy = true;
+  // Lock all physical controls while leaving the cartridge Cancel button available.
+  const controls = [...document.querySelectorAll('section:not(#rom-step):not(#install-sec):not(#emulator-sec) button, section:not(#rom-step):not(#install-sec):not(#emulator-sec) input, section:not(#rom-step):not(#install-sec):not(#emulator-sec) select')];
+  const disabled = controls.map(el => el.disabled);
+  controls.forEach(el => el.disabled = true);
+  try {
+    const slot = await active.exportCartridge(progress, signal);
+    if (link !== active || !connected) throw new LinkError('The connected device changed. Read its cartridge again.');
+    return slot;
+  } finally {
+    busy = false;
+    controls.forEach((el, i) => el.disabled = disabled[i]);
+  }
 }
 const progress = () => { const p = $('save-progress'); p.hidden = false; p.value = 0; return (n, t) => { p.max = t; p.value = n; }; };
 $('export').onclick = () => run('save-status', async () => {
@@ -325,5 +353,6 @@ setBeforeInstall(async () => {
   if (busy) throw new LinkError('A song or settings operation is running. Wait for it to finish before installing firmware.');
   clearInterval(poll); poll = null;
   link?.close(); link = null; ble?.close(); ble = null;
+  connected = false;
   enable(false); say('device', 'Disconnected for the install. Connect again when it is done.', 'hint');
 });
