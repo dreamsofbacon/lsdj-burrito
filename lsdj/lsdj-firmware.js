@@ -26,7 +26,7 @@ export async function prepareLsdjFirmware(rom, keepKits, template, metadata, {ve
   const info = await identifyRom(rom, versions);
   if (!experimental) throw Error('Explicit experimental consent is required. This template is not hardware-validated.');
   if (metadata.lsdj_slot !== 1 || metadata.generic_rom !== true || metadata.experimental !== true ||
-      metadata.hardware_validated !== false || metadata.product !== 'FM-1_972' ||
+      metadata.hardware_validated !== false || metadata.product !== 'FM-1_973' ||
       metadata.usb_updater !== true || metadata.usb_protocol !== 'fm1-ota-v1')
     throw Error('Unsupported LSDj firmware template.');
   if (await sha256hex(template) !== metadata.sha256) throw Error('Firmware template integrity check failed.');
@@ -45,14 +45,14 @@ export async function prepareLsdjFirmware(rom, keepKits, template, metadata, {ve
   if (!loader || await protectedHash(app, offset, capacity) !== metadata.protected_app_sha256 ||
       await sha256hex(loaderBytes(template, pkg, loader)) !== metadata.loader_sha256)
     throw Error('Template firmware or loader verification failed.');
-  const {slot, stored, kept} = buildSlot(rom, keepKits, capacity);
+  const {slot, stored, kept} = await buildSlot(rom, keepKits, capacity);
   app.set(slot, offset);
   pkg.setApp(app);
   const bytes = pkg.serialize(), checked = checkPackage(bytes), back = new Package(bytes);
   const placed = back.dec.subarray(back.appOff + offset, back.appOff + offset + capacity);
   const parsed = parseSlot(placed, capacity);
   const after = back.dec.subarray(back.appOff, back.appOff + back.app.size);
-  if (parsed.error || parsed.stored !== stored || parsed.kits !== kept ||
+  if (parsed.error || parsed.stored !== stored || parsed.kits !== kept || parsed.cursorProfile !== info.cursorProfile ||
       await sha256hex(placed.subarray(0, slot.length)) !== await sha256hex(slot) ||
       await protectedHash(after, offset, capacity) !== metadata.protected_app_sha256 ||
       await sha256hex(loaderBytes(bytes, back, loader)) !== metadata.loader_sha256 ||

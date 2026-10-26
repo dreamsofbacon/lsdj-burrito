@@ -20,6 +20,7 @@ const title = rom => String.fromCharCode(...rom.subarray(0x134, 0x143)).replace(
 const isKit = bank => bank[0] === 0x60 && bank[1] === 0x40;
 // Only erased banks can be omitted without changing what the emulator reads.
 const isEmpty = bank => bank.every(b => b === 0xff);
+const cursorProfile = hash => hash === 'df0dee277306cf77eb883d8ce0a85aacebd6e17e82dca50b6ad188c7d691b76d' ? 1 : 0;
 
 export function validateRom(rom) {
   if (!(rom instanceof Uint8Array) || rom.length < 0x150 || !title(rom).startsWith('LSDj'))
@@ -62,7 +63,7 @@ export async function identifyRom(rom, versions) {
   const sameProgram = versions.find(v => v.programSha256 === programSha256);
   let global = 0;
   for (let i = 0; i < rom.length; i++) if (i !== 0x14e && i !== 0x14f) global = (global + rom[i]) & 0xffff;
-  return {title: name, sha256, programSha256, tested: !!known, sameProgram: !!sameProgram,
+  return {title: name, sha256, programSha256, cursorProfile: cursorProfile(programSha256), tested: !!known, sameProgram: !!sameProgram,
     globalChecksumValid: global === (rom[0x14e] << 8 | rom[0x14f]),
     version: known?.version ?? name.replace(/^LSDj-?v?/, '')};
 }
@@ -119,7 +120,7 @@ export function planRom(rom, keepKits, capacity) {
 }
 
 // Build the window contents read by lsdj_slot_parse().
-export function buildSlot(rom, keepKits, capacity) {
+export async function buildSlot(rom, keepKits, capacity) {
   if (!Number.isInteger(capacity) || capacity < SLOT_HEADER + BANK || (capacity - SLOT_HEADER) % BANK)
     throw Error('Invalid firmware slot capacity.');
   const {storage, bankMap, kept} = sparsePack(rom, keepKits), stored = storage.length / BANK;
@@ -129,6 +130,7 @@ export function buildSlot(rom, keepKits, capacity) {
   slot.set([..."LSDJSLOT"].map(c => c.charCodeAt(0)));
   v.setUint16(8, 1, true); v.setUint16(10, bankMap.length, true); v.setUint16(12, stored, true); v.setUint16(14, kept, true);
   slot.fill(0xff, 20, 20 + SLOT_MAX_BANKS); slot.set(bankMap, 20);
+  slot[148] = cursorProfile(await programHash(rom));
   slot.set(storage, SLOT_HEADER);
   v.setUint32(16, crc32(storage), true);
   v.setUint32(252, crc32(slot.subarray(0, 252)), true);
@@ -144,6 +146,7 @@ export function parseSlot(w, capacity) {
   if (w.subarray(0, 8).every(b => b === 0xff)) return {error: 'empty'};
   if (String.fromCharCode(...w.subarray(0, 8)) !== 'LSDJSLOT' || v.getUint16(8, true) !== 1 ||
       v.getUint32(252, true) !== crc32(w.subarray(0, 252))) return {error: 'header'};
+  if (w[148] > 1) return {error: 'layout'};
   const logical = v.getUint16(10, true), stored = v.getUint16(12, true), kits = v.getUint16(14, true);
   if (logical < 2 || logical > SLOT_MAX_BANKS || (logical & (logical - 1)) || !stored || kits > stored ||
       stored > logical || stored > Math.floor((capacity - SLOT_HEADER) / BANK) || w.length < slotBytes(stored))
@@ -153,5 +156,5 @@ export function parseSlot(w, capacity) {
   const present = map.filter(m => m !== 0xff);
   if (present.length !== stored || present.some((m, i) => m !== i)) return {error: 'layout'};
   if (v.getUint32(16, true) !== crc32(w.subarray(SLOT_HEADER, SLOT_HEADER + stored * BANK))) return {error: 'data'};
-  return {logical, stored, kits, map: map.slice(0, logical)};
+  return {logical, stored, kits, cursorProfile: w[148], map: map.slice(0, logical)};
 }

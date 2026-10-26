@@ -147,7 +147,8 @@ export async function runLoaderUiTests() {
     assert($('rom').disabled && $('fw-file').disabled, 'Preparation locks conflicting file inputs');
     assert($('emu-selected').disabled, 'Preparation blocks preview of the previous installer selection');
     await preparing;
-    text('rom-info', /Prepared FM-1_972/);
+    text('rom-info', /Prepared FM-1_973/);
+    text('rom-info', /Cursor-following FX unavailable: FX targets ALL channels/);
     text('rom-next', /Step 4/);
     assert(!$('rom-download').hidden && !$('fw-install').disabled, 'Prepared package available for download and explicit install');
     assert(!$('rom-actions').hidden && !$('emu-selected').disabled, 'Completed package exposes download/preview/install navigation');
@@ -198,7 +199,7 @@ export async function runUnsupportedMidiUiTests() {
     $('rom-experimental').checked = true;
     $('rom-experimental').onchange();
     await $('rom-build').onclick();
-    text('rom-info', /Prepared FM-1_972/);
+    text('rom-info', /Prepared FM-1_973/);
     assert(!$('rom-download').hidden && $('fw-install').disabled && !$('emu-selected').disabled,
       'Unsupported USB still allows preparing, downloading and selecting local previews');
     return 'PASS unsupported Web MIDI: no device access/confirmation, USB disabled, local preparation/download/preview preserved';

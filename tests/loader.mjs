@@ -41,15 +41,19 @@ const zeroBank = rom.slice(); zeroBank.fill(0, 2 * BANK, 3 * BANK);
 assert.notEqual(sparsePack(zeroBank, []).bankMap[2], 255);
 assert.notEqual(await programHash(zeroBank), await programHash(rom));
 assert.throws(() => sparsePack(rom, [1]), /selection/);
-assert.throws(() => buildSlot(rom, [8, 26, 40], cap), /Too many/);
+await assert.rejects(buildSlot(rom, [8, 26, 40], cap), /Too many/);
 let total = 0;
 for (let b = 0; b < 64; b++) for (let i = 0; i < BANK; i++) {
   if (!b && (i === 0x14e || i === 0x14f)) continue;
   total = (total + (packed.bankMap[b] === 255 ? 255 : packed.storage[packed.bankMap[b] * BANK + i])) & 65535;
 }
 assert.equal(total, packed.storage[0x14e] << 8 | packed.storage[0x14f]);
-const {slot} = buildSlot(rom, [26, 40], cap);
+const {slot} = await buildSlot(rom, [26, 40], cap);
 assert.equal(parseSlot(slot, cap).stored, 4);
+assert.equal(parseSlot(slot, cap).cursorProfile, 0, 'a matching title alone cannot enable cursor tracking');
+const badProfile = slot.slice(); badProfile[148] = 2;
+new DataView(badProfile.buffer).setUint32(252, crc32(badProfile.subarray(0, 252)), true);
+assert.equal(parseSlot(badProfile, cap).error, 'layout');
 for (const size of [0, 8, 255, slot.length - 1]) assert.ok(parseSlot(slot.subarray(0, size), cap).error);
 const corrupt = slot.slice(); corrupt[300] ^= 1; assert.equal(parseSlot(corrupt, cap).error, 'data');
 const duplicate = slot.slice(); duplicate[20 + 40] = 2;
@@ -92,7 +96,8 @@ const template = new Uint8Array(readFileSync(new URL('../lsdj/fm1-lsdj-template.
 const templateBefore = template.slice();
 await assert.rejects(prepareLsdjFirmware(rom, [26, 40], template, metadata), /consent/);
 const result = await prepareLsdjFirmware(rom, [26, 40], template, metadata, {experimental: true});
-assert.equal(checkPackage(result.bytes).product, 'FM-1_972');
+assert.equal(checkPackage(result.bytes).product, 'FM-1_973');
+await assert.rejects(prepareLsdjFirmware(rom, [], template, {...metadata, product: 'FM-1_972'}, {experimental: true}), /Unsupported/);
 assert.deepEqual(template, templateBefore);
 const p = new Package(result.bytes);
 assert.equal(crc16(p.dec.subarray(p.appOff, p.appOff + p.app.size)), p.app.dcrc);
@@ -120,13 +125,30 @@ for (const file of process.argv.slice(2)) {
   }
   const r = await prepareLsdjFirmware(local, keep, template, metadata, {experimental: true});
   assert.equal(r.plan.kept, keep.length);
+  if (info.tested && info.version === '9.3.9') {
+    assert.equal(r.info.cursorProfile, 1);
+    for (const selected of [[], keep]) {
+      const originalSlot = await buildSlot(local, selected, metadata.cartridge_capacity);
+      assert.equal(parseSlot(originalSlot.slot, metadata.cartridge_capacity).cursorProfile, 1);
+    }
+    const samples = local.slice();
+    assert.ok(kits.length);
+    samples[kits[0].bank * BANK + 600] ^= 1;
+    const sampleSlot = await buildSlot(samples, keep, metadata.cartridge_capacity);
+    assert.equal(parseSlot(sampleSlot.slot, metadata.cartridge_capacity).cursorProfile, 1, 'custom kits retain cursor profile');
+    const program = local.slice(); program[BANK + 600] ^= 1;
+    const unknownSlot = await buildSlot(program, keep, metadata.cartridge_capacity);
+    assert.equal(parseSlot(unknownSlot.slot, metadata.cartridge_capacity).cursorProfile, 0, 'changed program cannot inherit a cursor profile');
+  }
   console.log('PASS local package round trip:', r.info.title, 'code', r.plan.codeBanks, 'kits', keep.length, '/', kits.length);
   if (process.env.LSDJ_SLOT_SMOKE) {
     const dir = mkdtempSync(join(tmpdir(), 'lsdj-slot-')), path = join(dir, 'slot.bin');
     try {
-      writeFileSync(path, buildSlot(local, keep, metadata.cartridge_capacity).slot);
-      const smoke = spawnSync(process.env.LSDJ_SLOT_SMOKE, [path], {encoding: 'utf8', timeout: 120000});
+      writeFileSync(path, (await buildSlot(local, keep, metadata.cartridge_capacity)).slot);
+      const args = process.env.LSDJ_CURSOR_SAVE ? [path, process.env.LSDJ_CURSOR_SAVE] : [path];
+      const smoke = spawnSync(process.env.LSDJ_SLOT_SMOKE, args, {encoding: 'utf8', timeout: 120000});
       assert.equal(smoke.status, 0, String(smoke.error || smoke.stderr));
+      if (info.cursorProfile && process.env.LSDJ_CURSOR_SAVE) assert.match(smoke.stdout, /PASS cursor FX/);
       console.log(smoke.stdout.trim());
     } finally { unlinkSync(path); rmdirSync(dir); }
   }

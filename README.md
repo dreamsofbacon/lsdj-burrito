@@ -41,7 +41,7 @@ conversion without writing any files or contacting a device.
 
 1. Back up songs and settings before changing firmware or LSDj versions. Save compatibility between versions is not guaranteed.
 2. Choose your own `.gb` file under **Prepare firmware**. The page checks its LSDj title, MBC5 mapper, size, 128 KiB RAM requirement and header checksum. GBC-only and rumble cartridges are refused.
-3. All recognized sample kits start selected. The ROM-free **FM-1_972** template holds **31 banks plus a 256-byte header (508,160 bytes)**. A typical ROM with 13 required program/data banks leaves 18 kit banks. If necessary, deselect kits yourself; the page never silently removes them. Unknown data and zero-filled banks remain mandatory. Some modified ROMs cannot fit even with no kits.
+3. All recognized sample kits start selected. The ROM-free **FM-1_973** template holds **31 banks plus a 256-byte header (508,160 bytes)**. A typical ROM with 13 required program/data banks leaves 18 kit banks. If necessary, deselect kits yourself; the page never silently removes them. Unknown data and zero-filled banks remain mandatory. Some modified ROMs cannot fit even with no kits.
 4. Kit bank numbers and retained sample bytes are preserved. Songs referring to omitted kits lose those samples. The global ROM checksum is recalculated for the sparse image.
 5. Read the experimental/backup acknowledgement, then choose **Prepare firmware**. Template hashes, protected firmware, loader, slot mapping and package CRCs are checked before and after insertion.
 6. Download the private `.fwsc` for M-UPGRADE, or use the separate USB installer. Preparing or downloading does **not** write to a device. Changing ROM options invalidates the generated installer selection.
@@ -55,11 +55,22 @@ or template. Failed file checks allow selecting the same file again; a later
 file selection takes precedence over an earlier read or template request.
 Installer file errors are shown explicitly and clear the invalid selection.
 
-FM-1_972 refreshes the template from the alpha 71 source: theme-accent FX bars,
-meaningful segments, choice selectors, no channel-column tint and CPU1 save fixes.
-Its identity is newer than 971; normal alpha 71 builds are unchanged.
+FM-1_973 restores **cursor-following FX without the channel highlight** for
+verified LSDj 9.3.9 program code, including custom or omitted sample kits.
+The browser compares the program SHA-256, not the title, and writes a cursor
+profile into the CRC-protected slot header. The firmware uses it only to read
+the current cursor channel; no version-specific RAM writes are enabled.
+Unknown programs use ALL-channel FX, explicitly reported before and after
+preparation. Theme-accent bars, meaningful segments, choice selectors and CPU1
+save fixes remain unchanged. The identity is newer than 972; normal alpha 71
+builds are unchanged.
 
-The template is **not hardware-validated**. It intentionally disables version-specific tempo shortcuts, MIDI clock integration, song cues and cursor-following effects for every ROM, including 9.3.9. An exact ROM hash or matching program fingerprint is evidence of identity, not proof that this firmware/ROM combination boots or plays correctly. Other structurally valid LSDj versions remain experimental.
+The template is **not hardware-validated**. Version-specific tempo shortcuts,
+MIDI clock integration and song cues remain disabled. An exact ROM hash or
+matching program fingerprint is evidence of identity, not proof of complete
+firmware/ROM compatibility. Other structurally valid LSDj versions remain
+experimental. The user reported successful webpage flashing of 972 but loss
+of cursor-following; 973 corrects that behavior for the verified program.
 
 **Flashing risk:** an earlier interrupted web install left an FM-1 unable to start. Keep stable power, the cable connected and this tab open/in front. Simulated transfer/retry tests and package integrity checks do not guarantee physical recovery. M-UPGRADE is an alternative transport, not proof that an experimental image is safe.
 
@@ -69,7 +80,7 @@ The template's matching [firmware source archive](lsdj/fm1-lsdj-template-source.
 includes build instructions, licenses and a per-file source manifest. It contains
 no LSDj ROM or save. Rebuilding this archive reproduced the published template
 and metadata byte-for-byte. Archive SHA-256:
-`6d63bb46b828d7d18b41f2a65b81fe490a789a7b43482a926c3acadf055d8c57`.
+`91ebcc9c5751fff2512209732be2a841ae2e5c3327eddc2d65255b6986c796d5`.
 
 ## Local preview and checks
 
@@ -112,11 +123,21 @@ One VS Code embedded-browser tab crashed during testing; a fresh tab subsequentl
 passed a 50+ second emulated 967 run, pause/resume and 3D key/knob checks. That crash is unresolved, so this
 remains an experimental preview, not a stable audio-production tool.
 
-The refreshed FM-1_972 template also passed local package-generation and
+The refreshed FM-1_973 template also passed local package-generation and
 15-second firmware-emulator checks with LSDj 9.3.9: 661376 audio frames, LCD output,
 input accepted and CPU not halted. Its erased cartridge window and matching
 source-archive rebuild were verified. These checks do not validate physical
-flashing, audible fidelity or save compatibility.
+flashing, audible fidelity or save compatibility. The generated-slot host test
+also moved the real ROM cursor through channels 0/1/2/3/2/1/0 and verified cutoff
+edits affected only that channel. Existing rendering tests still confirm no
+channel tint across all 92 themes.
+
+For that cursor regression, compile the source repository's `tests/lsdj_rom.c`
+with `src/gb_port.c`, `build/minigb_apu.c`, `-Isrc -Ifirmware -Ivendor/peanut-gb`,
+`-DMINIGB_APU_AUDIO_FORMAT_S16SYS -DAUDIO_SAMPLE_RATE=44100 -UNDEBUG` and `-lm`.
+Run `tests/loader.mjs` with a private 9.3.9 ROM argument and environment variables
+`LSDJ_SLOT_SMOKE` (compiled test path) and `LSDJ_CURSOR_SAVE` (a private, exact
+128-KiB save that starts on the SONG screen). No save is modified or published.
 
 Upstream source revision, deployed WASM provenance, versions and asset hashes are
 pinned in [emulator/upstream.json](emulator/upstream.json). The WASM was obtained

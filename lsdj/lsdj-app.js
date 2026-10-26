@@ -91,6 +91,8 @@ $('rom').onchange = async e => {
     say(`${file.name} (${info.title}): ${info.tested ? 'exact ROM has prior host-test evidence' :
       info.sameProgram ? 'program banks match a tested ROM; sample content differs' : 'unverified program build'}. ` +
       'This generic firmware template is experimental, not hardware-validated. ' +
+      (info.cursorProfile ? 'Cursor-following FX enabled (verified 9.3.9 program); channel highlight stays off. ' :
+        'Cursor-following FX unavailable for this program: FX targets ALL channels. ') +
       (!info.globalChecksumValid ? 'The source global checksum is stale; the prepared ROM checksum will be recalculated. ' : '') +
       'No files are uploaded.', 'warn');
     for (const kit of kits) {
@@ -132,6 +134,8 @@ $('rom-build').onclick = async () => {
     $('rom-download').href = downloadUrl; $('rom-download').download = name; $('rom-download').hidden = false;
     $('rom-actions').hidden = false;
     say(`Prepared ${result.product}; package checks passed. SHA-256: ${result.sha256}. ` +
+      (result.info.cursorProfile ? 'Cursor-following FX enabled; no channel highlight. ' :
+        'Cursor-following FX unavailable: FX targets ALL channels. ') +
       'Download for M-UPGRADE or use the separate USB installer below. Nothing has been sent to the device. ' +
       'The package contains your ROM: keep it private.', 'ok');
   } catch (err) { say(err.message, 'bad'); }
