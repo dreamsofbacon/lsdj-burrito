@@ -1,3 +1,3 @@
 [
-  {"version": "9.3.9", "sha256": "c6df654549c0b08741bcc12190946da3fd4bc2a1a1aed7445428453fe5dfcfc3", "programSha256": "df0dee277306cf77eb883d8ce0a85aacebd6e17e82dca50b6ad188c7d691b76d", "notes": "FM-1_974 adds read-only cartridge export for future updates, retaining cursor-following FX for this program fingerprint, including sample-kit variants, without channel highlighting. The template remains experimental."}
+  {"version": "9.3.9", "sha256": "c6df654549c0b08741bcc12190946da3fd4bc2a1a1aed7445428453fe5dfcfc3", "programSha256": "df0dee277306cf77eb883d8ce0a85aacebd6e17e82dca50b6ad188c7d691b76d", "notes": "FM-1_975 adds MASTER All FX bypass and matching reorganized controls. Read-only cartridge export and cursor-profile support for this program fingerprint, including sample-kit variants, are retained without channel highlighting. Physical cursor-following diagnosis remains pending; the template is experimental."}
 ]

@@ -23,6 +23,36 @@ availability, not device presence or permission. ROM preparation/download still
 work on secure browsers without Web MIDI; emulator support has its own WebGL,
 WebAssembly and audio requirements below.
 
+## FX organization (FM-1_975 and newer)
+
+The first card/device page is **MASTER**: **K1 All FX** switches channel DSP,
+shared echo and compressor on/off together; **K2 Compressor** is shared by all
+channels. All FX off keeps the original dry mix and channel mutes without
+erasing any settings. It is independent of the cursor and the channel chosen
+on the webpage. SAVE/Keep and 17-word settings backups retain the switch.
+
+The remaining pages match the device knobs:
+
+| Page | K1 | K2 | K3 | K4 |
+| --- | --- | --- | --- | --- |
+| 2 FILTER | Channel FX | Filter type | Cutoff | Resonance |
+| 3 DRIVE | Drive | Distortion | Warmth | - |
+| 4 LFO | Rate | Depth | Shape | Destination |
+| 5 LO-FI | Crush | Decimate | Echo send | - |
+| 6 ECHO | Time | Feedback | Mix | Tone |
+| 7 ECHO MOD | Wobble | Sync | Mode | Freeze |
+
+SELECT changes the device page. Unused knobs do nothing. ECHO and ECHO MOD
+are shared; FILTER/DRIVE/LFO/LO-FI edit the chosen channel. Freeze remains
+read-only on the webpage (hold FX + D5 on the FM-1).
+Older connected firmware retains its original page/knob layout, with an
+explanation that All FX needs 975 or newer. New-layout backups cannot be
+restored to older firmware. Both 11-word and 17-word legacy backups remain
+accepted on supporting firmware.
+
+This does not resolve the reported physical cursor-following failure; hardware
+diagnosis is still pending.
+
 ## Importing saves with extra bytes
 
 Raw LSDj saves are 131072 bytes. For a 131088-byte file (such as the reported LSDj
@@ -41,7 +71,7 @@ conversion without writing any files or contacting a device.
 
 1. Back up songs and settings before changing firmware or LSDj versions. Save compatibility between versions is not guaranteed.
 2. Choose your own `.gb` file under **Prepare firmware**. The page checks its LSDj title, MBC5 mapper, size, 128 KiB RAM requirement and header checksum. GBC-only and rumble cartridges are refused.
-3. All recognized sample kits start selected. The ROM-free **FM-1_974** template holds **31 banks plus a 256-byte header (508,160 bytes)**. A typical ROM with 13 required program/data banks leaves 18 kit banks. If necessary, deselect kits yourself; the page never silently removes them. Unknown data and zero-filled banks remain mandatory. Some modified ROMs cannot fit even with no kits.
+3. All recognized sample kits start selected. The ROM-free **FM-1_975** template holds **31 banks plus a 256-byte header (508,160 bytes)**. A typical ROM with 13 required program/data banks leaves 18 kit banks. If necessary, deselect kits yourself; the page never silently removes them. Unknown data and zero-filled banks remain mandatory. Some modified ROMs cannot fit even with no kits.
 4. Kit bank numbers and retained sample bytes are preserved. Songs referring to omitted kits lose those samples. The global ROM checksum is recalculated for the sparse image.
 5. Read the experimental/backup acknowledgement, then choose **Prepare firmware**. Template hashes, protected firmware, loader, slot mapping and package CRCs are checked before and after insertion.
 6. Download the private `.fwsc` for M-UPGRADE, or use the separate USB installer. Preparing or downloading does **not** write to a device. Changing ROM options invalidates the generated installer selection.
@@ -55,7 +85,7 @@ or template. Failed file checks allow selecting the same file again; a later
 file selection takes precedence over an earlier read or template request.
 Installer file errors are shown explicitly and clear the invalid selection.
 
-FM-1_974 retains **cursor-following FX without the channel highlight** for
+FM-1_975 retains **cursor-profile support without the channel highlight** for
 verified LSDj 9.3.9 program code, including custom or omitted sample kits.
 The browser compares the program SHA-256, not the title, and writes a cursor
 profile into the CRC-protected slot header. The firmware uses it only to read
@@ -75,7 +105,7 @@ of cursor-following; 973 corrects that behavior for the verified program.
 ### Updating from the installed LSDj
 
 **One-time bootstrap:** firmware 973 and earlier cannot export their cartridge.
-Use your original ROM once to prepare and install 974, then reconnect. Normal
+Use your original ROM once to prepare and install 974 or newer, then reconnect. Normal
 private non-slot builds do not advertise cartridge export either.
 
 For subsequent supported updates:
@@ -121,7 +151,7 @@ The template's matching [firmware source archive](lsdj/fm1-lsdj-template-source.
 includes build instructions, licenses and a per-file source manifest. It contains
 no LSDj ROM or save. Rebuilding this archive reproduced the published template
 and metadata byte-for-byte. Archive SHA-256:
-`15b103c23be2b17c9b8a8ff6ffd2a3e6e5680a60361404971a8f6d7de0a6556c`.
+`6cddc67bfbd6de771eb8d677389eaff09feb9980abc62ef7d04e51e3d920f0a5`.
 
 ## Local preview and checks
 
@@ -164,14 +194,22 @@ One VS Code embedded-browser tab crashed during testing; a fresh tab subsequentl
 passed a 50+ second emulated 967 run, pause/resume and 3D key/knob checks. That crash is unresolved, so this
 remains an experimental preview, not a stable audio-production tool.
 
-The refreshed FM-1_974 template also passed local package-generation and
+The FM-1_975 template passed local package-generation and
 15-second firmware-emulator checks with LSDj 9.3.9: 661376 audio frames, LCD output,
 input accepted and CPU not halted. Its erased cartridge window and matching
 source-archive rebuild were verified. These checks do not validate physical
-flashing, audible fidelity or save compatibility. The generated-slot host test
-also moved the real ROM cursor through channels 0/1/2/3/2/1/0 and verified cutoff
-edits affected only that channel. Existing rendering tests still confirm no
+flashing, audible fidelity or save compatibility. The earlier 974 generated-slot
+host test moved the real ROM cursor through channels 0/1/2/3/2/1/0 and verified
+cutoff edits affected only that channel; its private SONG-screen fixture was
+not available for the 975 rerun. Existing rendering tests still confirm no
 channel tint across all 92 themes.
+
+The 975 FX tests additionally verify bit-exact global bypass with channel mutes,
+preserved settings, advancing echo/LFO/compressor state, seven-page mappings,
+inert unused knobs, legacy page migration, and USB/Bluetooth settings round trips.
+Browser checks cover All FX independently of the selected channel, live device
+state, 11/17-word backups, older-firmware gating and overflow-free controls at
+320/390/820/1280-pixel widths.
 
 For that cursor regression, compile the source repository's `tests/lsdj_rom.c`
 with `src/gb_port.c`, `build/minigb_apu.c`, `-Isrc -Ifirmware -Ivendor/peanut-gb`,
@@ -211,6 +249,10 @@ On a fresh localhost page in a browser without Web MIDI, run
 to check disabled USB controls, early rejection before install confirmation and
 continued local preparation/download/preview selection. This test does not start
 the emulator or access a device.
+
+Run `node tests/fx-model.mjs` for FX format/layout tests. On a fresh local preview,
+run `await (await import('./tests/fx-ui.mjs')).runFxUiTests()` for simulated MIDI
+controls and backup compatibility; reload afterward to remove the mock connection.
 
 Run `node tests/loader.mjs` with Node 22+ for synthetic ROM, sample selection, slot, protected-template, package and simulated transport regressions. Optional positional arguments are local ROM paths; these test package round trips without saving ROM-bearing packages. With `LSDJ_SLOT_SMOKE` set to the firmware's compiled `tests/lsdj_rom.c` executable, they also test each generated slot with the emulator for 600 frames. This is not an audible sample or hardware test.
 

@@ -22,18 +22,28 @@ export const ECHO_PARAMS = [
   {key: 'sync', name: 'Sync', choices: ['Free', 'Tempo']}, {key: 'mode', name: 'Mode', choices: ['Mono', 'Ping-pong']},
   {key: 'tone', name: 'Tone'}, {key: 'wobble', name: 'Wobble'}];
 /* The FM-1's effects pages: KNOB 1-4 in order (firmware lsdj_fx_page_knob). Before alpha 66 only the old four. */
-export const PAGES = [
+export const LEGACY_PAGES = [
   {name: 'FILTER', knobs: [['ch', 'drive'], ['ch', 'type'], ['ch', 'cutoff'], ['ch', 'reso']]},
   {name: 'TONE', knobs: [['ch', 'drive'], ['q', 'dist'], ['q', 'warm'], ['comp', 'comp']], v2: true},
   {name: 'LFO', knobs: [['q', 'lfoRate'], ['q', 'lfoDepth'], ['q', 'lfoShape'], ['q', 'lfoDest']], v2: true},
   {name: 'LO-FI', knobs: [['ch', 'crush'], ['ch', 'decim'], ['ch', 'send'], ['flags', 'fxOn']]},
   {name: 'ECHO', knobs: [['echo', 'time'], ['echo', 'feedback'], ['echo', 'mix'], ['echo', 'tone']]},
   {name: 'ECHO MORE', knobs: [['echo', 'wobble'], ['echo', 'sync'], ['echo', 'mode'], ['echo', 'freeze']]}];
+export const PAGES = [
+  {name: 'MASTER', knobs: [['master', 'allFxOn'], ['comp', 'comp'], null, null]},
+  {name: 'FILTER', knobs: [['flags', 'fxOn'], ['ch', 'type'], ['ch', 'cutoff'], ['ch', 'reso']]},
+  {name: 'DRIVE', knobs: [['ch', 'drive'], ['q', 'dist'], ['q', 'warm'], null]},
+  LEGACY_PAGES[2],
+  {name: 'LO-FI', knobs: [['ch', 'crush'], ['ch', 'decim'], ['ch', 'send'], null]},
+  LEGACY_PAGES[4],
+  {...LEGACY_PAGES[5], name: 'ECHO MOD'}];
+export const pagesForFx = fx => fx.v3 ? PAGES : LEGACY_PAGES;
 export const PAGES_OLD = [0, 3, 4, 5];   // the old firmware's page numbers -> these pages
 export const PARAM = Object.fromEntries([
   ...CH_PARAMS.map(p => [p.key, {...p, where: 'ch'}]), ...Q_PARAMS.map(p => [p.key, {...p, where: 'q'}]),
   ...ECHO_PARAMS.map(p => [p.key, {...p, where: 'echo'}]),
   ['comp', {key: 'comp', name: 'Compressor', where: 'comp'}],
+  ['allFxOn', {key: 'allFxOn', name: 'All FX', where: 'master', choices: ['Off', 'On']}],
   ['fxOn', {key: 'fxOn', name: 'Channel FX', where: 'flags', choices: ['Off', 'On']}],
   ['freeze', {key: 'freeze', name: 'Freeze', where: 'flags', choices: ['Off', 'On'], live: true}]]);
 const MARK = 0xF2;
@@ -43,19 +53,25 @@ const wordsOf = (b, n) => Array.from({length: n}, (_, i) => (b[4 * i] | b[4 * i 
 
 /* 17 words (alpha 66 and later: v2) or 11 */
 export function unpackFx(words) {
+  if (!Array.isArray(words) || ![11, 17].includes(words.length) ||
+      words.some(w => !Number.isInteger(w) || w < 0 || w > 0xFFFFFFFF)) throw Error('Invalid effects setup.');
   const v2 = words.length >= 17, b = bytesOf(words, v2 ? 17 : 11);
   if (b[42] !== MARK) throw Error('Not an effects setup from this firmware.');
+  if (b[37] > 2) throw Error('Unsupported effects layout. Update the webpage.');
+  const v3 = b[37] === 2;
+  if (v3 && (!v2 || b[38] >= PAGES.length || b[39] > 1 || b[40] || b[41])) throw Error('Invalid master effects setup.');
   const ch = CHANNELS.map((_, c) => Object.fromEntries(CH_PARAMS.map((p, i) => [p.key, b[c * 7 + i]])));
   const q = CHANNELS.map((_, c) => Object.fromEntries(Q_PARAMS.map((p, i) => [p.key, v2 ? b[44 + c * 6 + i] : 0])));
   const echo = Object.fromEntries(ECHO_PARAMS.map((p, i) => [p.key, b[28 + i]]));
-  const page = v2 ? b[38] % PAGES.length : PAGES_OLD[b[38] & 3];
-  return {v2, ch, q, echo, comp: v2 ? b[43] : 0, fxOff: b[35], target: b[36], page};
+  const page = v3 ? b[38] : b[39] || b[40] || b[41] ? 0 : v2 ? b[38] % LEGACY_PAGES.length : PAGES_OLD[b[38] & 3];
+  return {v2, v3, ch, q, echo, comp: v2 ? b[43] : 0, fxOff: b[35], target: b[36], page, bypass: v3 ? b[39] : 0};
 }
 export function packFx(fx) {
   const n = fx.v2 ? 17 : 11, b = new Uint8Array(4 * n);
   fx.ch.forEach((c, ci) => CH_PARAMS.forEach((p, i) => { b[ci * 7 + i] = c[p.key] & 127; }));
   ECHO_PARAMS.forEach((p, i) => { b[28 + i] = fx.echo[p.key] & 127; });
-  b[35] = fx.fxOff & 15; b[36] = fx.target; b[37] = 1; b[42] = MARK;
+  b[35] = fx.fxOff & 15; b[36] = fx.target; b[37] = fx.v3 ? 2 : 1; b[42] = MARK;
+  if (fx.v3) b[39] = fx.bypass ? 1 : 0;
   if (fx.v2) {
     b[38] = fx.page; b[43] = fx.comp & 127;
     fx.q.forEach((c, ci) => Q_PARAMS.forEach((p, i) => { b[44 + ci * 6 + i] = c[p.key] & 127; }));
@@ -92,6 +108,7 @@ export function paramGet(fx, key, c) {
   case 'q': return fx.q[c][key];
   case 'echo': return fx.echo[key];
   case 'comp': return fx.comp;
+  case 'master': return fx.bypass ? 0 : 1;
   default: return key === 'fxOn' ? ((fx.fxOff >> c) & 1 ? 0 : 1) : (fx.freeze ? 1 : 0);
   }
 }
@@ -102,12 +119,16 @@ export function paramSet(fx, key, c, v) {
   case 'q': fx.q[c][key] = v; if ((key === 'warm' || (key === 'lfoDepth' && fx.q[c].lfoDest === 0)) && v && !fx.ch[c].type) fx.ch[c].type = 1; break;
   case 'echo': fx.echo[key] = v; break;
   case 'comp': fx.comp = v; break;
+  case 'master':
+    if (!fx.v3) throw Error('All FX requires FM-1_975 or newer firmware.');
+    fx.bypass = v ? 0 : 1; break;
   default: if (key === 'fxOn') fx.fxOff = v ? fx.fxOff & ~(1 << c) : fx.fxOff | (1 << c);
   }
 }
 /* A short line per channel: what is on. */
 export function channelSummary(fx, c) {
   const ch = fx.ch[c], q = fx.q[c], on = [];
+  if (fx.bypass) return 'dry (All FX off)';
   if ((fx.fxOff >> c) & 1) return 'dry';
   if (ch.type) on.push(['', 'LP', 'HP', 'BP', 'Notch', 'LP24'][ch.type] + ' ' + ch.cutoff);
   if (ch.drive) on.push(['Soft', 'Hard', 'Fold', 'Fuzz'][q.dist] + ' ' + ch.drive);

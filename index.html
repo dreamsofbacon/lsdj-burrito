@@ -40,17 +40,17 @@ table.fx{border-collapse:collapse;width:100%;font-size:13px}
 #fx-follow{flex:0 0 auto;min-width:0;align-self:stretch;justify-content:center}
 #fx-follow.on{background:var(--accent);color:var(--bg);border-color:var(--accent)}
 .fx-editing{font-size:18px;margin:4px 0 10px}
-.fx-pages{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
+.fx-pages{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(250px,100%),1fr));gap:10px}
 .fx-card{border:1px solid var(--line);border-radius:10px;padding:10px 12px}
-.fx-card h3{margin:0 0 8px;display:flex;gap:8px;align-items:baseline;font-size:14px;letter-spacing:.04em}
+.fx-card h3{margin:0 0 8px;display:flex;flex-wrap:wrap;gap:8px;align-items:baseline;font-size:14px;letter-spacing:.04em}
 .fx-who{color:var(--muted);font-weight:400;font-size:12px;letter-spacing:0}
 .fx-onfm1{display:none;margin-left:auto;font-size:11px;font-weight:600;color:#000;background:var(--hi);border-radius:6px;padding:1px 6px;letter-spacing:0}
 .fx-card.fm1{border-color:var(--hi);box-shadow:0 0 0 2px var(--hi) inset}
 .fx-card.fm1 .fx-onfm1{display:inline}
-.fx-row{display:grid;grid-template-columns:2.2em minmax(4.5em,7.5em) minmax(0,1fr);gap:6px;align-items:center;padding:3px 2px;border-radius:6px}
+.fx-row{display:grid;grid-template-columns:2.2em minmax(0,1fr);gap:6px;align-items:center;padding:3px 2px;border-radius:6px}
 .fx-row .knob{font:600 11px ui-monospace,monospace;color:var(--muted);border:1px solid var(--line);border-radius:50%;width:2em;height:2em;display:grid;place-items:center}
 .fx-name small{color:var(--muted)}
-.fx-ctl{display:flex;gap:6px;align-items:center;min-width:0}
+.fx-ctl{display:flex;grid-column:1/-1;gap:6px;align-items:center;min-width:0}
 .fx-ctl input[type=range]{flex:1;min-width:60px}
 .fx-ctl select{flex:1;min-width:0}
 .fx-ctl output{font:12px ui-monospace,monospace;min-width:4em;text-align:right;color:var(--muted)}
@@ -100,6 +100,7 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <section id="live-sec" aria-disabled="true">
 <h2>Live effects <span id="live-badges"></span></h2>
 <p class="hint">Follows the FM-1 as you play: a control the FM-1 changes lights up. Changes here go to the FM-1 straight away; <b>Keep on FM-1</b> stores the setup (as SAVE does). The cards are the FM-1's effects pages; K1-K4 are the knobs that play them there.</p>
+<p class="hint">On FM-1_975 or newer, <b>MASTER K1: All FX</b> bypasses all channel effects, shared echo and compressor without losing settings. <b>FILTER K1: Channel FX</b> bypasses just the selected channel. MASTER, ECHO and ECHO MOD are shared; other pages edit the selected channel. Turn SELECT on the device to change pages. Older firmware keeps its original layout below.</p>
 <div id="fx-channels" class="chan-tabs"></div>
 <p id="fx-editing" class="fx-editing"></p>
 <div id="fx-pages" class="fx-pages"></div>
@@ -150,8 +151,8 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <progress id="rom-read-progress" value="0" max="1" hidden></progress>
 <p class="hint">For updates without choosing a ROM, connect to the running FM-1 above, then read its installed LSDj. Requires FM-1_974 or newer: install that once using your ROM first. Reading may take several minutes. All installed kit banks are preserved; previously omitted kits cannot be recovered. This does not back up songs/settings, upload files, or install automatically.</p>
 <p id="rom-info" role="status"></p>
-<p class="hint">FM-1_974 adds read-only cartridge export for future updates, retaining cursor-following FX for verified LSDj 9.3.9 program code, including custom sample kits. The channel highlight stays removed. Accent-colour FX bars, choice selectors and CPU1 save fixes are retained. Preparing firmware never installs it automatically.</p>
-<p class="warn">Experimental FM-1_974 template: unknown program builds use ALL-channel FX; the ROM status below the file picker shows whether cursor-following is available. Version-specific tempo shortcuts, MIDI clock integration and song cues remain disabled. Sample banks keep their original numbers. Back up your songs before switching LSDj versions; save compatibility is not guaranteed.</p>
+<p class="hint">FM-1_975 adds MASTER All FX bypass and clearer matching device/web controls. Channel FX is now FILTER K1; shared compressor is MASTER K2. Read-only cartridge export, cursor-profile support, accent-colour bars and CPU1 save fixes are retained; the channel highlight stays removed. Preparing firmware never installs it automatically.</p>
+<p class="warn">Experimental FM-1_975 template: physical cursor-following diagnosis remains pending; this update does not claim to fix it. Unknown program builds use ALL-channel FX. The ROM status below the file picker reports profile availability, not hardware confirmation. Version-specific tempo shortcuts, MIDI clock integration and song cues remain disabled. Sample banks keep their original numbers. Back up your songs before switching LSDj versions; save compatibility is not guaranteed.</p>
 <fieldset id="rom-kits" disabled><legend>Sample kits (all selected initially)</legend></fieldset>
 <p id="rom-budget" role="status"></p>
 <label><input id="rom-experimental" type="checkbox" disabled> I accept that this ROM/template combination is experimental and may not boot or sound correct. I have backed up my songs.</label>
@@ -205,7 +206,7 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <p class="warn">Session only: Stop, restart or reload discards virtual songs/settings, including changes saved inside the virtual device. The Songs and Settings sections above control the physical FM-1, not this emulator. Firmware simulation does not prove hardware safety or accurate audio timing. Emulating LSDj inside the FM-1 is demanding and may run below real-time.</p>
 </section>
 
-<p class="hint">The firmware is free software (GPL-3.0), based on <a href="https://github.com/ChanceTheMaker/gamedude-fm1-smk" target="_blank" rel="noopener">GameDude</a>. Source: <a href="https://github.com/dreamsofbacon/lsdj-burrito-src" target="_blank" rel="noopener">lsdj-burrito-src</a>; <a href="lsdj/fm1-lsdj-template-source.zip" download>matching FM-1_974 template source</a>. Not affiliated with M-VAVE or LSDj's author.</p>
+<p class="hint">The firmware is free software (GPL-3.0), based on <a href="https://github.com/ChanceTheMaker/gamedude-fm1-smk" target="_blank" rel="noopener">GameDude</a>. Source: <a href="https://github.com/dreamsofbacon/lsdj-burrito-src" target="_blank" rel="noopener">lsdj-burrito-src</a>; <a href="lsdj/fm1-lsdj-template-source.zip" download>matching FM-1_975 template source</a>. Not affiliated with M-VAVE or LSDj's author.</p>
 </main>
 <script type="module" src="lsdj/lsdj-app.js"></script>
 <script type="module" src="lsdj/app.js"></script>

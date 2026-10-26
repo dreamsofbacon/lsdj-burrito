@@ -5,7 +5,7 @@ import {Link, midiPorts, LinkError, SAVE_SIZE} from './link.js';
 import {confirmSaveImport} from './save-file.js';
 import {connectBleMidi} from './ble-midi.js';
 import {setBeforeInstall, installing, usbMidiUnavailable} from './install-ui.js';
-import {CHANNELS, PAGES, PARAM, paramGet, paramSet, valueText, channelSummary, unpackFx, packFx, PRESETS, THEMES, COLOR_NAMES, toHex, fromHex,
+import {CHANNELS, pagesForFx, PARAM, paramGet, paramSet, valueText, channelSummary, unpackFx, packFx, PRESETS, THEMES, COLOR_NAMES, toHex, fromHex,
         SETTINGS, unpackSettings, packSettings, MIDI_SETTINGS, MIDI_CC_MAP, unpackMidi, packMidi} from './fx-model.js';
 
 const $ = id => document.getElementById(id);
@@ -111,7 +111,7 @@ function control(key) {
     const btns = p.choices.map((name, i) => {
       const b = document.createElement('button'); b.type = 'button'; b.textContent = name; b.setAttribute('role', 'radio');
       if (p.live) b.disabled = true;                 // freeze: shown, set on the FM-1 (hold FX + D5)
-      b.onclick = () => { paramSet(fx, key, c(), i); set(i); changed(); };
+      b.onclick = () => { paramSet(fx, key, c(), i); set(i); changed(); refresh(); };
       input.append(b); return b;
     });
     set = v => btns.forEach((b, i) => { b.classList.toggle('on', i === v); b.setAttribute('aria-checked', i === v); });
@@ -134,17 +134,22 @@ function control(key) {
 function buildFx() {
   controls.length = 0;
   const box = $('fx-pages'); box.replaceChildren();
-  PAGES.forEach((pg, i) => {
+  pagesForFx(fx).forEach((pg, i) => {
     if (pg.v2 && !fx.v2) return;                     // the new pages need alpha 66
     const card = document.createElement('div'); card.className = 'fx-card'; card.dataset.page = i;
-    const perCh = pg.knobs.some(([w]) => w === 'ch' || w === 'q' || w === 'flags');
+    const perCh = pg.knobs.some(slot => slot && (slot[0] === 'ch' || slot[0] === 'q' || slot[1] === 'fxOn'));
     card.innerHTML = `<h3>${pg.name}<span class="fx-who">${perCh ? '' : 'all channels'}</span><span class="fx-onfm1">on the FM-1's knobs</span></h3>`;
-    pg.knobs.forEach(([where, key], k) => {
+    pg.knobs.forEach((slot, k) => {
+      if (!slot) return;
+      const [where, key] = slot;
       const row = document.createElement('div'); row.className = 'fx-row';
       const p = PARAM[key];
       row.innerHTML = `<span class="knob">K${k + 1}</span><span class="fx-name">${p.name}${(where === 'comp' || where === 'echo') && perCh ? ' <small>(all)</small>' : ''}</span>`;
       row.append(control(key)); card.append(row);
     });
+    $('fx-master-status')?.remove();
+    const masterStatus = document.createElement('p'); masterStatus.id = 'fx-master-status'; masterStatus.className = 'hint';
+    masterStatus.setAttribute('role', 'status'); box.before(masterStatus);
     box.append(card);
   });
   const tabs = $('fx-channels'); tabs.replaceChildren();
@@ -164,6 +169,9 @@ function refresh(hot = []) {
   if (!fx) return;
   const c = curCh();
   controls.forEach(it => it.set(paramGet(fx, it.key, c)));
+  $('fx-master-status').textContent = fx.v3
+    ? `All FX ${fx.bypass ? 'OFF: dry output' : 'ON'}. MASTER K1 bypasses channel effects, echo and compressor together; settings and mutes are kept.`
+    : 'Connected firmware uses the older FX layout. The All FX switch and MASTER page require FM-1_975 or newer.';
   document.querySelectorAll('#fx-channels .chan').forEach(b => {
     const n = +b.dataset.ch;
     b.classList.toggle('on', n === c); b.classList.toggle('cursor', n === cursorCh);
@@ -174,7 +182,7 @@ function refresh(hot = []) {
   });
   $('fx-follow').classList.toggle('on', followCursor);
   $('fx-editing').innerHTML = `Editing <b>${CHANNELS[c]}</b>` + (followCursor ? ' <span class="hint">(the channel under the FM-1\'s cursor)</span>' : ' <span class="hint">(picked here)</span>');
-  document.querySelectorAll('#fx-pages .fx-card').forEach(card => card.classList.toggle('fm1', lastLive && +card.dataset.page === lastLive.page));
+  document.querySelectorAll('#fx-pages .fx-card').forEach(card => card.classList.toggle('fm1', lastLive && +card.dataset.page === fx.page));
   hot.forEach(key => {
     document.querySelectorAll(`#fx-pages .fx-ctl[data-key="${key}"]`).forEach(el => {
       const row = el.closest('.fx-row'); row.classList.remove('hot'); void row.offsetWidth; row.classList.add('hot');
@@ -199,7 +207,8 @@ async function tick() {
     } else fx.freeze = l.freeze;
     lastLive = l;
     refresh(hot);
-    $('live-badges').innerHTML = `<span class="badge">${PAGES[live.page]?.name || ''}</span><span class="badge">${l.bpm} BPM</span>` +
+    $('live-badges').innerHTML = `<span class="badge">${pagesForFx(live)[live.page]?.name || ''}</span><span class="badge">${l.bpm} BPM</span>` +
+      (live.bypass ? '<span class="badge">ALL FX OFF</span>' : '') +
       (l.freeze ? '<span class="badge on">FROZEN</span>' : '');
   } catch (e) { /* a missed poll: try again on the next */ }
 }
@@ -334,14 +343,16 @@ $('restore').onchange = e => {
   const file = e.target.files[0]; e.target.value = ''; if (!file) return;
   run('settings-status', async () => {
     const d = JSON.parse(await file.text());
-    if (d.format !== 'lsdj-burrito-backup' || d.version !== 1 || !Array.isArray(d.fx) || d.fx.length !== 11 || !Array.isArray(d.theme) || d.theme.length !== 8)
+    if (d.format !== 'lsdj-burrito-backup' || d.version !== 1 || !Array.isArray(d.fx) || ![11, 17].includes(d.fx.length) || !Array.isArray(d.theme) || d.theme.length !== 8)
       throw new LinkError('This is not an LSDJ Burrito backup.');
-    unpackSettings(d.settings); unpackFx(d.fx);   /* checks */
+    unpackSettings(d.settings);
+    const restoredFx = unpackFx(d.fx);
+    if (restoredFx.v3 && !fx.v3) throw new LinkError('This effects backup requires FM-1_975 or newer firmware.');
     if (d.midi !== undefined) unpackMidi(d.midi);   /* checks */
     await link.themeSet(d.theme); await link.settingsSet(d.settings); await link.fxSet(d.fx);
     if (d.midi !== undefined && midi) await link.midiSet(d.midi);
     await link.store();
-    settings = unpackSettings(d.settings); fx = unpackFx(d.fx); theme = d.theme;
+    settings = unpackSettings(d.settings); fx = unpackFx(await link.fxGet()); theme = d.theme;
     if (d.midi !== undefined && midi) midi = unpackMidi(d.midi);
     buildSettings(); buildFx(); drawColors();
     say('settings-status', `Restored ${file.name} and kept it on the FM-1.`, 'ok');
