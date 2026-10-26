@@ -32,10 +32,10 @@ function updatePlan() {
     currentPlan = p;
     const excess = Math.max(0, Math.ceil((p.needed - p.capacity) / BANK));
     const cannotFit = excess > p.kept;
-    $('rom-budget').textContent = `${p.codeBanks} required program/data banks + ${p.kept} selected kit banks: ` +
-      `${p.needed.toLocaleString()} / ${p.capacity.toLocaleString()} bytes. ` +
-      (p.omitted.length ? `Omitted banks: ${p.omitted.map(k => k.bank.toString(16).toUpperCase().padStart(2, '0')).join(', ')}. Songs using these kits will lose those samples. ` : 'All kits preserved. ') +
-      (p.fits ? 'Fits.' : fromDevice ? 'The installed cartridge does not fit this update. Nothing will be dropped; use your original ROM to choose a different kit set explicitly.' :
+    $('rom-budget').textContent = `Uses ${Math.ceil(p.needed / 1024)} of ${Math.floor(p.capacity / 1024)} KiB ` +
+      `(${p.codeBanks} program banks + ${p.kept} kit banks). ` +
+      (p.omitted.length ? `Omitted banks: ${p.omitted.map(k => k.bank.toString(16).toUpperCase().padStart(2, '0')).join(', ')}: songs using these kits lose those samples. ` : '') +
+      (p.fits ? 'Fits.' : fromDevice ? 'The installed LSDj does not fit this update. Nothing will be dropped; choose your original ROM file to pick a different set of kits.' :
         cannotFit ? 'The required program/data alone exceeds this template. Removing kits cannot make this ROM fit. Choose a smaller compatible ROM.' :
         `Deselect at least ${excess} kit ${excess === 1 ? 'bank' : 'banks'} to fit. No kits are removed automatically.`);
     $('rom-budget').className = p.fits ? 'hint' : 'warn';
@@ -54,15 +54,18 @@ function updateControls() {
   $('rom-build').disabled = blocked || loading || !currentPlan?.fits || !$('rom-experimental').checked;
   $('rom-step').setAttribute('aria-busy', String(loading || busy));
   $('rom-next').textContent = installing() ? 'Wait for the current installation to finish.' :
-    reading ? 'Reading installed LSDj. No device writes; you may cancel safely.' :
-    busy ? 'Preparing and verifying the private package...' :
-    loading ? 'Checking your ROM and loading the template. You can choose another file while waiting.' :
-    !rom ? 'Step 1: choose your LSDj .gb file, or connect and read installed LSDj.' :
-    !currentPlan ? 'Resolve the ROM/template error above, then choose the file again.' :
-    !currentPlan.fits ? 'Step 2: resolve the capacity warning above.' :
-    !$('rom-experimental').checked ? 'Step 3: read and accept the experimental/backup acknowledgement to enable preparation.' :
-    downloadUrl ? 'Step 4: download the private package, preview it in Virtual FM-1, or explicitly install it below.' :
-    'Ready: prepare firmware. This does not install anything.';
+    reading ? 'Reading LSDj from the FM-1. Nothing is written to it; you can cancel safely.' :
+    busy ? 'Preparing and checking the firmware…' :
+    loading ? 'Checking your ROM…' :
+    !rom ? 'Step 1: choose your LSDj .gb file, or read it from your FM-1.' :
+    !currentPlan ? 'Step 1: fix the problem below, then choose the file again.' :
+    !currentPlan.fits ? 'Step 2: untick kits until everything fits.' :
+    downloadUrl ? 'Step 4: install it, download it, or try it in the virtual FM-1 first.' :
+    !$('rom-experimental').checked ? 'Step 3: back up your songs, then tick the box to prepare.' :
+    'Step 3: ready to prepare. Nothing is installed yet.';
+  // lsdj/ui.js moves through the install steps from this
+  document.dispatchEvent(new CustomEvent('rom-state', {detail: {ready: !!currentPlan, fits: !!currentPlan?.fits,
+    prepared: !!downloadUrl, working: busy || loading || !!reading}}));
 }
 document.addEventListener('firmware-install-state', updateControls);
 async function chooseRom(file, device = false) {
@@ -96,14 +99,13 @@ async function chooseRom(file, device = false) {
     const kits = listKits(bytes);
     planRom(bytes, kits.map(k => k.bank), loaded.metadata.cartridge_capacity);
     rom = bytes; versions = catalog; ({template, metadata} = loaded);
-    say(`${file.name} (${info.title}): ${info.tested ? 'exact ROM has prior host-test evidence' :
-      info.sameProgram ? 'program banks match a tested ROM; sample content differs' : 'unverified program build'}. ` +
-      'This generic firmware template is experimental, not hardware-validated. ' +
-      (info.cursorProfile ? 'Cursor-following FX enabled (verified 9.3.9 program); channel highlight stays off. ' :
+    say(`${file.name} (${info.title}): ${info.tested ? 'a tested LSDj build' :
+      info.sameProgram ? 'a tested LSDj program with different samples' : 'an untested LSDj build'}. ` +
+      (info.cursorProfile ? 'Effects follow the cursor. ' :
         'Cursor-following FX unavailable for this program: FX targets ALL channels. ') +
-      (device ? 'All currently installed kit banks are preserved; previously omitted kits cannot be recovered. Songs/settings are separate: back them up before installation. ' : '') +
-      (!info.globalChecksumValid ? 'The source global checksum is stale; the prepared ROM checksum will be recalculated. ' : '') +
-      'No files are uploaded.', 'warn');
+      (device ? 'All installed kits are kept. ' : '') +
+      (!info.globalChecksumValid ? 'Its checksum is out of date; the firmware gets a corrected one. ' : ''),
+      info.cursorProfile ? 'ok' : 'warn');
     for (const kit of kits) {
       const label = document.createElement('label'), input = document.createElement('input');
       input.type = 'checkbox'; input.value = String(kit.bank); input.checked = true;
@@ -169,11 +171,9 @@ $('rom-build').onclick = async () => {
     downloadUrl = URL.createObjectURL(new Blob([result.bytes], {type: 'application/octet-stream'}));
     $('rom-download').href = downloadUrl; $('rom-download').download = name; $('rom-download').hidden = false;
     $('rom-actions').hidden = false;
-    say(`Prepared ${result.product}; package checks passed. SHA-256: ${result.sha256}. ` +
-      (result.info.cursorProfile ? 'Cursor-following FX enabled; no channel highlight. ' :
-        'Cursor-following FX unavailable: FX targets ALL channels. ') +
-      'Download for M-UPGRADE or use the separate USB installer below. Nothing has been sent to the device. ' +
-      'The package contains your ROM: keep it private.', 'ok');
+    say(`Prepared ${result.product}; checks passed. ` +
+      (result.info.cursorProfile ? '' : 'Cursor-following FX unavailable: FX targets ALL channels. ') +
+      `The file contains your LSDj: keep it private. SHA-256 ${result.sha256}`, 'ok');
   } catch (err) { say(err.message, 'bad'); }
   finally {
     busy = false;

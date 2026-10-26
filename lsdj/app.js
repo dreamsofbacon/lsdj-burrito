@@ -10,7 +10,10 @@ import {CHANNELS, pagesForFx, PARAM, paramGet, paramSet, valueText, channelSumma
 
 const $ = id => document.getElementById(id);
 const say = (id, text, cls = 'hint') => { const el = $(id); el.textContent = text; el.className = cls; };
-const enable = on => ['live-sec', 'songs-sec', 'theme-sec', 'settings-sec'].forEach(id => $(id).setAttribute('aria-disabled', on ? 'false' : 'true'));
+const enable = on => {
+  ['live-sec', 'songs-sec', 'theme-sec', 'settings-sec'].forEach(id => $(id).setAttribute('aria-disabled', on ? 'false' : 'true'));
+  document.dispatchEvent(new CustomEvent('device-state', {detail: {connected: on}}));   // lsdj/ui.js: layout
+};
 
 let midi = null;   // the MIDI options (null: firmware without them)
 let link = null, ports = null, fx = null, settings = null, theme = PRESETS[0].slice(), poll = null, busy = false, touched = 0, ble = null;
@@ -90,6 +93,18 @@ $('port-pick').onchange = e => {
    plays it there. Two or three choices: buttons; more: a list; ranges: a slider.
    A control the FM-1 just changed flashes. */
 let editCh = null, followCursor = true, cursorCh = 0, lastLive = null, bpm = 120, sendTimer = null;
+/* One page at a time (following the FM-1's page unless one is picked here) or all pages as cards;
+   the viewer's choice is remembered in this browser only. */
+let showAll = false, followPage = true, pickPage = 0;
+try { showAll = localStorage.getItem('burrito.fxView') === 'all'; } catch {}
+const shownPage = () => followPage ? fx.page : pickPage;
+function setView(all) {
+  showAll = all;
+  try { localStorage.setItem('burrito.fxView', all ? 'all' : 'one'); } catch {}
+  refresh();
+}
+$('fx-view-one').onclick = () => setView(false);
+$('fx-view-all').onclick = () => setView(true);
 const controls = [];   // {key, where, el, set(v)}
 const curCh = () => followCursor ? cursorCh : editCh;
 function changed() {
@@ -152,6 +167,16 @@ function buildFx() {
     masterStatus.setAttribute('role', 'status'); box.before(masterStatus);
     box.append(card);
   });
+  const bar = $('fx-pagebar'); bar.replaceChildren();
+  const pageFollow = document.createElement('button'); pageFollow.type = 'button'; pageFollow.id = 'fx-page-follow'; pageFollow.textContent = 'FM-1 page';
+  pageFollow.title = 'Show the page the FM-1 is on'; pageFollow.onclick = () => { followPage = true; refresh(); };
+  bar.append(pageFollow);
+  box.querySelectorAll('.fx-card').forEach(card => {
+    const b = document.createElement('button'); b.type = 'button'; b.dataset.page = card.dataset.page;
+    b.textContent = card.querySelector('h3').firstChild.textContent;
+    b.onclick = () => { followPage = false; pickPage = +card.dataset.page; refresh(); };
+    bar.append(b);
+  });
   const tabs = $('fx-channels'); tabs.replaceChildren();
   const follow = document.createElement('button'); follow.type = 'button'; follow.id = 'fx-follow'; follow.textContent = 'Follow FM-1 cursor';
   follow.onclick = () => { followCursor = true; refresh(); };
@@ -170,8 +195,20 @@ function refresh(hot = []) {
   const c = curCh();
   controls.forEach(it => it.set(paramGet(fx, it.key, c)));
   $('fx-master-status').textContent = fx.v3
-    ? `All FX ${fx.bypass ? 'OFF: dry output' : 'ON'}. MASTER K1 bypasses channel effects, echo and compressor together; settings and mutes are kept.`
-    : 'Connected firmware uses the older FX layout. The All FX switch and MASTER page require FM-1_975 or newer.';
+    ? (fx.bypass ? 'All FX OFF: dry output. Settings are kept; MASTER K1 turns them back on.' : '')
+    : 'Older firmware layout: the MASTER page and All FX switch require FM-1_975 or newer.';
+  const cards = [...document.querySelectorAll('#fx-pages .fx-card')];
+  const want = cards.some(card => +card.dataset.page === shownPage()) ? shownPage() : +(cards[0]?.dataset.page ?? 0);
+  cards.forEach(card => card.classList.toggle('shown', +card.dataset.page === want));
+  $('fx-pages').classList.toggle('one', !showAll);
+  $('fx-pagebar').hidden = showAll;
+  $('fx-view-one').setAttribute('aria-pressed', String(!showAll));
+  $('fx-view-all').setAttribute('aria-pressed', String(showAll));
+  $('fx-page-follow').classList.toggle('on', followPage);
+  document.querySelectorAll('#fx-pagebar [data-page]').forEach(b => {
+    b.classList.toggle('on', +b.dataset.page === want);
+    b.classList.toggle('fm1', !!lastLive && +b.dataset.page === fx.page);
+  });
   document.querySelectorAll('#fx-channels .chan').forEach(b => {
     const n = +b.dataset.ch;
     b.classList.toggle('on', n === c); b.classList.toggle('cursor', n === cursorCh);
@@ -181,7 +218,7 @@ function refresh(hot = []) {
     b.querySelector('small').textContent = [channelSummary(fx, n), ...tags].join(' · ');
   });
   $('fx-follow').classList.toggle('on', followCursor);
-  $('fx-editing').innerHTML = `Editing <b>${CHANNELS[c]}</b>` + (followCursor ? ' <span class="hint">(the channel under the FM-1\'s cursor)</span>' : ' <span class="hint">(picked here)</span>');
+  $('fx-editing').innerHTML = `Editing <b>${CHANNELS[c]}</b>` + (followCursor ? ' <span class="hint">(under the FM-1\'s cursor)</span>' : ' <span class="hint">(picked here)</span>');
   document.querySelectorAll('#fx-pages .fx-card').forEach(card => card.classList.toggle('fm1', lastLive && +card.dataset.page === fx.page));
   hot.forEach(key => {
     document.querySelectorAll(`#fx-pages .fx-ctl[data-key="${key}"]`).forEach(el => {

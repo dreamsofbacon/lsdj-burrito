@@ -4,44 +4,99 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Dreamy_bacon's LSDJ Burrito</title>
 <style>
-:root{--bg:#f6f5f1;--card:#fff;--ink:#1d1d1b;--muted:#6b6a64;--line:#dddbd3;--accent:#2f6f4f;--warn:#9a5b00;--bad:#b3261e;--hi:#fd9b00}
-@media (prefers-color-scheme:dark){:root{--bg:#161615;--card:#20201e;--ink:#ecebe6;--muted:#a3a29b;--line:#3a3935;--accent:#7cc39c;--warn:#e0a84a;--bad:#f2867e}}
+:root{--bg:#f4f2ec;--card:#fff;--card2:#faf9f5;--ink:#1d1d1b;--muted:#67655e;--line:#dddad0;--accent:#c94a17;--accent-ink:#fff;--ok:#2f6f4f;--warn:#9a5b00;--bad:#b3261e;--hi:#fd9b00;--top:#1f1e1c;--top-ink:#f4f2ec}
+@media (prefers-color-scheme:dark){:root{--bg:#161615;--card:#201f1d;--card2:#1b1a18;--ink:#ecebe6;--muted:#a3a29b;--line:#3a3935;--accent:#ff7a45;--accent-ink:#1a0d06;--ok:#7cc39c;--warn:#e0a84a;--bad:#f2867e;--top:#0e0e0d;--top-ink:#ecebe6}}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,sans-serif}
-main{max-width:820px;margin:0 auto;padding:24px 16px 64px}
-h1{font-size:26px;margin:0 0 4px}h2{font-size:17px;margin:0 0 10px}h3{font-size:14px;margin:12px 0 6px}
-.sub{color:var(--muted);margin:0 0 20px}
-section{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin:0 0 14px}
+[hidden]{display:none!important}
+a{color:var(--accent)}
+/* top bar */
+.top{position:sticky;top:0;z-index:5;background:var(--top);color:var(--top-ink)}
+.top-in{max-width:880px;margin:0 auto;padding:8px 16px;display:flex;gap:6px 14px;align-items:center;flex-wrap:wrap}
+.brand{color:inherit;text-decoration:none;font-weight:700;letter-spacing:.02em;margin-right:auto;white-space:nowrap}
+.brand small{font-weight:400;opacity:.65;margin-left:6px}
+.page-nav{display:flex;gap:2px;flex-wrap:wrap}
+.page-nav a{color:var(--top-ink);opacity:.75;text-decoration:none;padding:6px 10px;border-radius:8px;font-size:14px}
+.page-nav a:hover{opacity:1;background:#ffffff14}
+.page-nav a.on{opacity:1;background:#ffffff22;font-weight:600}
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--top-ink);text-decoration:none;border:1px solid #ffffff30;border-radius:999px;padding:3px 10px;white-space:nowrap}
+.chip::before{content:"";width:8px;height:8px;border-radius:50%;background:#8a887f}
+.chip.on::before{background:#5fd38d}
+main{max-width:880px;margin:0 auto;padding:20px 16px 64px}
+h1{font-size:28px;margin:8px 0 4px;line-height:1.2}h2{font-size:18px;margin:0 0 8px}h3{font-size:14px;margin:12px 0 6px}
+.sub{color:var(--muted);margin:0 0 20px;font-size:16px}
+section,.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin:0 0 14px;min-width:0}
 section[aria-disabled=true]{opacity:.5;pointer-events:none}
-.notice{border-color:var(--warn)}
 button,select,input[type=file]{font:inherit}
-button,select{padding:7px 12px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer}
-button.primary{background:var(--accent);border-color:var(--accent);color:var(--bg);font-weight:600}
+button,select,.button-link{padding:8px 14px;border-radius:9px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer;text-decoration:none;display:inline-block;line-height:1.3}
+button:hover:not(:disabled),.button-link:hover{border-color:var(--muted)}
+button.primary,.button-link.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
 button:disabled{opacity:.45;cursor:not-allowed}
+a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible{outline:3px solid var(--hi);outline-offset:2px}
 .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .row>label{min-width:0;max-width:100%}
-[hidden]{display:none!important}
-.page-nav{display:grid;gap:8px;margin:0 0 20px}
-.page-nav .row>span{font-size:13px;color:var(--muted)}
-.page-nav a,.button-link{display:inline-block;padding:7px 12px;border:1px solid var(--line);border-radius:8px;color:var(--accent);text-decoration:none}
-a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--hi);outline-offset:2px}
-section{scroll-margin-top:16px;min-width:0}
+.spread{display:flex;gap:8px 12px;flex-wrap:wrap;align-items:center;justify-content:space-between}
 input[type=file]{max-width:100%}
-#rom-info,#fw-info,#emu-selection{overflow-wrap:anywhere}
-progress{width:100%;height:10px}
-.ok{color:var(--accent)}.warn{color:var(--warn)}.bad{color:var(--bad)}
+#rom-info,#fw-info,#emu-selection,#device{overflow-wrap:anywhere}
+progress{width:100%;height:10px;margin:8px 0}
+.ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
 .hint{color:var(--muted);font-size:13px}
-table.fx{border-collapse:collapse;width:100%;font-size:13px}
-.chan-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0}
-.chan-tabs button{display:flex;flex-direction:column;align-items:flex-start;text-align:left;min-width:120px;flex:1}
+p{margin:6px 0}
+details{margin:10px 0 0}
+details>summary{cursor:pointer;color:var(--muted);font-size:13px;width:max-content;max-width:100%}
+details[open]>summary{margin-bottom:6px}
+details .hint,details p{font-size:13px;color:var(--muted)}
+.mono{font-family:ui-monospace,monospace}
+/* home */
+.choices{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(240px,100%),1fr));gap:12px;margin:0 0 18px}
+.choice{display:flex;flex-direction:column;gap:6px;text-decoration:none;color:inherit;margin:0;transition:border-color .15s}
+.choice:hover{border-color:var(--accent)}
+.choice b{font-size:17px}
+.choice span{color:var(--muted);font-size:14px}
+.choice .go{margin-top:auto;padding-top:8px;color:var(--accent);font-weight:600;font-size:14px}
+.how{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(200px,100%),1fr));gap:10px;counter-reset:how;padding:0;margin:0;list-style:none}
+.how li{counter-increment:how;color:var(--muted);font-size:14px}
+.how li::before{content:counter(how);display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--ink);color:var(--bg);font-size:12px;font-weight:700;margin-right:8px}
+/* device tabs */
+.tabs{display:flex;gap:4px;margin:0 0 12px;border-bottom:1px solid var(--line);overflow-x:auto;overflow-y:hidden;scrollbar-width:none}
+.tabs a{padding:8px 14px;text-decoration:none;color:var(--muted);border-bottom:3px solid transparent;margin-bottom:-1px;white-space:nowrap;font-weight:500}
+.tabs a.on{color:var(--ink);border-bottom-color:var(--accent)}
+body.connected #connect{padding:10px 16px}
+body.connected #connect .connect-help,body.connected #connect h2{display:none}
+body:not(.connected) .needs-device{display:none}
+body.connected #connect-btn{background:var(--card);color:var(--ink);border-color:var(--line);font-weight:400}
+body.connected #connect-ble{display:none}
+body.connected #rom-step .file-btn{background:var(--card);color:var(--ink);border-color:var(--line);font-weight:400}
+body.connected #rom-device{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+input[type=range]{accent-color:var(--accent)}
+#emu-status:empty{display:none}
+#device{margin:0}
+#bt-status:empty{display:none}
+/* effects */
+.seg-pick{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden}
+.seg-pick button{border:0;border-radius:0;padding:6px 12px;font-size:13px}
+.seg-pick button+button{border-left:1px solid var(--line)}
+.seg-pick button[aria-pressed=true]{background:var(--ink);color:var(--bg);font-weight:600}
+.chan-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0 6px}
+.chan-tabs button{display:flex;flex-direction:column;align-items:flex-start;text-align:left;min-width:110px;flex:1}
 .chan-tabs button small{color:var(--muted);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 .chan-tabs button.on{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent) inset}
 .chan-tabs button.cursor b::after{content:" ◀ cursor";font-weight:400;font-size:11px;color:var(--warn)}
 #fx-follow{flex:0 0 auto;min-width:0;align-self:stretch;justify-content:center}
-#fx-follow.on{background:var(--accent);color:var(--bg);border-color:var(--accent)}
-.fx-editing{font-size:18px;margin:4px 0 10px}
+#fx-follow.on,#fx-page-follow.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.page-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 10px}
+.page-tabs button{padding:6px 10px;font-size:13px}
+.page-tabs button.on{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent) inset;font-weight:600}
+.page-tabs button.fm1::after{content:" ●";color:var(--hi)}
+.fx-editing{font-size:17px;margin:4px 0 10px}
 .fx-pages{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(250px,100%),1fr));gap:10px}
-.fx-card{border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.fx-pages.one{grid-template-columns:minmax(0,1fr)}
+.fx-pages.one .fx-card{padding:14px 16px}
+.fx-pages.one .fx-row{grid-template-columns:2.4em minmax(8em,12em) minmax(0,1fr);padding:6px 2px}
+.fx-pages.one .fx-ctl{grid-column:auto}
+.fx-pages.one .fx-card:not(.shown){display:none}
+@media (max-width:560px){.fx-pages.one .fx-row{grid-template-columns:2.2em minmax(0,1fr)}.fx-pages.one .fx-ctl{grid-column:1/-1}}
+.fx-card{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--card2)}
 .fx-card h3{margin:0 0 8px;display:flex;flex-wrap:wrap;gap:8px;align-items:baseline;font-size:14px;letter-spacing:.04em}
 .fx-who{color:var(--muted);font-weight:400;font-size:12px;letter-spacing:0}
 .fx-onfm1{display:none;margin-left:auto;font-size:11px;font-weight:600;color:#000;background:var(--hi);border-radius:6px;padding:1px 6px;letter-spacing:0}
@@ -51,163 +106,281 @@ table.fx{border-collapse:collapse;width:100%;font-size:13px}
 .fx-row .knob{font:600 11px ui-monospace,monospace;color:var(--muted);border:1px solid var(--line);border-radius:50%;width:2em;height:2em;display:grid;place-items:center}
 .fx-name small{color:var(--muted)}
 .fx-ctl{display:flex;grid-column:1/-1;gap:6px;align-items:center;min-width:0}
-.fx-ctl input[type=range]{flex:1;min-width:60px}
+.fx-ctl input[type=range]{flex:1;min-width:60px;accent-color:var(--accent)}
 .fx-ctl select{flex:1;min-width:0}
 .fx-ctl output{font:12px ui-monospace,monospace;min-width:4em;text-align:right;color:var(--muted)}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;flex:1}
 .seg button{flex:1;border:0;border-radius:0;padding:5px 6px;font-size:13px;background:var(--card)}
 .seg button+button{border-left:1px solid var(--line)}
-.seg button.on{background:var(--accent);color:var(--bg);font-weight:600}
+.seg button.on{background:var(--accent);color:var(--accent-ink);font-weight:600}
 .seg+output,.fx-ctl select+output{display:none}
 @keyframes fxhot{from{background:color-mix(in srgb,var(--hi) 45%,transparent)}to{background:transparent}}
 .fx-row.hot{animation:fxhot 1.6s ease-out}
-table.fx th,table.fx td{padding:3px 6px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
-table.fx th.cur,table.fx td.cur{background:color-mix(in srgb,var(--hi) 18%,transparent)}
-table.fx input[type=range]{width:100%;min-width:70px}
-table.fx output{font-family:ui-monospace,monospace;display:inline-block;width:2.2em;text-align:right}
-.badge{display:inline-block;border:1px solid var(--line);border-radius:6px;padding:1px 6px;font-size:12px;margin-left:4px}
+.badge{display:inline-block;border:1px solid var(--line);border-radius:6px;padding:1px 6px;font-size:12px;margin-left:4px;font-weight:500}
 .badge.on{background:var(--hi);color:#000;border-color:var(--hi)}
-.grid2{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:8px}
+table.fx{border-collapse:collapse;width:100%;font-size:13px}
+table.fx th,table.fx td{padding:3px 6px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
+/* songs */
+.actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(230px,100%),1fr));gap:10px;margin:10px 0}
+.action{border:1px solid var(--line);border-radius:10px;padding:12px;background:var(--card2);display:flex;flex-direction:column;gap:8px;align-items:flex-start}
+.action p{margin:0}
+/* colours, settings */
+.theme-wrap{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start}
+@media (max-width:640px){.theme-wrap{grid-template-columns:minmax(0,1fr)}}
+.grid2{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(250px,100%),1fr));gap:8px 18px}
+.grid2 select{flex:0 0 auto;max-width:60%}
 .grid2 label{display:flex;justify-content:space-between;gap:8px;align-items:center}
+#theme-colors{grid-template-columns:repeat(auto-fill,minmax(140px,1fr))}
 canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;max-width:100%}
-.mono{font-family:ui-monospace,monospace}
+#theme-preview{width:100%;height:auto}
+.subhead{margin:18px 0 8px;padding-top:14px;border-top:1px solid var(--line)}
+/* install wizard */
+.steps{display:flex;gap:4px;list-style:none;padding:0;margin:0 0 14px;counter-reset:st}
+.steps li{flex:1;counter-increment:st;font-size:13px;color:var(--muted);border-top:4px solid var(--line);padding-top:6px;min-width:0}
+.steps li::before{content:counter(st) ". "}
+.steps li.done{border-top-color:color-mix(in srgb,var(--accent) 45%,var(--line))}
+.steps li.on{border-top-color:var(--accent);color:var(--ink);font-weight:600}
+.wstep h2{margin-bottom:4px}
+.wiz-nav{display:flex;gap:8px;justify-content:space-between;margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
+.wiz-nav .push{margin-left:auto}
+#rom-next{margin:0 0 4px;font-weight:500;color:var(--ink)}
+#rom-info{margin:0 0 12px}#rom-info:empty,#fx-master-status:empty{display:none}
+.file-btn{position:relative;overflow:hidden}
+.file-btn input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%}
+.file-btn:focus-within{outline:3px solid var(--hi);outline-offset:2px}
+#rom-kits{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:10px 0;columns:2 220px}
+#rom-kits legend{padding:0 4px;font-size:13px;color:var(--muted)}
+#rom-kits label{display:inline-block;padding:2px 0}
+.check{display:flex;gap:8px;align-items:flex-start;margin:10px 0}
+.check input{margin-top:4px}
+.callout{border-left:4px solid var(--warn);background:color-mix(in srgb,var(--warn) 9%,transparent);padding:8px 12px;border-radius:6px;margin:10px 0}
+/* emulator */
 #emu-view{min-height:220px;margin:12px 0;background:radial-gradient(ellipse at center,#424653,#161820);border-radius:10px;overflow:hidden}
 #emu-view canvas{display:block;width:100%;height:auto;border:0;border-radius:0;touch-action:none;image-rendering:auto}
 #emu-view canvas:focus-visible{outline:3px solid var(--hi);outline-offset:-4px}
-.emu-settings{display:flex;flex-wrap:wrap;gap:12px;margin-top:10px}
+.emu-settings{display:flex;flex-wrap:wrap;gap:12px;margin-top:10px;align-items:center}
 .emu-settings label{display:flex;gap:6px;align-items:center}
+.foot{margin-top:28px}
 </style>
 </head>
 <body>
-<main>
-<h1>Dreamy_bacon's LSDJ Burrito</h1>
-<p class="sub">LSDj on the M-VAVE FM-1, played from its keys and knobs.</p>
-<nav class="page-nav" aria-label="Page sections">
-<div class="row"><span>Physical FM-1:</span><a href="#connect">Connect</a><a href="#live-sec">Effects</a><a href="#songs-sec">Songs</a><a href="#theme-sec">Colours</a><a href="#settings-sec">Settings</a></div>
-<div class="row"><span>Firmware tools:</span><a href="#rom-step">Prepare locally</a><a href="#emulator-sec">Preview locally</a><a href="#install-sec">Install over USB</a></div>
+<header class="top"><div class="top-in">
+<a class="brand" href="#home">LSDJ Burrito<small>by Dreamy_bacon</small></a>
+<nav class="page-nav" aria-label="Main">
+<a href="#home" data-view="home">Home</a><a href="#connect" data-view="device">My FM-1</a><a href="#install" data-view="install">Install</a><a href="#emulator-sec" data-view="try">Try it</a>
 </nav>
+<a id="conn-chip" class="chip" href="#connect">Not connected</a>
+</div></header>
+<main>
 
+<!-- ============ HOME ============ -->
+<div class="view" data-view="home" id="home">
+<h1>LSDj on the M-VAVE FM-1</h1>
+<p class="sub">Play LSDj from the FM-1's keys and knobs, with effects, themes and MIDI sync.</p>
+<div class="choices">
+<a class="card choice" href="#connect"><b>Control my FM-1</b><span>Effects, songs, colours and settings, live over USB. For an FM-1 already running LSDJ Burrito.</span><span class="go">Connect →</span></a>
+<a class="card choice" href="#install"><b>Install or update</b><span>Put LSDJ Burrito on your FM-1, step by step, using your own copy of LSDj.</span><span class="go">Start →</span></a>
+<a class="card choice" href="#emulator-sec"><b>Try it in the browser</b><span>A virtual FM-1 on this page. Nothing to plug in.</span><span class="go">Open →</span></a>
+</div>
+<div class="card">
+<h2>New here?</h2>
+<ol class="how">
+<li>Install LSDJ Burrito with your own LSDj ROM file.</li>
+<li>Connect the FM-1 with a USB data cable.</li>
+<li>Shape the sound live, back up songs, pick colours.</li>
+</ol>
+<p class="hint" style="margin-top:12px">Use Chrome or Edge on a computer. This is experimental, unofficial firmware: back up your songs before installing.</p>
+</div>
+</div>
+
+<!-- ============ MY FM-1 ============ -->
+<div class="view" data-view="device" hidden>
 <section id="connect">
-<h2>Connect</h2>
-<p class="hint">Plug the FM-1 in with a USB data cable, with LSDJ Burrito running. Use Chrome or Edge and allow MIDI access when asked. Or, with a Bluetooth build and <b>BLUETOOTH: DEVICE</b> on in the FM-1's settings (GLO), connect without a cable. Connecting reaches the running firmware: songs, settings, effects and colours. Installing firmware is its own section below.</p>
+<h2>Connect your FM-1</h2>
+<div class="connect-help">
+<p>Turn the FM-1 on with LSDJ Burrito running, plug it in with a USB data cable, then press Connect and allow MIDI access.</p>
+</div>
+<div class="spread">
+<p id="device" role="status"></p>
 <div class="row"><button id="connect-btn" class="primary" type="button">Connect over USB</button>
 <button id="connect-ble" type="button" hidden>Connect over Bluetooth</button>
 <select id="port-pick" hidden></select></div>
-<p id="device" role="status"></p>
+</div>
 <p id="bt-status" class="hint"></p>
+<details class="connect-help"><summary>Bluetooth, and if it doesn't connect</summary>
+<p>Bluetooth needs a Bluetooth build with <b>BLUETOOTH: DEVICE</b> on in the FM-1's settings (GLO). Songs move slower over Bluetooth.</p>
+<p>No FM-1 found? Use a data cable (some charge-only cables don't carry data), check the FM-1 is on and close other music apps that may hold its MIDI port. Installing firmware is done from <a href="#install">Install</a>, not here.</p>
+</details>
 </section>
 
-<section id="live-sec" aria-disabled="true">
-<h2>Live effects <span id="live-badges"></span></h2>
-<p class="hint">Follows the FM-1 as you play: a control the FM-1 changes lights up. Changes here go to the FM-1 straight away; <b>Keep on FM-1</b> stores the setup (as SAVE does). The cards are the FM-1's effects pages; K1-K4 are the knobs that play them there.</p>
-<p class="hint">On FM-1_975 or newer, <b>MASTER K1: All FX</b> bypasses all channel effects, shared echo and compressor without losing settings. <b>FILTER K1: Channel FX</b> bypasses just the selected channel. MASTER, ECHO and ECHO MOD are shared; other pages edit the selected channel. Turn SELECT on the device to change pages. Older firmware keeps its original layout below.</p>
+<nav class="tabs needs-device" aria-label="FM-1">
+<a href="#live-sec" data-tab="live-sec">Effects</a><a href="#songs-sec" data-tab="songs-sec">Songs</a><a href="#theme-sec" data-tab="theme-sec">Colours</a><a href="#settings-sec" data-tab="settings-sec">Settings</a>
+</nav>
+
+<section id="live-sec" class="tab-panel needs-device" aria-disabled="true">
+<div class="spread"><h2 style="margin:0">Effects <span id="live-badges"></span></h2>
+<div class="seg-pick" role="group" aria-label="Show"><button id="fx-view-one" type="button" aria-pressed="true">One page</button><button id="fx-view-all" type="button" aria-pressed="false">All pages</button></div></div>
 <div id="fx-channels" class="chan-tabs"></div>
+<div id="fx-pagebar" class="page-tabs" aria-label="Effects page"></div>
 <p id="fx-editing" class="fx-editing"></p>
-<div id="fx-pages" class="fx-pages"></div>
-<div class="row" style="margin-top:10px"><button id="fx-keep" type="button">Keep on FM-1</button><span id="fx-status" class="hint"></span></div>
+<div id="fx-pages" class="fx-pages one"></div>
+<div class="row" style="margin-top:12px"><button id="fx-keep" type="button">Keep on FM-1</button><span id="fx-status" class="hint"></span></div>
+<details><summary>How the effects work</summary>
+<p>Changes go to the FM-1 straight away. <b>Keep on FM-1</b> stores them, as the SAVE button does. K1-K4 are the knobs that play each control on the FM-1; turn SELECT there to change pages. A control the FM-1 changes lights up here.</p>
+<p>By default this follows the FM-1: the channel under its cursor and the page it shows. Pick a channel or page to edit something else.</p>
+<p>MASTER, ECHO and ECHO MOD are shared by all channels; the other pages are per channel. <b>MASTER K1: All FX</b> bypasses every effect without losing settings; <b>FILTER K1: Channel FX</b> bypasses one channel. Firmware before FM-1_975 shows its older layout.</p>
+</details>
 </section>
 
-<section id="songs-sec" aria-disabled="true">
+<section id="songs-sec" class="tab-panel needs-device" aria-disabled="true">
 <h2>Songs</h2>
-<p class="hint">Export the FM-1's songs as <span class="mono">lsdj.sav</span>, or replace them with a 128 KiB <span class="mono">.sav</span>. The FM-1 keeps its songs if an import fails.</p>
-<p class="hint">Files with exactly 16 extra trailing bytes can be imported only after you confirm using the first 131072 bytes. The extra bytes' format is not verified; your original file is never changed.</p>
-<div class="row"><button id="export" type="button">Export lsdj.sav</button>
-<button id="import-pick" type="button">Import a .sav…</button><input id="import" type="file" accept=".sav" hidden></div>
+<div class="actions">
+<div class="action"><p><b>Back up</b></p><p class="hint">Save all the FM-1's songs to this computer as <span class="mono">lsdj.sav</span>.</p><button id="export" type="button" class="primary">Export lsdj.sav</button></div>
+<div class="action"><p><b>Load songs</b></p><p class="hint">Replace the FM-1's songs with a 128 KiB <span class="mono">.sav</span> file. If it fails, the FM-1 keeps its songs.</p><button id="import-pick" type="button">Import a .sav…</button><input id="import" type="file" accept=".sav" hidden></div>
+</div>
 <progress id="save-progress" value="0" max="1" hidden></progress>
 <p id="save-status" role="status"></p>
+<details><summary>About .sav files</summary><p>Files with exactly 16 extra bytes at the end can be imported after you confirm using the first 131072 bytes. The format of those extra bytes isn't checked, and your original file is never changed.</p></details>
 </section>
 
-<section id="theme-sec" aria-disabled="true">
+<section id="theme-sec" class="tab-panel needs-device" aria-disabled="true">
 <h2>Colours</h2>
-<p class="hint">Make a custom theme: start from a preset, change any colour, then send it. The FM-1 uses it as THEME: CUSTOM.</p>
-<div class="row"><label>Start from <select id="theme-preset"></select></label></div>
-<div class="grid2" id="theme-colors" style="margin:10px 0"></div>
-<canvas id="theme-preview" width="160" height="96" style="width:480px"></canvas>
+<p class="hint">Start from a preset, change any colour, then send it. The FM-1 uses it as THEME: CUSTOM.</p>
+<div class="theme-wrap" style="margin-top:10px">
+<div><canvas id="theme-preview" width="160" height="96"></canvas></div>
+<div><label class="row">Start from <select id="theme-preset"></select></label>
+<div class="grid2" id="theme-colors" style="margin:10px 0"></div></div>
+</div>
 <div class="row" style="margin-top:10px"><button id="theme-send" class="primary" type="button">Send to the FM-1</button><span id="theme-status" class="hint"></span></div>
 </section>
 
-<section id="settings-sec" aria-disabled="true">
+<section id="settings-sec" class="tab-panel needs-device" aria-disabled="true">
 <h2>Settings</h2>
 <div class="grid2" id="settings-form"></div>
 <div id="midi-sec" hidden>
-<h3>MIDI</h3>
+<h3 class="subhead">MIDI</h3>
 <div class="grid2" id="midi-form"></div>
-<p class="hint">Clock in, Transport and Sync delay: LSDj with SYNC = MIDI follows the clock. Note in: LSDj with SYNC = KEYBD plays the notes (like the FM-1's keys in note mode). Clock out: LSDj with SYNC = LSDJ leads; the FM-1 sends MIDI clock, Start and Stop. CC to effects: the first channel controls PU1, the next PU2, then WAV and NOI.</p>
-<details><summary>CC numbers for the effects</summary><table class="fx" id="cc-map"></table></details>
+<details><summary>What the MIDI options do</summary>
+<p><b>Clock in, Transport, Sync delay:</b> with LSDj's SYNC set to MIDI, LSDj follows the incoming clock. <b>Note in:</b> with SYNC = KEYBD, LSDj plays incoming notes, like the FM-1's keys in note mode. <b>Clock out:</b> with SYNC = LSDJ, the FM-1 leads and sends MIDI clock, Start and Stop. <b>CC to effects:</b> the first MIDI channel controls PU1, the next PU2, then WAV and NOI.</p>
+<table class="fx" id="cc-map"></table>
+</details>
 </div>
-<div class="row" style="margin-top:10px"><button id="settings-apply" type="button">Apply and keep</button>
-<button id="backup" type="button">Back up everything…</button>
+<div class="row" style="margin-top:14px"><button id="settings-apply" class="primary" type="button">Apply and keep</button><span id="settings-status" class="hint" role="status"></span></div>
+<h3 class="subhead">Backup</h3>
+<p class="hint">Settings, effects and custom colours in one file. Songs are backed up separately, in Songs.</p>
+<div class="row"><button id="backup" type="button">Back up settings…</button>
 <button id="restore-pick" type="button">Restore a backup…</button><input id="restore" type="file" accept=".json" hidden></div>
-<p id="settings-status" class="hint" role="status"></p>
 </section>
+</div>
+
+<!-- ============ INSTALL ============ -->
+<div class="view" data-view="install" id="install" hidden>
+<h1>Install or update</h1>
+<p class="sub">Four steps. Nothing is sent to the FM-1 until the last one.</p>
+<ol class="steps" id="wiz-steps"><li>Get LSDj</li><li>Sample kits</li><li>Prepare</li><li>Install</li></ol>
+<p id="rom-next" role="status">Step 1: choose your LSDj .gb file.</p>
+<p id="rom-info" role="status"></p>
 
 <section id="rom-step">
-<h2>Prepare firmware from your LSDj ROM</h2>
-<p class="hint">Choose your own <code>lsdj.gb</code>. It is only read here, in your browser: nothing is uploaded or sent anywhere.</p>
-<label for="rom">1. Choose your LSDj ROM (.gb)</label>
-<input id="rom" type="file" accept=".gb" aria-describedby="rom-info">
-<div class="row"><button id="rom-device" type="button">Read installed LSDj (no device writes)</button>
-<button id="rom-cancel" type="button" hidden>Cancel cartridge read</button></div>
+<div class="wstep" data-step="1">
+<h2>Where should LSDj come from?</h2>
+<p class="hint">LSDj can't be shared, so the firmware is built here from your own copy. It stays on this computer: nothing is uploaded.</p>
+<div class="actions">
+<div class="action"><p><b>Choose my LSDj ROM file</b></p><p class="hint">Your <span class="mono">lsdj.gb</span>. Needed the first time.</p>
+<label class="button-link primary file-btn">Choose .gb file…<input id="rom" type="file" accept=".gb" aria-describedby="rom-info"></label></div>
+<div class="action"><p><b>Use the LSDj already on my FM-1</b></p><p class="hint">For updates. Needs FM-1_974 or newer, connected in <a href="#connect">My FM-1</a>. Takes a few minutes.</p>
+<div class="row"><button id="rom-device" type="button">Read from my FM-1</button><button id="rom-cancel" type="button" hidden>Cancel</button></div></div>
+</div>
 <progress id="rom-read-progress" value="0" max="1" hidden></progress>
-<p class="hint">For updates without choosing a ROM, connect to the running FM-1 above, then read its installed LSDj. Requires FM-1_974 or newer: install that once using your ROM first. Reading may take several minutes. All installed kit banks are preserved; previously omitted kits cannot be recovered. This does not back up songs/settings, upload files, or install automatically.</p>
-<p id="rom-info" role="status"></p>
-<p class="hint">FM-1_975 adds MASTER All FX bypass and clearer matching device/web controls. Channel FX is now FILTER K1; shared compressor is MASTER K2. Read-only cartridge export, cursor-profile support, accent-colour bars and CPU1 save fixes are retained; the channel highlight stays removed. Preparing firmware never installs it automatically.</p>
-<p class="warn">Experimental FM-1_975 template: physical cursor-following diagnosis remains pending; this update does not claim to fix it. Unknown program builds use ALL-channel FX. The ROM status below the file picker reports profile availability, not hardware confirmation. Version-specific tempo shortcuts, MIDI clock integration and song cues remain disabled. Sample banks keep their original numbers. Back up your songs before switching LSDj versions; save compatibility is not guaranteed.</p>
+<details><summary>About reading from the FM-1</summary><p>Reading copies the installed LSDj back to this page; it writes nothing to the FM-1. All installed sample kits are kept; kits left out of an earlier install can't be recovered. It does not back up songs or settings. FM-1_973 and older can't do this: install once using your ROM file first.</p></details>
+<div class="wiz-nav"><span></span><button type="button" class="push" data-goto="4">I already have a .fwsc file</button><button type="button" class="primary" data-next>Next</button></div>
+</div>
+
+<div class="wstep" data-step="2" hidden>
+<h2>Sample kits</h2>
+<p class="hint">All kits are ticked. If they don't all fit, untick some: songs that use a removed kit lose those samples.</p>
 <fieldset id="rom-kits" disabled><legend>Sample kits (all selected initially)</legend></fieldset>
 <p id="rom-budget" role="status"></p>
-<label><input id="rom-experimental" type="checkbox" disabled> I accept that this ROM/template combination is experimental and may not boot or sound correct. I have backed up my songs.</label>
-<p id="rom-next" class="hint" role="status">Step 1: choose your LSDj .gb file.</p>
-<div class="row"><button id="rom-build" type="button" aria-describedby="rom-next" disabled>Prepare firmware (no device writes)</button></div>
-<div id="rom-actions" class="row" hidden>
-<a id="rom-download" class="button-link" hidden>Download private firmware</a>
-<a class="button-link" href="#emulator-sec">Go to local preview</a>
-<a class="button-link" href="#install-sec">Go to USB installer</a>
+<div class="wiz-nav"><button type="button" data-back>Back</button><button type="button" class="primary" data-next>Next</button></div>
+</div>
+
+<div class="wstep" data-step="3" hidden>
+<h2>Prepare the firmware</h2>
+<div class="callout"><b>Back up your songs first.</b> <span id="wiz-backup-text">Connect in <a href="#connect">My FM-1</a> to export them.</span>
+<button id="wiz-backup" type="button" class="needs-device">Export songs now</button></div>
+<label class="check"><input id="rom-experimental" type="checkbox" disabled><span>I understand this firmware is experimental and may not start or sound right, and I have backed up my songs.</span></label>
+<div class="row"><button id="rom-build" type="button" class="primary" aria-describedby="rom-next" disabled>Prepare firmware</button><span class="hint">Builds the file on this computer. Nothing is installed yet.</span></div>
+<details><summary>What's in this version (FM-1_975)</summary>
+<p>MASTER page with All FX bypass (K1) and compressor (K2); Channel FX moved to FILTER K1; matching pages on the FM-1 and this page; reading LSDj back from the FM-1; effects follow the cursor (verified LSDj 9.3.9); theme-coloured bars.</p>
+<p>Other LSDj versions are unverified: their effects act on all channels, and tempo shortcuts, MIDI clock and song cues stay off. Sample banks keep their numbers. Save compatibility between LSDj versions isn't guaranteed.</p>
+</details>
+<div class="wiz-nav"><button type="button" data-back>Back</button><span></span></div>
 </div>
 </section>
 
-<section id="install-sec">
-<h2>Install firmware</h2>
-<p class="warn">USB flashing is a separate, explicit action. Back up songs first and keep stable power, this tab in front and the USB cable connected. A previous interrupted web install left a device unable to boot. Package validation and simulated recovery tests do not guarantee recovery on hardware. M-UPGRADE is an alternative for the downloaded package.</p>
-<p id="fw-support" class="hint" role="status"></p>
-<div class="row"><label>Firmware package (.fwsc) <input id="fw-file" type="file" accept=".fwsc" aria-describedby="fw-info fw-status"></label><button id="fw-install" class="primary" type="button" disabled>Install</button></div>
+<section id="install-sec" class="wstep" data-step="4" hidden>
+<h2>Install</h2>
+<div id="rom-actions" class="row" hidden>
+<a id="rom-download" class="button-link" hidden>Download firmware file</a>
+<button id="wiz-preview" type="button">Try it in the virtual FM-1 first</button>
+</div>
 <p id="fw-info"></p>
+<div class="callout">Keep the USB cable in, the power steady and this tab in front until it says <b>Done</b>.</div>
+<div class="row"><button id="fw-install" class="primary" type="button" disabled>Install on the FM-1</button></div>
 <progress id="fw-progress" value="0" max="1" hidden></progress>
 <p id="fw-status" role="status"></p>
+<p id="fw-support" class="hint" role="status"></p>
+<details id="fw-other"><summary>Use a different .fwsc file</summary>
+<label>Firmware package (.fwsc) <input id="fw-file" type="file" accept=".fwsc" aria-describedby="fw-info fw-status"></label>
+<p>The downloaded file can also be installed with M-VAVE's M-UPGRADE app. A file you prepared contains your LSDj: keep it private.</p>
+</details>
 <details><summary>Install log</summary><pre id="fw-log" class="mono" style="white-space:pre-wrap;font-size:12px"></pre></details>
+<details><summary>Risks</summary><p>An interrupted web install once left an FM-1 unable to start; it recovered by replugging into update mode, but recovery isn't guaranteed. Package checks and simulated tests don't prove an install is safe on hardware.</p></details>
+<div class="wiz-nav"><button type="button" data-back>Back</button><a class="button-link" href="#connect">Go to My FM-1</a></div>
 </section>
+</div>
 
+<!-- ============ TRY ============ -->
+<div class="view" data-view="try" hidden>
 <section id="emulator-sec">
 <h2>Virtual FM-1 <span class="badge">Experimental</span></h2>
-<p class="hint">Runs the actual FM-1 firmware package locally using <a href="https://github.com/joakimeriksson/fm1-emu" target="_blank" rel="noopener">Joakim Eriksson's FM-1 emulator</a>, with a 3D instrument view. No firmware uploads, MIDI connections or physical device writes.</p>
-<div class="row">
-<label>Firmware <input id="emu-file" type="file" accept=".fwsc"></label>
-<button id="emu-start" type="button" disabled>Start virtual FM-1</button>
-<button id="emu-selected" type="button" aria-describedby="emu-selection" disabled>Preview selected installer firmware</button>
+<p class="hint">Runs an FM-1 firmware file right here, using <a href="https://github.com/joakimeriksson/fm1-emu" target="_blank" rel="noopener">Joakim Eriksson's FM-1 emulator</a>. Nothing connects to a real FM-1.</p>
+<div class="row" style="margin-top:10px">
+<button id="emu-selected" type="button" class="primary" aria-describedby="emu-selection" disabled>Run the prepared firmware</button>
+<label class="button-link file-btn">Choose a .fwsc file…<input id="emu-file" type="file" accept=".fwsc"></label>
+<button id="emu-start" type="button" disabled>Start</button>
 </div>
 <p id="emu-selection" class="hint" role="status"></p>
-<div class="emu-settings">
-<label>CPU <select id="emu-clock"><option value="240">240 MHz (hardware clock)</option><option value="160">160 MHz (underclocked)</option><option value="100">100 MHz (underclocked)</option></select></label>
-<label>Volume <input id="emu-volume" type="range" min="0" max="100" value="25"></label>
-<button id="emu-pause" type="button" disabled>Pause</button>
-<button id="emu-stop" type="button" disabled>Stop (discard state)</button>
-</div>
-<p id="emu-status" role="status">Choose a firmware file, or preview the package you prepared above. The emulator loads on demand.</p>
+<p id="emu-status" role="status"></p>
 <div id="emu-view" aria-label="Virtual FM-1 instrument"></div>
 <div class="emu-settings">
+<button id="emu-pause" type="button" disabled>Pause</button>
+<button id="emu-stop" type="button" disabled>Stop</button>
+<label>Volume <input id="emu-volume" type="range" min="0" max="100" value="25"></label>
 <button id="emu-front" type="button" aria-pressed="false">Front view</button>
 <button id="emu-zoom" type="button" aria-expanded="false" aria-controls="emu-lcd">Enlarge screen</button>
+</div>
+<canvas id="emu-lcd" width="240" height="240" style="width:480px" aria-label="Enlarged virtual FM-1 display" hidden></canvas>
+<p id="emu-stats" class="hint" role="status"></p>
+<details><summary>Controls</summary>
+<p>Click the instrument's keys; drag knobs up and down or scroll over them. With the instrument focused: arrows = directions, Z/X = B/A, Shift/Enter = Select/Start. Switching tabs pauses it.</p>
+</details>
+<details><summary>View and speed options</summary>
+<div class="emu-settings">
+<label>CPU <select id="emu-clock"><option value="240">240 MHz (hardware clock)</option><option value="160">160 MHz (underclocked)</option><option value="100">100 MHz (underclocked)</option></select></label>
 <label>Tilt <input id="emu-tilt" type="range" min="-35" max="45" value="24"></label>
 <label>Turn <input id="emu-yaw" type="range" min="-40" max="40" value="-12"></label>
 </div>
-<canvas id="emu-lcd" width="240" height="240" style="width:480px" aria-label="Enlarged virtual FM-1 display" hidden></canvas>
-<p class="hint">Click instrument keys; drag knobs vertically or scroll over them. Focus the instrument for keyboard controls: arrows = directions, Z/X = B/A, Shift/Enter = Select/Start. These press FM-1 keys; their behavior depends on the firmware. Switching tabs pauses emulation.</p>
-<p id="emu-stats" class="hint" role="status"></p>
-<p class="hint">A VS Code embedded-browser tab crashed during testing; a fresh tab passed longer checks. That issue is unresolved. Prefer regular Chrome or Edge for experimentation.</p>
-<p class="warn">Session only: Stop, restart or reload discards virtual songs/settings, including changes saved inside the virtual device. The Songs and Settings sections above control the physical FM-1, not this emulator. Firmware simulation does not prove hardware safety or accurate audio timing. Emulating LSDj inside the FM-1 is demanding and may run below real-time.</p>
+</details>
+<details><summary>Limits</summary>
+<p>Stop, restart or reload throws away virtual songs and settings, even ones saved inside the virtual FM-1. My FM-1 controls the real device, not this one. Emulating LSDj inside the FM-1 is heavy and may run below real-time, so sound and timing may be off. Regular Chrome or Edge works best; one VS Code browser tab crashed in testing.</p>
+</details>
 </section>
+</div>
 
-<p class="hint">The firmware is free software (GPL-3.0), based on <a href="https://github.com/ChanceTheMaker/gamedude-fm1-smk" target="_blank" rel="noopener">GameDude</a>. Source: <a href="https://github.com/dreamsofbacon/lsdj-burrito-src" target="_blank" rel="noopener">lsdj-burrito-src</a>; <a href="lsdj/fm1-lsdj-template-source.zip" download>matching FM-1_975 template source</a>. Not affiliated with M-VAVE or LSDj's author.</p>
+<p class="hint foot">The firmware is free software (GPL-3.0), based on <a href="https://github.com/ChanceTheMaker/gamedude-fm1-smk" target="_blank" rel="noopener">GameDude</a>. Source: <a href="https://github.com/dreamsofbacon/lsdj-burrito-src" target="_blank" rel="noopener">lsdj-burrito-src</a>; <a href="lsdj/fm1-lsdj-template-source.zip" download>matching FM-1_975 template source</a>. Not affiliated with M-VAVE or LSDj's author.</p>
 </main>
+<script type="module" src="lsdj/ui.js"></script>
 <script type="module" src="lsdj/lsdj-app.js"></script>
 <script type="module" src="lsdj/app.js"></script>
 <script type="module" src="lsdj/install-ui.js"></script>

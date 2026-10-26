@@ -276,7 +276,7 @@ export async function runDeviceUpdateUiTests() {
 
     mode = 'ok';
     await $('rom-device').onclick();
-    text('rom-info', /All currently installed kit banks are preserved/);
+    text('rom-info', /All installed kits are kept/);
     assert($('rom-kits').disabled && $('rom-kits').querySelectorAll('input:checked').length === 2, 'Installed kits retained and locked');
     assert(!$('rom-experimental').checked && $('rom-build').disabled, 'Read does not grant install/preparation consent');
     noFirmware();
@@ -291,7 +291,7 @@ export async function runDeviceUpdateUiTests() {
       return response;
     };
     await $('rom-device').onclick();
-    text('rom-budget', /installed cartridge does not fit/);
+    text('rom-budget', /installed LSDj does not fit/);
     assert($('rom-kits').disabled && $('rom-build').disabled, 'Smaller update refuses without dropping installed kits');
     noFirmware();
     assert(ops.every(op => [OP.INFO, OP.FX_GET, OP.SETTINGS_GET, OP.MIDI_GET, OP.THEME_GET,

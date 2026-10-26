@@ -22,7 +22,7 @@ function updateControls() {
   $('fw-file').disabled = busy || preparing;
   $('fw-install').disabled = busy || preparing || !pkg || !!unavailable;
   $('fw-support').textContent = unavailable ? `${unavailable} You can still prepare and download firmware for M-UPGRADE.` :
-    'USB installation requires MIDI/SysEx permission and a connected FM-1. Selecting a file does not request device access.';
+    'Installing asks for MIDI access and needs the FM-1 plugged in by USB.';
   $('fw-support').className = unavailable ? 'warn' : 'hint';
   document.dispatchEvent(new Event('firmware-selection-state'));
 }
@@ -56,10 +56,10 @@ export function selectFirmware(bytes, name, fromRom = false) {
   clearFirmware();
   pkg = checked; fileName = name; generated = fromRom; firmwareBytes = bytes.slice();
   $('fw-file').value = '';
-  $('fw-info').textContent = `${name}: ${pkg.product} (package checks passed; hardware compatibility is not guaranteed)`;
-  $('fw-info').className = 'warn';
+  $('fw-info').textContent = `Firmware: ${name} (${pkg.product}), checks passed.`;
+  $('fw-info').className = 'hint';
   updateControls();
-  say('Ready for local preview or an explicit install in a supported browser. No data has been sent to the FM-1.');
+  say('Ready to install. Nothing has been sent to the FM-1 yet.');
 }
 $('fw-file').onchange = async (e) => {
   if (busy || preparing) return;

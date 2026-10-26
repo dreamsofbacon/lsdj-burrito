@@ -34,8 +34,8 @@ function buttons() {
   $('emu-start').disabled = loading || !file || installing();
   $('emu-selected').disabled = loading || installing() || !selected;
   $('emu-selection').textContent = selected ?
-    `Available to preview: ${selected.name} (${selected.product}). This does not change an already running virtual FM-1.` :
-    'No prepared/installer package available. Prepare firmware above, select an installer package, or choose a separate local file here.';
+    `Prepared firmware: ${selected.name} (${selected.product}).` :
+    'No prepared firmware yet: prepare one in Install, or choose a .fwsc file.';
   $('emu-pause').disabled = !running && !paused;
   $('emu-pause').textContent = paused ? 'Resume' : 'Pause';
   $('emu-stop').disabled = phase === 'idle';
