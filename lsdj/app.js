@@ -4,9 +4,10 @@
 import {Link, midiPorts, LinkError, SAVE_SIZE} from './link.js';
 import {confirmSaveImport} from './save-file.js';
 import {connectBleMidi} from './ble-midi.js';
+import {showDeviceTheme, setMatching, matching} from './page-theme.js';
 import {setBeforeInstall, installing, usbMidiUnavailable} from './install-ui.js';
 import {CHANNELS, pagesForFx, PARAM, paramGet, paramSet, valueText, channelSummary, unpackFx, packFx, PRESETS, THEMES, COLOR_NAMES, toHex, fromHex,
-        SETTINGS, unpackSettings, packSettings, MIDI_SETTINGS, MIDI_CC_MAP, unpackMidi, packMidi} from './fx-model.js';
+        SETTINGS, unpackSettings, packSettings, MIDI_SETTINGS, MIDI_CC_MAP, unpackMidi, packMidi, CUSTOM_THEME} from './fx-model.js';
 
 const $ = id => document.getElementById(id);
 const say = (id, text, cls = 'hint') => { const el = $(id); el.textContent = text; el.className = cls; };
@@ -33,8 +34,9 @@ async function connectTo(input, output, how = 'USB') {
     fx = unpackFx(await link.fxGet());
     settings = unpackSettings(await link.settingsGet());
     { const w = await link.midiGet(); midi = w === null ? null : unpackMidi(w); }
-    theme = await link.themeGet();
+    theme = await link.themeGet(); customTheme = theme.slice();
     buildFx(); buildSettings(); buildTheme(); enable(true);
+    pageTheme();
     connected = true;
     clearInterval(poll); poll = setInterval(tick, how === 'Bluetooth' ? 500 : 250);
   } catch (e) { enable(false); say('device', e.message, 'bad'); }
@@ -234,6 +236,7 @@ function changedKeys(a, b, c) {
 async function tick() {
   if (!link || busy || document.hidden) return;
   try {
+    if (++ticks % 8 === 0) await followThemeSetting();
     const l = await link.live();
     const live = unpackFx(l.fx);
     live.freeze = l.freeze; cursorCh = l.cursor < 4 ? l.cursor : cursorCh; bpm = l.bpm;
@@ -307,6 +310,9 @@ function buildTheme() {
   const pick = $('theme-preset'); pick.replaceChildren(new Option('the current custom theme', -1));
   THEMES.forEach((n, i) => { if (PRESETS[i]) pick.append(new Option(n, i)); });   // every preset (not Custom)
   pick.onchange = () => { if (+pick.value >= 0) { theme = PRESETS[+pick.value].slice(); drawColors(); } };
+  if (settings.theme !== CUSTOM_THEME && PRESETS[settings.theme]) {   // start from the theme the FM-1 shows
+    pick.value = settings.theme; theme = PRESETS[settings.theme].slice();
+  }
   drawColors();
 }
 function drawColors() {
@@ -337,10 +343,30 @@ function preview() {   /* a sketch of LSDj's song screen with the effects panel,
   g.fillStyle = col(1); g.fillRect(0, 88, 120, 8); g.fillStyle = col(3); g.fillText('K1 DRIVE 08', 1, 88);
   g.fillStyle = col(2); g.fillRect(128, 0, 32, 96); g.fillStyle = col(0); g.fillText('PU1', 132, 0);
 }
+/* The page in the FM-1's own theme (lsdj/page-theme.js). The FM-1 can change THEME in its own
+   settings (GLO), so the setting is read again every couple of seconds. */
+let customTheme = null, deviceThemeId = -1, ticks = 0;
+function pageTheme(id = settings.theme) {
+  deviceThemeId = id;
+  const colours = id === CUSTOM_THEME ? customTheme : PRESETS[id];
+  if (colours) showDeviceTheme(colours);
+}
+async function followThemeSetting() {
+  const id = unpackSettings(await link.settingsGet()).theme;
+  if (id === deviceThemeId) return;
+  if (id === CUSTOM_THEME) customTheme = await link.themeGet();
+  settings.theme = id;
+  const sel = document.querySelector('#settings-form select[data-key="theme"]');
+  if (sel && document.activeElement !== sel) sel.value = id;
+  pageTheme(id);
+}
+$('page-theme').checked = matching();
+$('page-theme').onchange = () => { setMatching($('page-theme').checked); if ($('page-theme').checked && connected) pageTheme(); };
 $('theme-send').onclick = () => run('theme-status', async () => {
   await link.themeSet(theme);
   settings.theme = 7; await link.settingsSet(packSettings(settings)); buildSettings();
   await link.store();
+  customTheme = theme.slice(); pageTheme();
   say('theme-status', 'Sent: the FM-1 now uses THEME: CUSTOM.', 'ok');
 });
 
@@ -349,6 +375,7 @@ function selects(box, list, obj) {
   list.forEach(s => {
     const l = document.createElement('label'), sel = document.createElement('select');
     s.choices.forEach((c, i) => sel.append(new Option(c, i))); sel.value = obj[s.key];
+    sel.dataset.key = s.key;
     sel.onchange = () => { obj[s.key] = +sel.value; };
     l.append(s.name, sel); box.append(l);
   });
@@ -365,6 +392,7 @@ $('settings-apply').onclick = () => run('settings-status', async () => {
   await link.settingsSet(packSettings(settings));
   if (midi) await link.midiSet(packMidi(midi));
   await link.store();
+  pageTheme();
   say('settings-status', 'Applied and kept on the FM-1.', 'ok');
 });
 $('backup').onclick = () => run('settings-status', async () => {
@@ -392,6 +420,7 @@ $('restore').onchange = e => {
     settings = unpackSettings(d.settings); fx = unpackFx(await link.fxGet()); theme = d.theme;
     if (d.midi !== undefined && midi) midi = unpackMidi(d.midi);
     buildSettings(); buildFx(); drawColors();
+    customTheme = d.theme.slice(); pageTheme();
     say('settings-status', `Restored ${file.name} and kept it on the FM-1.`, 'ok');
   });
 };

@@ -3,8 +3,11 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Dreamy_bacon's LSDJ Burrito</title>
+<script>/* the last connected FM-1's colours (lsdj/page-theme.js), before the page draws */
+try { const v = JSON.parse(localStorage.getItem('burrito.pageColours'));
+  if (v && localStorage.getItem('burrito.pageTheme') !== 'off') for (const k in v) document.documentElement.style.setProperty(k, v[k]); } catch {}</script>
 <style>
-:root{--bg:#f4f2ec;--card:#fff;--card2:#faf9f5;--ink:#1d1d1b;--muted:#67655e;--line:#dddad0;--accent:#c94a17;--accent-ink:#fff;--ok:#2f6f4f;--warn:#9a5b00;--bad:#b3261e;--hi:#fd9b00;--top:#1f1e1c;--top-ink:#f4f2ec}
+:root{--bg:#f4f2ec;--card:#fff;--card2:#faf9f5;--ink:#1d1d1b;--muted:#67655e;--line:#dddad0;--accent:#c94a17;--accent-ink:#fff;--ok:#2f6f4f;--warn:#9a5b00;--bad:#b3261e;--hi:#fd9b00;--hi-ink:#000;--top:#1f1e1c;--top-ink:#f4f2ec}
 @media (prefers-color-scheme:dark){:root{--bg:#161615;--card:#201f1d;--card2:#1b1a18;--ink:#ecebe6;--muted:#a3a29b;--line:#3a3935;--accent:#ff7a45;--accent-ink:#1a0d06;--ok:#7cc39c;--warn:#e0a84a;--bad:#f2867e;--top:#0e0e0d;--top-ink:#ecebe6}}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,sans-serif}
@@ -17,9 +20,9 @@ a{color:var(--accent)}
 .brand small{font-weight:400;opacity:.65;margin-left:6px}
 .page-nav{display:flex;gap:2px;flex-wrap:wrap}
 .page-nav a{color:var(--top-ink);opacity:.75;text-decoration:none;padding:6px 10px;border-radius:8px;font-size:14px}
-.page-nav a:hover{opacity:1;background:#ffffff14}
-.page-nav a.on{opacity:1;background:#ffffff22;font-weight:600}
-.chip{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--top-ink);text-decoration:none;border:1px solid #ffffff30;border-radius:999px;padding:3px 10px;white-space:nowrap}
+.page-nav a:hover{opacity:1;background:color-mix(in srgb,var(--top-ink) 9%,transparent)}
+.page-nav a.on{opacity:1;background:color-mix(in srgb,var(--top-ink) 15%,transparent);font-weight:600}
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--top-ink);text-decoration:none;border:1px solid color-mix(in srgb,var(--top-ink) 25%,transparent);border-radius:999px;padding:3px 10px;white-space:nowrap}
 .chip::before{content:"";width:8px;height:8px;border-radius:50%;background:#8a887f}
 .chip.on::before{background:#5fd38d}
 main{max-width:880px;margin:0 auto;padding:20px 16px 64px}
@@ -99,7 +102,7 @@ input[type=range]{accent-color:var(--accent)}
 .fx-card{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--card2)}
 .fx-card h3{margin:0 0 8px;display:flex;flex-wrap:wrap;gap:8px;align-items:baseline;font-size:14px;letter-spacing:.04em}
 .fx-who{color:var(--muted);font-weight:400;font-size:12px;letter-spacing:0}
-.fx-onfm1{display:none;margin-left:auto;font-size:11px;font-weight:600;color:#000;background:var(--hi);border-radius:6px;padding:1px 6px;letter-spacing:0}
+.fx-onfm1{display:none;margin-left:auto;font-size:11px;font-weight:600;color:var(--hi-ink);background:var(--hi);border-radius:6px;padding:1px 6px;letter-spacing:0}
 .fx-card.fm1{border-color:var(--hi);box-shadow:0 0 0 2px var(--hi) inset}
 .fx-card.fm1 .fx-onfm1{display:inline}
 .fx-row{display:grid;grid-template-columns:2.2em minmax(0,1fr);gap:6px;align-items:center;padding:3px 2px;border-radius:6px}
@@ -117,7 +120,7 @@ input[type=range]{accent-color:var(--accent)}
 @keyframes fxhot{from{background:color-mix(in srgb,var(--hi) 45%,transparent)}to{background:transparent}}
 .fx-row.hot{animation:fxhot 1.6s ease-out}
 .badge{display:inline-block;border:1px solid var(--line);border-radius:6px;padding:1px 6px;font-size:12px;margin-left:4px;font-weight:500}
-.badge.on{background:var(--hi);color:#000;border-color:var(--hi)}
+.badge.on{background:var(--hi);color:var(--hi-ink);border-color:var(--hi)}
 table.fx{border-collapse:collapse;width:100%;font-size:13px}
 table.fx th,table.fx td{padding:3px 6px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
 /* songs */
@@ -245,6 +248,8 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 
 <section id="theme-sec" class="tab-panel needs-device" aria-disabled="true">
 <h2>Colours</h2>
+<label class="check"><input id="page-theme" type="checkbox" checked><span>Show this page in the FM-1's colours <span class="hint">(follows its THEME setting)</span></span></label>
+<h3 class="subhead">Custom theme</h3>
 <p class="hint">Start from a preset, change any colour, then send it. The FM-1 uses it as THEME: CUSTOM.</p>
 <div class="theme-wrap" style="margin-top:10px">
 <div><canvas id="theme-preview" width="160" height="96"></canvas></div>
