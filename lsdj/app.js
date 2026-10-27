@@ -7,7 +7,7 @@ import {connectBleMidi} from './ble-midi.js';
 import {showDeviceTheme, setMatching, matching} from './page-theme.js';
 import {setBeforeInstall, installing, usbMidiUnavailable} from './install-ui.js';
 import {CHANNELS, pagesForFx, PARAM, paramGet, paramSet, valueText, channelSummary, unpackFx, packFx, PRESETS, THEMES, COLOR_NAMES, toHex, fromHex,
-        SETTINGS, unpackSettings, packSettings, MIDI_SETTINGS, MIDI_CC_MAP, unpackMidi, packMidi, CUSTOM_THEME} from './fx-model.js';
+        SETTINGS, unpackSettings, packSettings, MIDI_SETTINGS, MIDI_CC_MAP, unpackMidi, packMidi, CUSTOM_THEME, isMasterPage} from './fx-model.js';
 
 const $ = id => document.getElementById(id);
 const say = (id, text, cls = 'hint') => { const el = $(id); el.textContent = text; el.className = cls; };
@@ -29,6 +29,7 @@ async function connectTo(input, output, how = 'USB') {
   try {
     const info = await link.info();
     if (info.protocol !== 1) throw new LinkError(`This page speaks link version 1; the FM-1 speaks ${info.protocol}. Update the page or the firmware.`);
+    muteOk = +(/^FM-1_9(\d\d)$/.exec(info.firmware)?.[1] ?? 0) >= 77;   // MUTE_SET: FM-1_977 and newer
     say('device', `Connected over ${how}: ${info.firmware} running ${info.title || 'a game'}` + (info.liveKnown ? '' : ' (live data needs LSDj 9.3.9)'), 'ok');
     showBluetooth(how);
     fx = unpackFx(await link.fxGet());
@@ -95,11 +96,20 @@ $('port-pick').onchange = e => {
    plays it there. Two or three choices: buttons; more: a list; ranges: a slider.
    A control the FM-1 just changed flashes. */
 let editCh = null, followCursor = true, cursorCh = 0, lastLive = null, bpm = 120, sendTimer = null;
+/* The page the FM-1 shows (LIVE; a master page while FX is held there), the channel page it showed
+   last, the mutes and whether this firmware takes them from the page (FM-1_977 and newer). */
+let fm1Page = null, lastChPage = null, mute = 0, muteOk = false, muteTouched = 0;
 /* One page at a time (following the FM-1's page unless one is picked here) or all pages as cards;
    the viewer's choice is remembered in this browser only. */
 let showAll = false, followPage = true, pickPage = 0;
 try { showAll = localStorage.getItem('burrito.fxView') === 'all'; } catch {}
-const shownPage = () => followPage ? fx.page : pickPage;
+const shownPage = () => followPage ? (lastChPage ?? fx.page) : pickPage;
+/* mutes and freeze: live only, through MUTE_SET */
+function sendMute(freeze = fx.freeze ? 1 : 0) {
+  if (!muteOk || busy || installing()) return;
+  muteTouched = Date.now();
+  link.muteSet(mute, freeze).catch(e => say('fx-status', e.message, 'bad'));
+}
 function setView(all) {
   showAll = all;
   try { localStorage.setItem('burrito.fxView', all ? 'all' : 'one'); } catch {}
@@ -127,8 +137,11 @@ function control(key) {
     input = document.createElement('div'); input.className = 'seg'; input.setAttribute('role', 'radiogroup');
     const btns = p.choices.map((name, i) => {
       const b = document.createElement('button'); b.type = 'button'; b.textContent = name; b.setAttribute('role', 'radio');
-      if (p.live) b.disabled = true;                 // freeze: shown, set on the FM-1 (hold FX + D5)
-      b.onclick = () => { paramSet(fx, key, c(), i); set(i); changed(); refresh(); };
+      if (p.live && !muteOk) b.disabled = true;      // freeze: set from the page with FM-1_977 and newer
+      b.onclick = () => {
+        if (p.live) { fx.freeze = i; set(i); sendMute(i); refresh(); return; }
+        paramSet(fx, key, c(), i); set(i); changed(); refresh();
+      };
       input.append(b); return b;
     });
     set = v => btns.forEach((b, i) => { b.classList.toggle('on', i === v); b.setAttribute('aria-checked', i === v); });
@@ -151,6 +164,8 @@ function control(key) {
 function buildFx() {
   controls.length = 0;
   const box = $('fx-pages'); box.replaceChildren();
+  const masterBox = $('fx-master-pages'); masterBox.replaceChildren();
+  $('fx-master').hidden = $('fx-ch-head').hidden = !fx.v3;   // FM-1_975 and newer: shared pages apart
   pagesForFx(fx).forEach((pg, i) => {
     if (pg.v2 && !fx.v2) return;                     // the new pages need alpha 66
     const card = document.createElement('div'); card.className = 'fx-card'; card.dataset.page = i;
@@ -167,7 +182,14 @@ function buildFx() {
     $('fx-master-status')?.remove();
     const masterStatus = document.createElement('p'); masterStatus.id = 'fx-master-status'; masterStatus.className = 'hint';
     masterStatus.setAttribute('role', 'status'); box.before(masterStatus);
-    box.append(card);
+    (isMasterPage(fx, i) ? masterBox : box).append(card);
+  });
+  const mutes = $('fx-mutes'); mutes.replaceChildren();
+  CHANNELS.forEach((name, n) => {
+    const b = document.createElement('button'); b.type = 'button'; b.dataset.mute = n; b.textContent = name;
+    b.disabled = !muteOk; b.title = muteOk ? `Mute or play ${name}` : 'Muting from this page needs FM-1_977 or newer (hold FX + C4-F4 on the FM-1)';
+    b.onclick = () => { mute ^= 1 << n; sendMute(); refresh(); };
+    mutes.append(b);
   });
   const bar = $('fx-pagebar'); bar.replaceChildren();
   const pageFollow = document.createElement('button'); pageFollow.type = 'button'; pageFollow.id = 'fx-page-follow'; pageFollow.textContent = 'FM-1 page';
@@ -207,23 +229,28 @@ function refresh(hot = []) {
   $('fx-view-one').setAttribute('aria-pressed', String(!showAll));
   $('fx-view-all').setAttribute('aria-pressed', String(showAll));
   $('fx-page-follow').classList.toggle('on', followPage);
+  const onFm1 = fm1Page ?? fx.page;
   document.querySelectorAll('#fx-pagebar [data-page]').forEach(b => {
     b.classList.toggle('on', +b.dataset.page === want);
-    b.classList.toggle('fm1', !!lastLive && +b.dataset.page === fx.page);
+    b.classList.toggle('fm1', !!lastLive && +b.dataset.page === onFm1);
+  });
+  document.querySelectorAll('#fx-mutes [data-mute]').forEach(b => {
+    const playing = !((mute >> +b.dataset.mute) & 1);
+    b.classList.toggle('on', playing); b.setAttribute('aria-pressed', String(playing));
   });
   document.querySelectorAll('#fx-channels .chan').forEach(b => {
     const n = +b.dataset.ch;
     b.classList.toggle('on', n === c); b.classList.toggle('cursor', n === cursorCh);
     const tags = [];
-    if (lastLive && (lastLive.mute >> n) & 1) tags.push('muted');
+    if ((mute >> n) & 1) tags.push('muted');
     if (lastLive && (lastLive.playing >> n) & 1) tags.push('▶');
     b.querySelector('small').textContent = [channelSummary(fx, n), ...tags].join(' · ');
   });
   $('fx-follow').classList.toggle('on', followCursor);
   $('fx-editing').innerHTML = `Editing <b>${CHANNELS[c]}</b>` + (followCursor ? ' <span class="hint">(under the FM-1\'s cursor)</span>' : ' <span class="hint">(picked here)</span>');
-  document.querySelectorAll('#fx-pages .fx-card').forEach(card => card.classList.toggle('fm1', lastLive && +card.dataset.page === fx.page));
+  document.querySelectorAll('#live-sec .fx-card').forEach(card => card.classList.toggle('fm1', !!lastLive && +card.dataset.page === onFm1));
   hot.forEach(key => {
-    document.querySelectorAll(`#fx-pages .fx-ctl[data-key="${key}"]`).forEach(el => {
+    document.querySelectorAll(`#live-sec .fx-ctl[data-key="${key}"]`).forEach(el => {
       const row = el.closest('.fx-row'); row.classList.remove('hot'); void row.offsetWidth; row.classList.add('hot');
     });
   });
@@ -240,14 +267,17 @@ async function tick() {
     const l = await link.live();
     const live = unpackFx(l.fx);
     live.freeze = l.freeze; cursorCh = l.cursor < 4 ? l.cursor : cursorCh; bpm = l.bpm;
+    fm1Page = l.page < pagesForFx(live).length ? l.page : live.page;
+    if (!isMasterPage(live, fm1Page)) lastChPage = fm1Page;
+    if (Date.now() - muteTouched > 1000) mute = l.mute & 15;
     let hot = [];
     if (Date.now() - touched > 1000) {   /* not while the user is moving a control */
       hot = changedKeys(fx, live, curCh());
       fx = live;
-    } else fx.freeze = l.freeze;
+    } else if (Date.now() - muteTouched > 1000) fx.freeze = l.freeze;
     lastLive = l;
     refresh(hot);
-    $('live-badges').innerHTML = `<span class="badge">${pagesForFx(live)[live.page]?.name || ''}</span><span class="badge">${l.bpm} BPM</span>` +
+    $('live-badges').innerHTML = `<span class="badge">${pagesForFx(live)[fm1Page]?.name || ''}</span><span class="badge">${l.bpm} BPM</span>` +
       (live.bypass ? '<span class="badge">ALL FX OFF</span>' : '') +
       (l.freeze ? '<span class="badge on">FROZEN</span>' : '');
   } catch (e) { /* a missed poll: try again on the next */ }

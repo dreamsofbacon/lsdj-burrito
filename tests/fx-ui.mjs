@@ -13,7 +13,7 @@ export async function runFxUiTests() {
   assert(['localhost', '127.0.0.1'].includes(location.hostname), 'Use a fresh local preview, never a real device');
   const descriptor = Object.getOwnPropertyDescriptor(navigator, 'requestMIDIAccess');
   const input = {name: 'FM-1 test'}, ops = [];
-  let bytes = Array(68).fill(0), writes = 0, cursor = 0;
+  let bytes = Array(68).fill(0), writes = 0, cursor = 0, firmware = 'FM-1_975', muteSent = null;
   bytes[36] = 5; bytes[37] = 2; bytes[42] = 0xf2; bytes[43] = 70;
   bytes[2] = 40; bytes[30] = 80; bytes[35] = 4;
   const output = {name: 'FM-1 test', send(message) {
@@ -25,7 +25,7 @@ export async function runFxUiTests() {
     }));
     if (op === OP.INFO) {
       const info = Array(35).fill(0); info[0] = 1;
-      [...'FM-1_975'].forEach((c, i) => info[1 + i] = c.charCodeAt(0));
+      [...firmware].forEach((c, i) => info[1 + i] = c.charCodeAt(0));
       return send(info);
     }
     if (op === OP.FX_GET) return send(bytes);
@@ -34,6 +34,7 @@ export async function runFxUiTests() {
     if (op === OP.THEME_GET) return send(Array(16).fill(0));
     if (op === OP.MIDI_GET || op === OP.BLUETOOTH) return send([], 1);
     if (op === OP.LIVE) return send([bytes[38], cursor, 120, 0, 0, 0, 0, ...bytes]);
+    if (op === OP.MUTE_SET) { muteSent = args; return send(); }
     if ([OP.STORE, OP.THEME_SET, OP.SETTINGS_SET].includes(op)) return send();
     throw Error(`Unexpected device operation ${op}`);
   }};
@@ -48,7 +49,10 @@ export async function runFxUiTests() {
     await $('connect-btn').onclick();
     assert($('device').textContent.includes('Connected'), $('device').textContent);
     const headings = [...document.querySelectorAll('.fx-card h3')].map(h => h.firstChild.textContent);
-    assert(headings.join(',') === 'MASTER,FILTER,DRIVE,LFO,LO-FI,ECHO,ECHO MOD', 'New page ordering');
+    assert(headings.join(',') === 'MASTER,ECHO,ECHO MOD,FILTER,DRIVE,LFO,LO-FI', 'Master pages first, then channel pages');
+    assert([...document.querySelectorAll('#fx-master-pages .fx-card')].map(c => c.dataset.page).join() === '0,5,6', 'Shared pages in Master');
+    assert([...document.querySelectorAll('#fx-pagebar [data-page]')].map(b => b.dataset.page).join() === '1,2,3,4', 'Page bar: channel pages only');
+    assert(!$('fx-master').hidden && document.querySelectorAll('#fx-mutes button:disabled').length === 4, '975: mutes shown, not settable');
     assert(document.querySelectorAll('[data-key="allFxOn"]').length === 1, 'One All FX switch');
     assert(document.querySelector('[data-page="0"] .fx-who').textContent === 'all channels', 'Master scope');
     assert(document.querySelector('[data-page="1"] .fx-row .fx-name').textContent === 'Channel FX', 'FILTER K1');
@@ -89,8 +93,18 @@ export async function runFxUiTests() {
     await until(() => $('settings-status').textContent.includes('Restored fx-test.json'), '11-word backup restore');
     assert(ops.every(op => [OP.INFO, OP.FX_GET, OP.FX_SET, OP.SETTINGS_GET, OP.SETTINGS_SET,
       OP.THEME_GET, OP.THEME_SET, OP.MIDI_GET, OP.BLUETOOTH, OP.LIVE, OP.STORE].includes(op)), 'Only simulated settings operations');
-    bytes = packFx({...read(), v2: true, v3: true, bypass: 0, page: 0}).flatMap(le32);
+    bytes = packFx({...read(), v2: true, v3: true, bypass: 0, page: 1}).flatMap(le32);
+    firmware = 'FM-1_977';
     await $('connect-btn').onclick();
+    assert(document.querySelectorAll('#fx-mutes button:disabled').length === 0, '977: mutes settable');
+    document.querySelector('#fx-mutes [data-mute="1"]').click();
+    await until(() => muteSent, 'MUTE_SET sent');
+    assert(muteSent.join() === '2,0', `PU2 muted, freeze off: ${muteSent}`);
+    assert(!document.querySelector('#fx-mutes [data-mute="1"]').classList.contains('on'), 'PU2 shown muted');
+    muteSent = null; radio('freeze', 1).click();
+    await until(() => muteSent, 'Freeze sent');
+    assert(muteSent.join() === '2,1', `Freeze keeps the mutes: ${muteSent}`);
+    firmware = 'FM-1_975';
     return 'PASS FX browser: matching pages, one master switch across four selected channels, LIVE state, 17/11-word backups and old firmware gating';
   } finally {
     if (descriptor) Object.defineProperty(navigator, 'requestMIDIAccess', descriptor);

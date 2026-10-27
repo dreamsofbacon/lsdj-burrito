@@ -23,6 +23,16 @@ availability, not device presence or permission. ROM preparation/download still
 work on secure browsers without Web MIDI; emulator support has its own WebGL,
 WebAssembly and audio requirements below.
 
+## Master and channel effects (FM-1_977 and newer)
+
+Effects shows a **Master** box first: MASTER, ECHO and ECHO MOD (shared by every
+channel; on the FM-1 they open while FX is held) and PU1-NOI mute buttons (lit =
+playing; the same mutes as hold FX + C4-F4 and MIDI CC 81, sent with link op 0x24
+MUTE_SET, live only). Freeze is settable from the page too. **Channel effects**
+follow below with FILTER, DRIVE, LFO and LO-FI. The FM-1 page indicator follows
+the live page, including the master pages while FX is held, without changing the
+saved channel page. Older firmware shows the mutes but cannot be set from here.
+
 ## FX organization (FM-1_975 and newer)
 
 The first card/device page is **MASTER**: **K1 All FX** switches channel DSP,
@@ -153,7 +163,7 @@ The template's matching [firmware source archive](lsdj/fm1-lsdj-template-source.
 includes build instructions, licenses and a per-file source manifest. It contains
 no LSDj ROM or save. Rebuilding this archive reproduced the published template
 and metadata byte-for-byte. Archive SHA-256:
-`919c560ce5ef0e4dc7fef481d4fdb1053bcc62b7654f7017c5786db84dfbd026`.
+`3704e6b1b9eac8c04a383fa08d965264a5d1a2db847e3281fa0606d6ebaff9a1`.
 
 ## Local preview and checks
 

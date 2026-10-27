@@ -38,6 +38,10 @@ export const PAGES = [
   LEGACY_PAGES[4],
   {...LEGACY_PAGES[5], name: 'ECHO MOD'}];
 export const pagesForFx = fx => fx.v3 ? PAGES : LEGACY_PAGES;
+/* FM-1_977 and newer: these pages are shared by every channel and open with FX held on the FM-1;
+   tapping FX shows the others (the channel pages). */
+export const MASTER_PAGES = [0, 5, 6];
+export const isMasterPage = (fx, i) => !!fx.v3 && MASTER_PAGES.includes(i);
 export const PAGES_OLD = [0, 3, 4, 5];   // the old firmware's page numbers -> these pages
 export const PARAM = Object.fromEntries([
   ...CH_PARAMS.map(p => [p.key, {...p, where: 'ch'}]), ...Q_PARAMS.map(p => [p.key, {...p, where: 'q'}]),
