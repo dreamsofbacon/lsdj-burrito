@@ -37,7 +37,19 @@ document.addEventListener('device-state', e => {
   if (connected && !was && location.hash === '#connect') history.replaceState(null, '', `#${tab}`);
   route();
 });
-$('wiz-backup').onclick = () => $('export').click();
+/* Install step 3's "Export songs now" runs the Songs tab's export; its progress and messages
+   are copied here, since the Songs tab is out of sight. */
+$('wiz-backup').onclick = () => {
+  $('wiz-backup-status').hidden = false;
+  $('export').click();
+};
+const mirror = () => {
+  const p = $('save-progress'), q = $('wiz-backup-progress'), s = $('save-status'), t = $('wiz-backup-status');
+  q.hidden = p.hidden || t.hidden; q.max = p.max; q.value = p.value;
+  t.textContent = s.textContent; t.className = s.className;
+};
+new MutationObserver(mirror).observe($('save-status'), {childList: true, characterData: true, subtree: true, attributes: true});
+new MutationObserver(mirror).observe($('save-progress'), {attributes: true});
 
 /* ---------- install steps ---------- */
 function showStep(n) {

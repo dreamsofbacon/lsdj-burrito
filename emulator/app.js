@@ -7,7 +7,7 @@ const $ = id => document.getElementById(id);
 const say = (text, cls = 'hint') => { $('emu-status').textContent = text; $('emu-status').className = cls; };
 let wasm, ui, panel, panelPromise, audio, node, gain, bootTimer;
 let fileGeneration = 0;
-let generation = 0, phase = 'idle', file = null, current = null, front = false;
+let generation = 0, phase = 'idle', file = null, current = null, front = true;   // flat (front) view by default
 let timing = null;
 let state = {keys: new Set(), enc: new Int32Array(7), pot: 900};
 const owners = new Map();

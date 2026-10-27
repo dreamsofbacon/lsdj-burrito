@@ -312,7 +312,9 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <div class="wstep" data-step="3" hidden>
 <h2>Prepare the firmware</h2>
 <div class="callout"><b>Back up your songs first.</b> <span id="wiz-backup-text">Connect in <a href="#connect">My FM-1</a> to export them.</span>
-<button id="wiz-backup" type="button" class="needs-device">Export songs now</button></div>
+<button id="wiz-backup" type="button" class="needs-device">Export songs now</button>
+<progress id="wiz-backup-progress" value="0" max="1" hidden></progress>
+<p id="wiz-backup-status" role="status" hidden></p></div>
 <label class="check"><input id="rom-experimental" type="checkbox" disabled><span>I understand this firmware is experimental and may not start or sound right, and I have backed up my songs.</span></label>
 <div class="row"><button id="rom-build" type="button" class="primary" aria-describedby="rom-next" disabled>Prepare firmware</button><span class="hint">Builds the file on this computer. Nothing is installed yet.</span></div>
 <details><summary>What's in this version (FM-1_976)</summary>
@@ -340,7 +342,7 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <p>The downloaded file can also be installed with M-VAVE's M-UPGRADE app. A file you prepared contains your LSDj: keep it private.</p>
 </details>
 <details><summary>Install log</summary><pre id="fw-log" class="mono" style="white-space:pre-wrap;font-size:12px"></pre></details>
-<details><summary>Risks</summary><p>An interrupted web install once left an FM-1 unable to start; it recovered by replugging into update mode, but recovery isn't guaranteed. Package checks and simulated tests don't prove an install is safe on hardware.</p></details>
+<details><summary>Risks</summary><p>Installing firmware always carries some risk. If the transfer is interrupted (the cable comes out, the computer sleeps, the power drops) or the firmware has a fault, the FM-1 may not start until a working firmware is installed again; usually it can be recovered by reconnecting it in update mode, but that isn't guaranteed. This firmware is experimental and unofficial, and isn't supported by M-VAVE. The page checks the file before sending it, but that can't prove it will run correctly on your FM-1. Back up your songs first, and install at your own risk.</p></details>
 <div class="wiz-nav"><button type="button" data-back>Back</button><a class="button-link" href="#connect">Go to My FM-1</a></div>
 </section>
 </div>
@@ -362,7 +364,7 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <button id="emu-pause" type="button" disabled>Pause</button>
 <button id="emu-stop" type="button" disabled>Stop</button>
 <label>Volume <input id="emu-volume" type="range" min="0" max="100" value="25"></label>
-<button id="emu-front" type="button" aria-pressed="false">Front view</button>
+<button id="emu-front" type="button" aria-pressed="true">Angled view</button>
 <button id="emu-zoom" type="button" aria-expanded="false" aria-controls="emu-lcd">Enlarge screen</button>
 </div>
 <canvas id="emu-lcd" width="240" height="240" style="width:480px" aria-label="Enlarged virtual FM-1 display" hidden></canvas>
