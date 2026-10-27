@@ -71,7 +71,7 @@ conversion without writing any files or contacting a device.
 
 1. Back up songs and settings before changing firmware or LSDj versions. Save compatibility between versions is not guaranteed.
 2. Choose your own `.gb` file under **Prepare firmware**. The page checks its LSDj title, MBC5 mapper, size, 128 KiB RAM requirement and header checksum. GBC-only and rumble cartridges are refused.
-3. All recognized sample kits start selected. The ROM-free **FM-1_975** template holds **31 banks plus a 256-byte header (508,160 bytes)**. A typical ROM with 13 required program/data banks leaves 18 kit banks. If necessary, deselect kits yourself; the page never silently removes them. Unknown data and zero-filled banks remain mandatory. Some modified ROMs cannot fit even with no kits.
+3. All recognized sample kits start selected. The ROM-free **FM-1_976** template holds **31 banks plus a 256-byte header (508,160 bytes)**. A typical ROM with 13 required program/data banks leaves 18 kit banks. If necessary, deselect kits yourself; the page never silently removes them. Unknown data and zero-filled banks remain mandatory. Some modified ROMs cannot fit even with no kits.
 4. Kit bank numbers and retained sample bytes are preserved. Songs referring to omitted kits lose those samples. The global ROM checksum is recalculated for the sparse image.
 5. Read the experimental/backup acknowledgement, then choose **Prepare firmware**. Template hashes, protected firmware, loader, slot mapping and package CRCs are checked before and after insertion.
 6. Download the private `.fwsc` for M-UPGRADE, or use the separate USB installer. Preparing or downloading does **not** write to a device. Changing ROM options invalidates the generated installer selection.
@@ -85,11 +85,13 @@ or template. Failed file checks allow selecting the same file again; a later
 file selection takes precedence over an earlier read or template request.
 Installer file errors are shown explicitly and clear the invalid selection.
 
-FM-1_975 retains **cursor-profile support without the channel highlight** for
-verified LSDj 9.3.9 program code, including custom or omitted sample kits.
+FM-1_976 uses the **verified LSDj 9.3.9 profile** for
+matching program code, including custom or omitted sample kits.
 The browser compares the program SHA-256, not the title, and writes a cursor
-profile into the CRC-protected slot header. The firmware uses it only to read
-the current cursor channel; no version-specific RAM writes are enabled.
+profile into the CRC-protected slot header. The firmware uses it to read
+the cursor channel and, since FM-1_976, for every 9.3.9 helper: SEQ live / song
+mode, EDIT tempo, ARP song cues, MIDI clock / KEYBD sync and the PLAY beat light
+(975 and earlier used only the cursor, so SEQ did nothing in web builds).
 Unknown programs use ALL-channel FX, explicitly reported before and after
 preparation. Theme-accent bars, meaningful segments, choice selectors and CPU1
 save fixes remain unchanged. The identity is newer than 973; normal alpha 71
@@ -151,7 +153,7 @@ The template's matching [firmware source archive](lsdj/fm1-lsdj-template-source.
 includes build instructions, licenses and a per-file source manifest. It contains
 no LSDj ROM or save. Rebuilding this archive reproduced the published template
 and metadata byte-for-byte. Archive SHA-256:
-`6cddc67bfbd6de771eb8d677389eaff09feb9980abc62ef7d04e51e3d920f0a5`.
+`919c560ce5ef0e4dc7fef481d4fdb1053bcc62b7654f7017c5786db84dfbd026`.
 
 ## Local preview and checks
 
