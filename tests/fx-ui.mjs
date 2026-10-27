@@ -49,9 +49,9 @@ export async function runFxUiTests() {
     await $('connect-btn').onclick();
     assert($('device').textContent.includes('Connected'), $('device').textContent);
     const headings = [...document.querySelectorAll('.fx-card h3')].map(h => h.firstChild.textContent);
-    assert(headings.join(',') === 'MASTER,ECHO,ECHO MOD,FILTER,DRIVE,LFO,LO-FI', 'Master pages first, then channel pages');
-    assert([...document.querySelectorAll('#fx-master-pages .fx-card')].map(c => c.dataset.page).join() === '0,5,6', 'Shared pages in Master');
-    assert([...document.querySelectorAll('#fx-pagebar [data-page]')].map(b => b.dataset.page).join() === '1,2,3,4', 'Page bar: channel pages only');
+    assert(headings.join(',') === 'MASTER,FILTER,DRIVE,LFO,LO-FI,ECHO,ECHO MOD', 'MASTER first, then channel pages with the echo');
+    assert([...document.querySelectorAll('#fx-master-pages .fx-card')].map(c => c.dataset.page).join() === '0', 'Only MASTER in Master');
+    assert([...document.querySelectorAll('#fx-pagebar [data-page]')].map(b => b.dataset.page).join() === '1,2,3,4,5,6', 'Page bar: channel pages and echo');
     assert(!$('fx-master').hidden && document.querySelectorAll('#fx-mutes button:disabled').length === 4, '975: mutes shown, not settable');
     assert(document.querySelectorAll('[data-key="allFxOn"]').length === 1, 'One All FX switch');
     assert(document.querySelector('[data-page="0"] .fx-who').textContent === 'all channels', 'Master scope');
