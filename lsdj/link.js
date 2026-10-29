@@ -8,7 +8,8 @@
 export const OP = {INFO: 0x01, READ: 0x02, BEGIN: 0x03, CHUNK: 0x04, COMMIT: 0x05, ABORT: 0x06,
   SETTINGS_GET: 0x10, SETTINGS_SET: 0x11, FX_GET: 0x12, FX_SET: 0x13, THEME_GET: 0x14, THEME_SET: 0x15,
   STORE: 0x16, MIDI_GET: 0x17, MIDI_SET: 0x18, FEAT_GET: 0x19, FEAT_SET: 0x1A, LIVE: 0x20, BLUETOOTH: 0x21,
-  CART_INFO: 0x22, CART_READ: 0x23, MUTE_SET: 0x24, SCREEN_INFO: 0x25, SCREEN_ROW: 0x26};
+  CART_INFO: 0x22, CART_READ: 0x23, MUTE_SET: 0x24, SCREEN_INFO: 0x25, SCREEN_ROW: 0x26,
+  SCREEN_SYNC: 0x27, SCREEN_PIXELS: 0x28};
 export const BT_STATES = ['off', 'starting', 'ready', 'advertising', 'connected', 'failed'];
 export const BT_ERRORS = ['', 'no radio calibration in flash', 'start timed out', 'no task', 'address refused', 'advertising refused', 'link refused'];
 export const STATUS = ['ok', 'bad request', 'wrong state', 'checksum mismatch', 'flash error'];
@@ -53,8 +54,13 @@ export class Link {
   constructor(input, output, {slow = false} = {}) {
     this.input = input; this.output = output; this.waiting = null; this.queue = Promise.resolve();
     this.slow = slow;
+    this.onPixels = null;   // FM-1_985: rows the FM-1 sends by itself after SCREEN_SYNC (lsdj/screen.js)
     input.onmidimessage = e => {
-      const r = parse(Array.from(e.data));
+      const m = e.data;
+      if (m.length > 7 && m[4] === OP.SCREEN_PIXELS && m[0] === 0xF0 && m[1] === 0x7D && m[2] === 0x47 && m[3] === 0x53) {
+        this.onPixels?.(m); return;
+      }
+      const r = parse(Array.from(m));
       if (r && this.waiting && r.op === this.waiting.op && (r.status || this.waiting.accept(r))) {
         const w = this.waiting; w.resolve(r);
       }
@@ -195,6 +201,16 @@ export class Link {
     const r = await this.req(OP.SCREEN_INFO, [], {timeout: 800, retries: 1, allow: [0, 1]});
     if (r.status || r.data.length !== 40) return null;
     return {shown: rd32(r.data, 0), hashes: Array.from({length: 18}, (_, b) => rd16(r.data, 4 + 2 * b))};
+  }
+  /* FM-1_985 and newer, USB: the hashes the page holds (null: unknown) -> {shown, hashes, bands (bit per
+     band)}; the FM-1 then sends those bands' rows by itself (onPixels), tagged with round (0..127).
+     null: not here (older firmware, or Bluetooth) */
+  async screenSync(known, round) {
+    const force = known.reduce((m, h, b) => h == null ? m | 1 << b : m, 0);
+    const r = await this.req(OP.SCREEN_SYNC, [...le32(force), ...known.flatMap(h => [(h ?? 0) & 255, (h ?? 0) >> 8]), round & 127],
+      {timeout: 800, retries: 1, allow: [0, 1]});
+    if (r.status || r.data.length !== 44) return null;
+    return {shown: rd32(r.data, 0), hashes: Array.from({length: 18}, (_, b) => rd16(r.data, 4 + 2 * b)), bands: rd32(r.data, 40)};
   }
   /* one row's data (lsdj/screen.js decodeRow), or null if it has more than 16 colours */
   async screenRow(y) {

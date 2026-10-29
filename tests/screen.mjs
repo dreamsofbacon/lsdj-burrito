@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // lsdj/screen.js: rows decoded (colours + 4-bit indices), only changed bands read again, a row
-// with too many colours keeps the old one, firmware without the screen, a stop mid-round.
+// with too many colours keeps the old one, firmware without the screen, a stop mid-round;
+// FM-1_985's SCREEN_SYNC: packed rows sent by the FM-1, lost and late rows, fallback.
 // (The firmware's side: tests/lsdj_link.c; both together: harness/link_page_test.mjs.)
 import assert from 'node:assert/strict';
-import {decodeRow, changedBands, rgb, ScreenMirror, W, H, BANDS} from '../lsdj/screen.js';
+import {decodeRow, decodePixels, changedBands, rgb, ScreenMirror, W, H, BANDS} from '../lsdj/screen.js';
 
 /* a row as the firmware sends it (firmware/lsdj_link.h SCREEN_ROW); null: more than 16 colours */
 function encodeRow(px, y) {
@@ -63,4 +64,93 @@ await m.step(); assert.equal(link.rows, H + 16);
   s.start(); await new Promise(r => setTimeout(r, 60)); s.stop();
   const seen = l.infos; assert.ok(seen >= 2, `${seen} rounds`);
   await new Promise(r => setTimeout(r, 30)); assert.equal(l.infos, seen); }
-console.log('PASS screen: rows decoded exactly, only changed bands read, 17-colour row kept, stop mid-round, older firmware');
+
+/* ---------- FM-1_985: SCREEN_SYNC + SCREEN_PIXELS ---------- */
+/* a SCREEN_PIXELS message as the firmware builds it (firmware/lsdj_link.h lsdj_link_screen_pixels) */
+function encodePixels(px, y, round) {
+  const pal = [], k = [];
+  for (let x = 0; x < W; x++) {
+    let i = pal.indexOf(px[y * W + x]);
+    if (i < 0) {
+      if (pal.length === 16) return Uint8Array.from([0xF0, 0x7D, 0x47, 0x53, 0x28, 2, round & 127, y & 127, y >> 7, 0xF7]);
+      i = pal.push(px[y * W + x]) - 1;
+    }
+    k.push(i);
+  }
+  const out = [0xF0, 0x7D, 0x47, 0x53, 0x28, 0, round & 127];
+  let acc = 0, bits = 0;
+  const put = (v, w) => { acc |= v << bits; bits += w; while (bits >= 7) { out.push(acc & 127); acc >>>= 7; bits -= 7; } };
+  const np = pal.length, w = np > 8 ? 4 : np > 4 ? 3 : np > 2 ? 2 : np > 1 ? 1 : 0;
+  put(y, 8); put(np - 1, 4); for (const c of pal) put(c, 16);
+  if (w) for (const i of k) put(i, w);
+  if (bits) out.push(acc & 127);
+  out.push(0xF7);
+  return Uint8Array.from(out);
+}
+{ const m = encodePixels(pic, 3, 5), r = decodePixels(m);
+  assert.equal(r.row, 3); assert.equal(r.round, 5); assert.deepEqual([...r.px], [...pic.subarray(3 * W, 4 * W)]);
+  assert.equal(m.length, 7 + Math.ceil((8 + 4 + 6 * 16 + 160 * 3) / 7) + 1);   // 6 colours: 3 bits a pixel
+  const one = new Uint16Array(W * H).fill(0x1234), r1 = decodePixels(encodePixels(one, 140, 0));
+  assert.equal(r1.row, 140); assert.ok(r1.px.every(c => c === 0x1234)); assert.equal(encodePixels(one, 140, 0).length, 7 + 4 + 1);
+  const many = pic.slice(); for (let x = 0; x < 17; x++) many[x] = 0x0841 * (x + 1);
+  assert.deepEqual(decodePixels(encodePixels(many, 0, 9)), {row: 0, round: 9, px: null});
+  assert.equal(decodePixels(Uint8Array.from([...m.slice(0, m.length - 2), 0xF7])), null);   // short
+  assert.equal(decodePixels(Uint8Array.from([...m.slice(0, m.length - 1), 0, 0xF7])), null);   // a byte too many
+  const bad = m.slice(); bad[9] = 0x80; assert.equal(decodePixels(bad), null);
+  assert.equal(decodePixels(Uint8Array.from([0xF0, 0x7D, 0x47, 0x53, 0x28, 0, 0, 0x7F, 0x7F, 0xF7])), null); }   // row 255
+
+/* the FM-1 side: hashes, the bands that differ, then their rows by themselves (some lost on request;
+   extra: messages sent before the rows, e.g. a late row from an earlier round) */
+function syncLink(px, {supported = true} = {}) {
+  const l = {closed: false, px, syncs: 0, sent: 0, onPixels: null, lose: new Set(), extra: [],
+    async screenSync(known, round) {
+      l.syncs++;
+      if (!supported) return null;
+      const hashes = Array.from({length: BANDS}, (_, b) => bandHash(l.px, b));
+      let bands = 0; hashes.forEach((h, b) => { if (known[b] == null || known[b] !== h) bands |= 1 << b; });
+      const extra = l.extra; l.extra = [];
+      setTimeout(() => {
+        for (const e of extra) l.onPixels?.(e);
+        for (let y = 0; y < H; y++) if (bands >> (y >> 3) & 1) {
+          l.sent++;
+          if (!l.lose.has(y)) l.onPixels?.(encodePixels(l.px, y, round));
+        }
+      }, 1);
+      return {shown: l.syncs, hashes, bands};
+    },
+    async screenInfo() { throw new Error('row by row not expected'); },
+    async screenRow() { throw new Error('row by row not expected'); }};
+  return l;
+}
+{ const l = syncLink(pic.slice()), told = [], m = new ScreenMirror(l, canvas(), {onSupport: ok => told.push(ok)});
+  assert.equal(await m.step(), 'more'); assert.equal(l.sent, H); assert.deepEqual([...m.pixels()], [...pic]); assert.deepEqual(told, [true]);
+  assert.equal(await m.step(), true); assert.equal(l.sent, H);   // nothing changed: no rows, one request
+  l.px[5 * 8 * W + 2 * W + 100] = 0xF800;
+  assert.equal(await m.step(), 'more'); assert.equal(l.sent, H + 8); assert.equal(m.pixels()[5 * 8 * W + 2 * W + 100], 0xF800);
+  // a lost row: that band is read again next round
+  l.px[7 * 8 * W + 3] = 0x07E0; l.lose.add(7 * 8 + 1);
+  assert.equal(await m.step(), 'more'); assert.equal(m.stats.lost, 1); assert.equal(l.sent, H + 16);
+  l.lose.clear(); assert.equal(await m.step(), 'more'); assert.equal(l.sent, H + 24); assert.equal(m.pixels()[7 * 8 * W + 3], 0x07E0);
+  assert.equal(await m.step(), true);
+  // the very last row lost: the gap (300 ms with no row) ends the round
+  l.px[H * W - 1] = 0x001F; l.lose.add(H - 1);
+  const t0 = Date.now(); assert.equal(await m.step(), 'more'); assert.ok(Date.now() - t0 >= 250, 'waited for the gap');
+  l.lose.clear(); await m.step(); assert.equal(m.pixels()[H * W - 1], 0x001F); assert.equal(await m.step(), true);
+  // a late row from an earlier round: not painted, not counted
+  const stale = pic.slice(); stale.fill(0xF81F, 0, W);
+  l.px[2 * W] = 0x1111; l.extra.push(encodePixels(stale, 0, m.round));   // m.round: the round just finished
+  assert.equal(await m.step(), 'more'); assert.equal(m.pixels()[0], pic[0]); assert.equal(m.pixels()[2 * W], 0x1111); }
+// FM-1_983/984: SCREEN_SYNC answers no -> a row at a time from then on
+{ const l = fakeLink(pic.slice()); let syncs = 0; l.screenSync = async () => { syncs++; return null; };
+  const m = new ScreenMirror(l, canvas());
+  assert.equal(await m.step(), true); assert.equal(l.rows, H); assert.deepEqual([...m.pixels()], [...pic]);
+  await m.step(); assert.equal(syncs, 1); }
+// Bluetooth (a slow link): never asks for SCREEN_SYNC
+{ const l = fakeLink(pic.slice()); l.slow = true; l.screenSync = async () => { throw new Error('not over Bluetooth'); };
+  const m = new ScreenMirror(l, canvas()); assert.equal(await m.step(), true); assert.equal(l.rows, H); }
+// the loop with sync: rows, then idle rounds; stop() ends it and lets go of the link
+{ const l = syncLink(pic.slice()), m = new ScreenMirror(l, canvas(), {every: 5});
+  m.start(); await new Promise(r => setTimeout(r, 60)); m.stop();
+  assert.ok(l.syncs >= 2); assert.deepEqual([...m.pixels()], [...pic]); assert.equal(l.onPixels, null);
+  const seen = l.syncs; await new Promise(r => setTimeout(r, 30)); assert.equal(l.syncs, seen); }
+console.log('PASS screen: rows decoded exactly, only changed bands read, 17-colour row kept, stop mid-round, older firmware; sync: packed rows, lost / late rows, fallback, loop');

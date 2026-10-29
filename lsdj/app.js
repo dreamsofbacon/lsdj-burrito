@@ -312,7 +312,7 @@ async function tick() {
 function startMirror(how) {
   const box = $('fm1-screen-box'), note = $('fm1-screen-note');
   box.hidden = false; note.hidden = true;
-  mirror = new ScreenMirror(link, $('fm1-screen'), {every: how === 'Bluetooth' ? 400 : 100,
+  mirror = new ScreenMirror(link, $('fm1-screen'), {every: how === 'Bluetooth' ? 400 : 50,
     active: () => connected && !busy && !installing() && !document.hidden && !$('live-sec').hidden && $('fx-screen').open,
     onSupport: ok => {
       box.hidden = !ok; note.hidden = ok;
