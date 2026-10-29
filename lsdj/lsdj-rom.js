@@ -20,7 +20,45 @@ const title = rom => String.fromCharCode(...rom.subarray(0x134, 0x143)).replace(
 const isKit = bank => bank[0] === 0x60 && bank[1] === 0x40;
 // Only erased banks can be omitted without changing what the emulator reads.
 const isEmpty = bank => bank.every(b => b === 0xff);
-const cursorProfile = hash => hash === 'df0dee277306cf77eb883d8ce0a85aacebd6e17e82dca50b6ad188c7d691b76d' ? 1 : 0;
+// The LSDj programs the FM-1 knows (src/lsdj_slot.h byte 148). Profile 1: the verified LSDj 9.3.9 program,
+// every helper (cursor FX, SEQ, tempo, cues, MIDI sync). Profile 2: another LSDj whose cursor and tempo bytes
+// were found (harness/find_cursor.c, find_tempo.c): cursor-following FX and the LFO tempo only.
+// A program is its code banks (0-7, 1B-1F) with its palette colours (bank 1) and palette names (bank 1B)
+// blanked, so custom palettes and kit banks (including blank kit slots) keep the match.
+const CODE_BANKS = [0, 1, 2, 3, 4, 5, 6, 7, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f];
+export const LSDJ_PROFILES = [
+  {title: 'LSDj-v9.3.9', profile: 1, cursor: 0xC41D, tempo: 0xC529, mask: [[0x1, 0x16a7, 0x17c0], [0x1b, 0x1707, 0x175c]],
+   codeHash: '56d3a06fa6a35013c4647fa01e547a2a1869f9e3eccea0f1cdda8a1ee029e4f9'},
+  {title: 'LSDj-v9.4.0', profile: 2, cursor: 0xC41D, tempo: 0xC529, mask: [[0x1, 0x16a7, 0x17c0], [0x1b, 0x1707, 0x175c]],
+   codeHash: 'ae3214b29f70b8c21352a1281ff591cbe61e2ec8f1ec6f300314979c1c7ffb5c'},
+  {title: 'LSDj-v9.2.L', profile: 2, cursor: 0xC41E, tempo: 0xC52A, mask: [[0x1, 0x16be, 0x17d8], [0x1b, 0x1707, 0x175c]],
+   codeHash: '0f49d6ca387321749f44b2bd07a103eb58aad788f1e0c46971302d825e6fc1da'},
+  {title: 'LSDj-v9.1.Caboy', profile: 2, cursor: 0xC464, tempo: 0xC575, mask: [[0x1, 0x16d7, 0x17f0], [0x1b, 0x16f0, 0x1748]],
+   codeHash: 'a0b4d42d9cde5efbdb7d83a73d426f4592e3ea6b3be09ca1a7313430d30d066b'},
+  {title: 'LSDj-v8.4.9', profile: 2, cursor: 0xC41A, tempo: 0xC537, mask: [],
+   codeHash: '4b70c17a673e20849260bebf05878f1c0dfdf9c3388a772129562650d1aae6cf'},
+  {title: 'LSDj-v8.4.2', profile: 2, cursor: 0xC41A, tempo: 0xC537, mask: [],
+   codeHash: '41ec620880e0943300a58b659e26f8ef5d4cffd13dce83718589b92305e890a9'},
+  {title: 'LSDj-v4.6.2', profile: 2, cursor: 0xC0E8, tempo: 0xC4AF, mask: [],
+   codeHash: '21b2ba9460d5faf7174a554889b904d7703df4667613ebc6be1c7379b7164b09'}
+];
+export async function codeHash(rom, mask) {
+  if (rom.length < 0x20 * BANK) return null;
+  const bytes = new Uint8Array(CODE_BANKS.length * (BANK + 1));
+  CODE_BANKS.forEach((b, i) => {
+    const bank = rom.slice(b * BANK, (b + 1) * BANK);
+    if (!b) bank[0x14e] = bank[0x14f] = 0;
+    for (const [mb, start, end] of mask) if (mb === b) bank.fill(0, start, end);
+    bytes[i * (BANK + 1)] = b; bytes.set(bank, i * (BANK + 1) + 1);
+  });
+  return sha256hex(bytes);
+}
+// The known program this ROM runs, or null.
+export async function findProfile(rom) {
+  const name = title(rom);
+  for (const p of LSDJ_PROFILES) if (p.title === name && await codeHash(rom, p.mask) === p.codeHash) return p;
+  return null;
+}
 
 export function validateRom(rom) {
   if (!(rom instanceof Uint8Array) || rom.length < 0x150 || !title(rom).startsWith('LSDj'))
@@ -63,7 +101,8 @@ export async function identifyRom(rom, versions) {
   const sameProgram = versions.find(v => v.programSha256 === programSha256);
   let global = 0;
   for (let i = 0; i < rom.length; i++) if (i !== 0x14e && i !== 0x14f) global = (global + rom[i]) & 0xffff;
-  return {title: name, sha256, programSha256, cursorProfile: cursorProfile(programSha256), tested: !!known, sameProgram: !!sameProgram,
+  const profile = await findProfile(rom);
+  return {title: name, sha256, programSha256, cursorProfile: profile?.profile ?? 0, tested: !!known, sameProgram: !!sameProgram,
     globalChecksumValid: global === (rom[0x14e] << 8 | rom[0x14f]),
     version: known?.version ?? name.replace(/^LSDj-?v?/, '')};
 }
@@ -130,7 +169,9 @@ export async function buildSlot(rom, keepKits, capacity) {
   slot.set([..."LSDJSLOT"].map(c => c.charCodeAt(0)));
   v.setUint16(8, 1, true); v.setUint16(10, bankMap.length, true); v.setUint16(12, stored, true); v.setUint16(14, kept, true);
   slot.fill(0xff, 20, 20 + SLOT_MAX_BANKS); slot.set(bankMap, 20);
-  slot[148] = cursorProfile(await programHash(rom));
+  const profile = await findProfile(rom);
+  slot[148] = profile?.profile ?? 0;
+  if (profile?.profile === 2) { v.setUint16(149, profile.cursor, true); v.setUint16(151, profile.tempo, true); }
   slot.set(storage, SLOT_HEADER);
   v.setUint32(16, crc32(storage), true);
   v.setUint32(252, crc32(slot.subarray(0, 252)), true);
@@ -146,7 +187,8 @@ export function parseSlot(w, capacity) {
   if (w.subarray(0, 8).every(b => b === 0xff)) return {error: 'empty'};
   if (String.fromCharCode(...w.subarray(0, 8)) !== 'LSDJSLOT' || v.getUint16(8, true) !== 1 ||
       v.getUint32(252, true) !== crc32(w.subarray(0, 252))) return {error: 'header'};
-  if (w[148] > 1) return {error: 'layout'};
+  const cursor = v.getUint16(149, true), tempo = v.getUint16(151, true), wram = a => a >= 0xc000 && a <= 0xdfff;
+  if (w[148] > 2 || (w[148] === 2 ? !wram(cursor) || (tempo && !wram(tempo)) : cursor || tempo)) return {error: 'layout'};
   const logical = v.getUint16(10, true), stored = v.getUint16(12, true), kits = v.getUint16(14, true);
   if (logical < 2 || logical > SLOT_MAX_BANKS || (logical & (logical - 1)) || !stored || kits > stored ||
       stored > logical || stored > Math.floor((capacity - SLOT_HEADER) / BANK) || w.length < slotBytes(stored))
@@ -156,7 +198,8 @@ export function parseSlot(w, capacity) {
   const present = map.filter(m => m !== 0xff);
   if (present.length !== stored || present.some((m, i) => m !== i)) return {error: 'layout'};
   if (v.getUint32(16, true) !== crc32(w.subarray(SLOT_HEADER, SLOT_HEADER + stored * BANK))) return {error: 'data'};
-  return {logical, stored, kits, cursorProfile: w[148], map: map.slice(0, logical)};
+  return {logical, stored, kits, cursorProfile: w[148], cursor: w[148] === 2 ? cursor : w[148] ? 0xc41d : 0,
+    tempo: w[148] === 2 ? tempo : 0, map: map.slice(0, logical)};
 }
 
 // Recover exactly what the emulator can read, not sample banks previously omitted.

@@ -102,7 +102,8 @@ async function chooseRom(file, device = false) {
     rom = bytes; versions = catalog; ({template, metadata} = loaded);
     say(`${file.name} (${info.title}): ${info.tested ? 'a tested LSDj build' :
       info.sameProgram ? 'a tested LSDj program with different samples' : 'an untested LSDj build'}. ` +
-      (info.cursorProfile ? 'Verified LSDj 9.3.9: effects follow the cursor; SEQ, tempo, cues and MIDI sync work. ' :
+      (info.cursorProfile === 1 ? 'LSDj 9.3.9 program (custom palettes and kits are fine): effects follow the cursor; SEQ, tempo, cues and MIDI sync work. ' :
+        info.cursorProfile === 2 ? `Known ${info.title} program: effects follow the cursor and the LFO follows the tempo; SEQ live mode, tempo editing, cues and MIDI sync need LSDj 9.3.9. ` :
         'Cursor-following FX unavailable for this program: FX targets ALL channels. ') +
       (device ? 'All installed kits are ticked; untick any you can do without. ' : '') +
       (!info.globalChecksumValid ? 'Its checksum is out of date; the firmware gets a corrected one. ' : ''),

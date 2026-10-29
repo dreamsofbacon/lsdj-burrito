@@ -54,6 +54,14 @@ assert.equal(parseSlot(slot, cap).cursorProfile, 0, 'a matching title alone cann
 const badProfile = slot.slice(); badProfile[148] = 2;
 new DataView(badProfile.buffer).setUint32(252, crc32(badProfile.subarray(0, 252)), true);
 assert.equal(parseSlot(badProfile, cap).error, 'layout');
+{ // profile 2: another known LSDj, its cursor and tempo bytes at 149 / 151
+  const p2 = slot.slice(), dv = new DataView(p2.buffer); p2[148] = 2; dv.setUint16(149, 0xc41e, true); dv.setUint16(151, 0xc52a, true);
+  const seal = () => dv.setUint32(252, crc32(p2.subarray(0, 252)), true); seal();
+  assert.deepEqual([parseSlot(p2, cap).cursorProfile, parseSlot(p2, cap).cursor, parseSlot(p2, cap).tempo], [2, 0xc41e, 0xc52a]);
+  dv.setUint16(149, 0x8000, true); seal(); assert.equal(parseSlot(p2, cap).error, 'layout');
+  p2[148] = 0; dv.setUint16(149, 0xc41e, true); seal(); assert.equal(parseSlot(p2, cap).error, 'layout');
+  p2[148] = 3; seal(); assert.equal(parseSlot(p2, cap).error, 'layout');
+}
 for (const size of [0, 8, 255, slot.length - 1]) assert.ok(parseSlot(slot.subarray(0, size), cap).error);
 const corrupt = slot.slice(); corrupt[300] ^= 1; assert.equal(parseSlot(corrupt, cap).error, 'data');
 const duplicate = slot.slice(); duplicate[20 + 40] = 2;
@@ -96,7 +104,7 @@ const template = new Uint8Array(readFileSync(new URL('../lsdj/fm1-lsdj-template.
 const templateBefore = template.slice();
 await assert.rejects(prepareLsdjFirmware(rom, [26, 40], template, metadata), /consent/);
 const result = await prepareLsdjFirmware(rom, [26, 40], template, metadata, {experimental: true});
-assert.equal(checkPackage(result.bytes).product, 'FM-1_985');
+assert.equal(checkPackage(result.bytes).product, 'FM-1_986');
 await assert.rejects(prepareLsdjFirmware(rom, [], template, {...metadata, product: 'FM-1_972'}, {experimental: true}), /Unsupported/);
 assert.deepEqual(template, templateBefore);
 const p = new Package(result.bytes);
@@ -139,6 +147,13 @@ for (const file of process.argv.slice(2)) {
     const program = local.slice(); program[BANK + 600] ^= 1;
     const unknownSlot = await buildSlot(program, keep, metadata.cartridge_capacity);
     assert.equal(parseSlot(unknownSlot.slot, metadata.cartridge_capacity).cursorProfile, 0, 'changed program cannot inherit a cursor profile');
+    // FM-1_986: custom palettes (colours in bank 1, names in bank 1B) and blank kit slots keep LSDj 9.3.9
+    const palettes = local.slice(); palettes[BANK + 0x16b0] ^= 0x55; palettes[0x1b * BANK + 0x1740] = 0x41;
+    if (local.length > 0x23 * BANK) palettes.fill(0x20, 0x22 * BANK + 0x22, 0x22 * BANK + 0x58);
+    assert.equal((await identifyRom(palettes, [])).cursorProfile, 1, 'custom palettes keep LSDj 9.3.9');
+    assert.equal(parseSlot((await buildSlot(palettes, [], metadata.cartridge_capacity)).slot, metadata.cartridge_capacity).cursorProfile, 1);
+    const code = local.slice(); code[BANK + 0x1690] ^= 1;   /* code next to the palettes */
+    assert.equal((await identifyRom(code, [])).cursorProfile, 0, 'code next to the palettes still counts');
   }
   console.log('PASS local package round trip:', r.info.title, 'code', r.plan.codeBanks, 'kits', keep.length, '/', kits.length);
   if (process.env.LSDJ_SLOT_SMOKE) {
