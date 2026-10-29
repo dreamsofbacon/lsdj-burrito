@@ -34,8 +34,9 @@ function updatePlan() {
     const cannotFit = excess > p.kept;
     $('rom-budget').textContent = `Uses ${Math.ceil(p.needed / 1024)} of ${Math.floor(p.capacity / 1024)} KiB ` +
       `(${p.codeBanks} program banks + ${p.kept} kit banks). ` +
-      (p.omitted.length ? `Omitted banks: ${p.omitted.map(k => k.bank.toString(16).toUpperCase().padStart(2, '0')).join(', ')}: songs using these kits lose those samples. ` : '') +
-      (p.fits ? 'Fits.' : fromDevice ? 'The installed LSDj does not fit this update. Nothing will be dropped; choose your original ROM file to pick a different set of kits.' :
+      (p.omitted.length ? `Omitted banks: ${p.omitted.map(k => k.bank.toString(16).toUpperCase().padStart(2, '0')).join(', ')}: songs using these kits lose those samples. ` +
+        (fromDevice ? 'Unticked kits are removed from the FM-1; only your original ROM file can bring them back. ' : '') : '') +
+      (p.fits ? 'Fits.' :
         cannotFit ? 'The required program/data alone exceeds this template. Removing kits cannot make this ROM fit. Choose a smaller compatible ROM.' :
         `Deselect at least ${excess} kit ${excess === 1 ? 'bank' : 'banks'} to fit. No kits are removed automatically.`);
     $('rom-budget').className = p.fits ? 'hint' : 'warn';
@@ -50,7 +51,7 @@ function updateControls() {
   $('rom-device').disabled = blocked;
   $('rom-cancel').hidden = !reading;
   $('rom-experimental').disabled = blocked || loading || !currentPlan;
-  $('rom-kits').disabled = blocked || loading || !currentPlan || fromDevice;
+  $('rom-kits').disabled = blocked || loading || !currentPlan;
   $('rom-build').disabled = blocked || loading || !currentPlan?.fits || !$('rom-experimental').checked;
   $('rom-step').setAttribute('aria-busy', String(loading || busy));
   $('rom-next').textContent = installing() ? 'Wait for the current installation to finish.' :
@@ -103,7 +104,7 @@ async function chooseRom(file, device = false) {
       info.sameProgram ? 'a tested LSDj program with different samples' : 'an untested LSDj build'}. ` +
       (info.cursorProfile ? 'Verified LSDj 9.3.9: effects follow the cursor; SEQ, tempo, cues and MIDI sync work. ' :
         'Cursor-following FX unavailable for this program: FX targets ALL channels. ') +
-      (device ? 'All installed kits are kept. ' : '') +
+      (device ? 'All installed kits are ticked; untick any you can do without. ' : '') +
       (!info.globalChecksumValid ? 'Its checksum is out of date; the firmware gets a corrected one. ' : ''),
       info.cursorProfile ? 'ok' : 'warn');
     for (const kit of kits) {

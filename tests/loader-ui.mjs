@@ -132,7 +132,7 @@ export async function runLoaderUiTests() {
     await choose('rom', synthetic(32, [40]), 'too-large.gb');
     text('rom-budget', /Removing kits cannot make this ROM fit/);
     assert($('rom-build').disabled, 'Oversized required data cannot be prepared');
-    await choose('rom', synthetic(29), 'kit-budget.gb');
+    await choose('rom', synthetic(28), 'kit-budget.gb');
     text('rom-budget', /Deselect at least 1 kit bank/);
     const kits = [...$('rom-kits').querySelectorAll('input')];
     assert(kits.length === 3 && kits.every(k => k.checked), 'All kits selected initially');
@@ -276,8 +276,8 @@ export async function runDeviceUpdateUiTests() {
 
     mode = 'ok';
     await $('rom-device').onclick();
-    text('rom-info', /All installed kits are kept/);
-    assert($('rom-kits').disabled && $('rom-kits').querySelectorAll('input:checked').length === 2, 'Installed kits retained and locked');
+    text('rom-info', /All installed kits are ticked/);
+    assert(!$('rom-kits').disabled && $('rom-kits').querySelectorAll('input:checked').length === 2, 'Installed kits ticked and adjustable');
     assert(!$('rom-experimental').checked && $('rom-build').disabled, 'Read does not grant install/preparation consent');
     noFirmware();
     $('rom-experimental').checked = true; $('rom-experimental').onchange();
@@ -291,12 +291,17 @@ export async function runDeviceUpdateUiTests() {
       return response;
     };
     await $('rom-device').onclick();
-    text('rom-budget', /installed LSDj does not fit/);
-    assert($('rom-kits').disabled && $('rom-build').disabled, 'Smaller update refuses without dropping installed kits');
+    text('rom-budget', /Deselect at least 1 kit bank/);
+    assert(!$('rom-kits').disabled && $('rom-build').disabled, 'Smaller update waits for the user to untick a kit');
+    assert($('rom-kits').querySelectorAll('input:checked').length === 2, 'No installed kit is unticked automatically');
+    $('rom-kits').querySelector('input:checked').checked = false; $('rom-kits').onchange();
+    text('rom-budget', /Fits\./); text('rom-budget', /only your original ROM file can bring them back/);
+    $('rom-experimental').checked = true; $('rom-experimental').onchange();
+    assert(!$('rom-build').disabled, 'Unticking a kit lets the smaller update be prepared');
     noFirmware();
     assert(ops.every(op => [OP.INFO, OP.FX_GET, OP.SETTINGS_GET, OP.MIDI_GET, OP.THEME_GET,
       OP.BLUETOOTH, OP.LIVE, OP.CART_INFO, OP.CART_READ].includes(op)), 'Only read-only device requests');
-    return 'PASS device update UI: connect/bootstrap guidance, cancellation, competing-action locks, corrupt transfer, retained kits, explicit preparation, capacity refusal, no device writes';
+    return 'PASS device update UI: connect/bootstrap guidance, cancellation, competing-action locks, corrupt transfer, adjustable kits, explicit preparation, untick to fit, no device writes';
   } finally {
     globalThis.fetch = originalFetch;
     await beforeInstall();
