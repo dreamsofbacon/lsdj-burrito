@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 import assert from 'node:assert/strict';
-import {PAGES, PAGES_978, LEGACY_PAGES, pagesForFx, firmwareNumber, unpackFx, packFx, paramGet, paramSet, channelSummary,
+import {PAGES, PAGES_979, PAGES_978, LEGACY_PAGES, pagesForFx, firmwareNumber, unpackFx, packFx, paramGet, paramSet, channelSummary,
         FEATURES, FEATURE_DEFAULTS, packFeatures, unpackFeatures, MIDI_CC_MAP, THEMES} from '../lsdj/fx-model.js';
 
 const setup = (layout, page, n = 17) => {
@@ -9,21 +9,24 @@ const setup = (layout, page, n = 17) => {
   return Array.from({length: n}, (_, i) => (b[4 * i] | b[4 * i + 1] << 8 | b[4 * i + 2] << 16 | b[4 * i + 3] << 24) >>> 0);
 };
 assert.deepEqual(PAGES.map(p => p.name), ['MASTER', 'FILTER', 'DRIVE', 'LFO', 'LO-FI', 'ECHO', 'ECHO MOD']);
-/* FM-1_979: echo send on FILTER K2 (next to Channel FX), filter type on LO-FI K3; 975-978 the other way round */
+/* FM-1_979: echo send on FILTER K2 (next to Channel FX), filter type on LO-FI K3; 975-978 the other way round.
+   FM-1_980: MASTER K3 / K4 = echo mix and time (also on ECHO) */
+assert.deepEqual(PAGES_979.map(p => p.knobs.map(k => k?.[1] ?? null))[0], ['allFxOn', 'comp', null, null]);
 assert.deepEqual(PAGES.map(p => p.knobs.map(k => k?.[1] ?? null)), [
-  ['allFxOn', 'comp', null, null], ['fxOn', 'send', 'cutoff', 'reso'],
+  ['allFxOn', 'comp', 'mix', 'time'], ['fxOn', 'send', 'cutoff', 'reso'],
   ['drive', 'dist', 'warm', null], ['lfoRate', 'lfoDepth', 'lfoShape', 'lfoDest'],
   ['crush', 'decim', 'type', null], ['time', 'feedback', 'mix', 'tone'], ['wobble', 'sync', 'mode', 'freeze']
 ]);
 assert.deepEqual(PAGES_978.map(p => p.knobs.map(k => k?.[1] ?? null))[1], ['fxOn', 'type', 'cutoff', 'reso']);
 assert.deepEqual(PAGES_978.map(p => p.knobs.map(k => k?.[1] ?? null))[4], ['crush', 'decim', 'send', null]);
-for (const pages of [PAGES, PAGES_978]) {
-  const keys = pages.flatMap(p => p.knobs.filter(Boolean).map(k => k[1]));
+for (const pages of [PAGES, PAGES_979, PAGES_978]) {
+  const keys = pages.slice(pages === PAGES ? 1 : 0).flatMap(p => p.knobs.filter(Boolean).map(k => k[1]));
   assert.equal(keys.length, new Set(keys).size);
 }
+assert.deepEqual(PAGES.slice(1), PAGES_979.slice(1));
 assert.equal(firmwareNumber('FM-1_979'), 979); assert.equal(firmwareNumber('FM-1_978'), 978); assert.equal(firmwareNumber('GameDude'), 0);
 { const v3 = unpackFx(setup(2, 1));
-  assert.equal(pagesForFx(v3, 979), PAGES); assert.equal(pagesForFx(v3, 980), PAGES); assert.equal(pagesForFx(v3, 978), PAGES_978);
+  assert.equal(pagesForFx(v3, 979), PAGES_979); assert.equal(pagesForFx(v3, 980), PAGES); assert.equal(pagesForFx(v3, 978), PAGES_978);
   assert.equal(pagesForFx(v3, 975), PAGES_978); assert.equal(pagesForFx(v3), PAGES); }
 for (let page = 0; page < 7; page++) {
   const fx = unpackFx(setup(2, page));

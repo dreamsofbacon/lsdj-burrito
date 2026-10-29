@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 import {OP, le32} from '../lsdj/link.js';
-import {unpackFx, packFx, THEMES} from '../lsdj/fx-model.js';
-const THEME_11 = THEMES[10];
+import {unpackFx, packFx} from '../lsdj/fx-model.js';
 
 const $ = id => document.getElementById(id);
 const assert = (v, message) => { if (!v) throw Error(message); };
@@ -115,7 +114,9 @@ export async function runFxUiTests() {
     assert([...document.querySelectorAll('[data-page="1"] .fx-row .fx-name')].map(n => n.textContent).join() === 'Channel FX,Echo send,Cutoff,Resonance', '979: FILTER K2 = Echo send');
     assert([...document.querySelectorAll('[data-page="4"] .fx-row .fx-name')].map(n => n.textContent).join() === 'Crush,Decimate,Filter', '979: LO-FI K3 = filter type');
     assert(!$('feat-sec').hidden && $('feat-form').querySelectorAll('select').length === 9, 'FX and lights: nine switches (FX theme in Colours)');
-    assert(!$('fx-theme-row').hidden && $('fx-theme').value === '0' && $('fx-theme').options.length > 90, 'FX panel colours: Match by default');
+    { const names = [...$('settings-form').querySelectorAll('select')].map(s => s.dataset.key), fxt = $('settings-form').querySelector('select[data-key="fxTheme"]');
+      assert(names[names.indexOf('theme') + 1] === 'fxTheme', `FX panel colours right under Theme: ${names}`);
+      assert(fxt.value === '0' && fxt.options.length > 90, 'FX panel colours: Match by default'); }
     assert($('fx-diagram').querySelector('svg.fxd') && $('fx-diagram').querySelectorAll('g.row').length === 4, 'Wiring drawn');
     liveMute = 1; cursor = 0; $('fx-follow').click();
     await until(() => !$('fx-muted').hidden, 'Muted notice');
@@ -128,11 +129,21 @@ export async function runFxUiTests() {
     $('settings-apply').onclick();
     await until(() => $('settings-status').textContent.includes('Applied'), 'Settings applied');
     assert(featWord === (0x460001CE | 1) >>> 0, `FEAT_SET with PAGE WRAP on: ${featWord.toString(16)}`);
-    const sets = featSets; $('fx-theme').value = '11'; $('fx-theme').onchange();
-    await until(() => featSets > sets, 'FX theme sent');
-    assert(((featWord >>> 9) & 127) === 11 && $('theme-status').textContent.includes(THEME_11), 'FX THEME = the 11th theme');
+    { const sets = featSets, fxt = $('settings-form').querySelector('select[data-key="fxTheme"]');
+      fxt.value = '11'; fxt.onchange(); $('settings-apply').onclick();
+      await until(() => featSets > sets, 'FX theme sent');
+      assert(((featWord >>> 9) & 127) === 11 && (featWord & 1), `FX THEME = the 11th theme, PAGE WRAP kept: ${featWord.toString(16)}`); }
+    assert([...document.querySelectorAll('#fx-master-pages .fx-row .fx-name')].map(n => n.textContent).join() === 'All FX,Compressor', '979: MASTER K3 / K4 blank');
+    /* FM-1_980: MASTER K3 / K4 = echo mix and time, the same values as on ECHO (moving one moves the other) */
+    firmware = 'FM-1_980';
+    await $('connect-btn').onclick();
+    assert([...document.querySelectorAll('#fx-master-pages .fx-row .fx-name')].map(n => n.textContent).join() === 'All FX,Compressor,Mix,Time', '980: MASTER echo mix, time');
+    { const twins = [...document.querySelectorAll('.fx-ctl[data-key="mix"] input[type="range"]')];
+      assert(twins.length === 2, `echo mix on MASTER and ECHO: ${twins.length}`);
+      twins[0].value = '77'; twins[0].oninput();
+      assert(twins[1].value === '77', `the ECHO page's mix follows: ${twins[1].value}`); }
     firmware = 'FM-1_975';
-    return 'PASS FX browser: matching pages (975-978 and 979), one master switch across four selected channels, LIVE state, 17/11-word backups, old firmware gating, FX and lights, FX colours, wiring, muted notice, battery';
+    return 'PASS FX browser: matching pages (975-978, 979 and 980 echo on MASTER), one master switch across four selected channels, LIVE state, 17/11-word backups, old firmware gating, FX and lights, FX colours, wiring, muted notice, battery';
   } finally {
     if (descriptor) Object.defineProperty(navigator, 'requestMIDIAccess', descriptor);
     else delete navigator.requestMIDIAccess;

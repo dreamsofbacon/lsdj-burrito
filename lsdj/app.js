@@ -160,7 +160,10 @@ function control(key) {
     set = v => { if (document.activeElement !== input) input.value = v; };
   } else {                                           // a range
     input = document.createElement('input'); input.type = 'range'; input.min = 0; input.max = 127;
-    input.oninput = () => { paramSet(fx, key, c(), +input.value); out.textContent = valueText(fx, key, c(), bpm); changed(); };
+    input.oninput = () => {
+      paramSet(fx, key, c(), +input.value); out.textContent = valueText(fx, key, c(), bpm); changed();
+      controls.forEach(it => { if (it.key === key && it.wrap !== wrap) it.set(+input.value); });   // the same knob on another page (980: echo on MASTER)
+    };
     set = v => { if (document.activeElement !== input) input.value = v; };
   }
   input.setAttribute('aria-label', p.name);
@@ -455,19 +458,6 @@ async function followThemeSetting() {
   if (sel && document.activeElement !== sel) sel.value = id;
   pageTheme(id);
 }
-/* FX panel colours (FM-1_979: FX THEME): the FM-1's effects panel in a theme of its own, or matching LSDj's */
-function buildFxTheme() {
-  const sel = $('fx-theme'), f = FEATURES.find(x => x.key === 'fxTheme');
-  $('fx-theme-row').hidden = !features;
-  if (!features) return;
-  sel.replaceChildren(...f.choices.map((name, i) => new Option(name, i)));
-  sel.value = features.fxTheme;
-}
-$('fx-theme').onchange = () => run('theme-status', async () => {
-  features.fxTheme = +$('fx-theme').value;
-  await link.featSet(packFeatures(features)); await link.store();
-  say('theme-status', features.fxTheme ? `The FM-1's effects panel now uses ${THEMES[features.fxTheme - 1]}.` : 'The effects panel matches the LSDj theme again.', 'ok');
-});
 $('page-theme').checked = matching();
 $('page-theme').onchange = () => { setMatching($('page-theme').checked); if ($('page-theme').checked && connected) pageTheme(); };
 $('theme-send').onclick = () => run('theme-status', async () => {
@@ -491,13 +481,17 @@ function selects(box, list, obj) {
 function buildSettings() {
   const box = $('settings-form'); box.replaceChildren();
   selects(box, SETTINGS, settings);
+  if (features) {   // FX panel colours (FM-1_979: FX THEME) right under Theme, as on the FM-1 (SETTINGS / DISPLAY)
+    const tmp = document.createElement('div'), theme = box.querySelector('select[data-key="theme"]')?.parentElement;
+    selects(tmp, FEATURES.filter(f => f.key === 'fxTheme'), features);
+    if (theme) theme.after(...tmp.children); else box.append(...tmp.children);
+  }
   const mbox = $('midi-form'); mbox.replaceChildren();
   $('midi-sec').hidden = !midi;
   if (midi) selects(mbox, MIDI_SETTINGS, midi);
   const fbox = $('feat-form'); fbox.replaceChildren();
   $('feat-sec').hidden = !features;
   if (features) selects(fbox, FEATURES.filter(f => f.key !== 'fxTheme'), features);
-  buildFxTheme();
 }
 /* The CC map: per channel, then the shared ones */
 {

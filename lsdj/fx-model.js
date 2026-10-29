@@ -40,12 +40,15 @@ export const PAGES_978 = [
   {...LEGACY_PAGES[5], name: 'ECHO MOD'}];
 /* FM-1_979 and newer: the echo send on FILTER K2, next to Channel FX; the filter type on LO-FI K3.
    (The saved words do not say which: the firmware's number does.) */
-export const PAGES = PAGES_978.map((pg, i) =>
+export const PAGES_979 = PAGES_978.map((pg, i) =>
   i === 1 ? {name: 'FILTER', knobs: [['flags', 'fxOn'], ['ch', 'send'], ['ch', 'cutoff'], ['ch', 'reso']]} :
   i === 4 ? {name: 'LO-FI', knobs: [['ch', 'crush'], ['ch', 'decim'], ['ch', 'type'], null]} : pg);
+/* FM-1_980 and newer: MASTER K3 / K4 are the echo's mix and time too (ECHO keeps them as well) */
+export const PAGES = PAGES_979.map((pg, i) =>
+  i === 0 ? {name: 'MASTER', knobs: [['master', 'allFxOn'], ['comp', 'comp'], ['echo', 'mix'], ['echo', 'time']]} : pg);
 /* fw: the firmware's number (979 for FM-1_979; leave it out for the newest) */
 export const firmwareNumber = id => +(/^FM-1_(9\d\d)$/.exec(id || '')?.[1] ?? 0);
-export const pagesForFx = (fx, fw = Infinity) => !fx.v3 ? LEGACY_PAGES : fw >= 979 ? PAGES : PAGES_978;
+export const pagesForFx = (fx, fw = Infinity) => !fx.v3 ? LEGACY_PAGES : fw >= 980 ? PAGES : fw >= 979 ? PAGES_979 : PAGES_978;
 /* FM-1_977 and newer: MASTER opens with FX held on the FM-1; tapping FX shows the others
    (FM-1_978: ECHO and ECHO MOD with the channel pages again; the echo is shared, each channel sends to it). */
 export const MASTER_PAGES = [0];
