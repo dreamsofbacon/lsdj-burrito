@@ -38,6 +38,9 @@ export async function runFxUiTests() {
     if (op === OP.FEAT_SET) { featWord = (args[0] | args[1] << 8 | args[2] << 16 | args[3] << 24) >>> 0; featSets++; return send(); }
     if (op === OP.MUTE_SET) { muteSent = args; return send(); }
     if ([OP.STORE, OP.THEME_SET, OP.SETTINGS_SET].includes(op)) return send();
+    /* the screen (FM-1_983+): every row one colour, red (RGB565 0xF800) */
+    if (op === OP.SCREEN_INFO) return firmware >= 'FM-1_983' ? send([...le32(1), ...Array(36).fill(7)]) : send([], 1);
+    if (op === OP.SCREEN_ROW) return send([args[0], 1, 0x00, 0xF8, ...Array(80).fill(0)]);
     throw Error(`Unexpected device operation ${op}`);
   }};
   const read = () => unpackFx(Array.from({length: bytes.length / 4}, (_, i) =>
@@ -94,7 +97,8 @@ export async function runFxUiTests() {
     const legacy = backup(); restore(legacy);
     await until(() => $('settings-status').textContent.includes('Restored fx-test.json'), '11-word backup restore');
     assert(ops.every(op => [OP.INFO, OP.FX_GET, OP.FX_SET, OP.SETTINGS_GET, OP.SETTINGS_SET,
-      OP.THEME_GET, OP.THEME_SET, OP.MIDI_GET, OP.BLUETOOTH, OP.LIVE, OP.STORE].includes(op)), 'Only simulated settings operations');
+      OP.THEME_GET, OP.THEME_SET, OP.MIDI_GET, OP.BLUETOOTH, OP.LIVE, OP.STORE, OP.SCREEN_INFO].includes(op)), 'Only simulated settings operations');
+    assert(ops.filter(op => op === OP.SCREEN_INFO).length <= 3, 'older firmware: the screen asked about once per connection');
     bytes = packFx({...read(), v2: true, v3: true, bypass: 0, page: 1}).flatMap(le32);
     firmware = 'FM-1_977';
     await $('connect-btn').onclick();
@@ -155,8 +159,18 @@ export async function runFxUiTests() {
       const sets = featSets; first.value = '0'; first.onchange(); $('settings-apply').onclick();
       await until(() => featSets > sets, 'Autosave sent');
       assert((featWord >>> 16 & 3) === 1, `Autosave off: stored 1 (XOR 1): ${featWord.toString(16)}`); }
+    /* the FM-1's screen above Effects: before FM-1_983 a note; FM-1_983 draws it */
+    await until(() => !$('fm1-screen-note').hidden, '981: the screen note');
+    assert($('fm1-screen-box').hidden && /FM-1_983 or newer.*FM-1_981/.test($('fm1-screen-note').textContent), `981: ${$('fm1-screen-note').textContent}`);
+    firmware = 'FM-1_983';
+    await $('connect-btn').onclick();
+    const px = () => $('fm1-screen').getContext('2d').getImageData(80, 140, 1, 1).data;
+    await until(() => px()[0] === 255 && px()[1] === 0 && px()[3] === 255, `983: the screen drawn (${px().join()})`);
+    assert(!$('fm1-screen-box').hidden && $('fm1-screen-note').hidden, '983: the screen shown, no note');
+    { const n = ops.filter(o => o === OP.SCREEN_ROW).length; $('fx-screen').open = false; await sleep(400); const m = ops.filter(o => o === OP.SCREEN_INFO).length;
+      await sleep(400); assert(ops.filter(o => o === OP.SCREEN_INFO).length === m && n >= 144, `folded away: no more reads (${n} rows)`); $('fx-screen').open = true; }
     firmware = 'FM-1_975';
-    return 'PASS FX browser: matching pages (975-978, 979, 980 echo on MASTER, 981 echo in Master), autosave, one master switch across four selected channels, LIVE state, 17/11-word backups, old firmware gating, FX and lights, FX colours, wiring, muted notice, battery';
+    return 'PASS FX browser: matching pages (975-978, 979, 980 echo on MASTER, 981 echo in Master), FM-1 screen (983, note before), autosave, one master switch across four selected channels, LIVE state, 17/11-word backups, old firmware gating, FX and lights, FX colours, wiring, muted notice, battery';
   } finally {
     if (descriptor) Object.defineProperty(navigator, 'requestMIDIAccess', descriptor);
     else delete navigator.requestMIDIAccess;

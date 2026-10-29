@@ -4,6 +4,7 @@ LSDJ Burrito runs **your own copy** of [Little Sound Dj](https://www.littlesound
 
 With LSDJ Burrito running on the FM-1 (alpha 55 or later), connected by USB, the page talks to the running firmware over USB-MIDI (Chrome or Edge, MIDI with SysEx allowed). Firmware installation is a separate, explicitly confirmed action.
 
+- **The FM-1's screen** (FM-1_983 and newer): above Effects, exactly as its display shows it, effects panels included. View only; only the parts that changed are read again, and nothing is read while it is folded away or another tab is shown.
 - **Live effects:** every channel's effects and the echo, following the FM-1 as you play; move a slider to change it on the FM-1, keep the setup on the FM-1.
 - **Songs:** export the FM-1's songs as `lsdj.sav`, import a 128 KiB `.sav` (the FM-1 keeps its songs if an import fails).
 - **Colours:** make a custom theme from a preset with a preview, send it (THEME: CUSTOM on the FM-1).
@@ -264,8 +265,8 @@ the emulator or access a device.
 
 Run `node tests/fx-model.mjs` for FX format/layout tests (the FM-1_979 knob layout and
 the 975-978 one, the FX+LIGHTS feature switches, the complete MIDI CC map),
-`node tests/fx-diagram.mjs` for the Effects tab's wiring diagram and `node tests/zip.mjs`
-for the Export all archive. On a fresh local preview,
+`node tests/fx-diagram.mjs` for the Effects tab's wiring diagram, `node tests/zip.mjs`
+for the Export all archive and `node tests/screen.mjs` for the screen mirror (`lsdj/screen.js`). On a fresh local preview,
 run `await (await import('./tests/fx-ui.mjs')).runFxUiTests()` for simulated MIDI
 controls and backup compatibility, and `.runExportUiTests()` from the same module for the
 Songs tab's effects export and Export all .zip; reload afterward to remove the mock

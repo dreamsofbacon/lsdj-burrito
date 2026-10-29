@@ -136,6 +136,8 @@ table.fx th,table.fx td{padding:3px 6px;border-bottom:1px solid var(--line);text
 .fx-pages.muted .fx-card{filter:grayscale(1);opacity:.6}
 #fx-muted{margin:6px 0 10px}
 /* the wiring (lsdj/fx-diagram.js) */
+.fm1-screen{max-width:480px;border:1px solid var(--line);border-radius:10px;background:var(--card2);padding:6px}
+.fm1-screen canvas{display:block;width:100%;height:auto;aspect-ratio:160/144;image-rendering:pixelated;border-radius:4px}
 .fxd-wrap{overflow-x:auto;margin:8px 0 0;border:1px solid var(--line);border-radius:10px;background:var(--card2);padding:6px}
 .fxd{display:block;width:100%;min-width:560px;height:auto}
 .fxd text{font:600 11px ui-monospace,monospace;fill:var(--ink)}
@@ -252,6 +254,10 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <section id="live-sec" class="tab-panel needs-device" aria-disabled="true">
 <div class="spread"><h2 style="margin:0">Effects <span id="live-badges"></span></h2>
 <div class="seg-pick" role="group" aria-label="Show"><button id="fx-view-one" type="button" aria-pressed="true">One page</button><button id="fx-view-all" type="button" aria-pressed="false">All pages</button></div></div>
+<details open id="fx-screen"><summary>The FM-1's screen</summary>
+<div id="fm1-screen-box" class="fm1-screen" hidden><canvas id="fm1-screen" width="160" height="144" role="img" aria-label="The FM-1's screen, as its display shows it"></canvas></div>
+<p id="fm1-screen-note" class="hint" hidden></p>
+</details>
 <div id="fx-master" class="fx-master" hidden>
 <div class="spread"><h3 class="fx-sub">Master <span class="hint">· on the FM-1: press FX twice</span></h3>
 <div id="fx-mutes" class="mute-row" role="group" aria-label="Channels: lit = playing"></div></div>
@@ -372,8 +378,9 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <p id="wiz-backup-status" role="status" hidden></p></div>
 <label class="check"><input id="rom-experimental" type="checkbox" disabled><span>I understand this firmware is experimental and may not start or sound right, and I have backed up my songs.</span></label>
 <div class="row"><button id="rom-build" type="button" class="primary" aria-describedby="rom-next" disabled>Prepare firmware</button><span class="hint">Builds the file on this computer. Nothing is installed yet.</span></div>
-<details><summary>What's in this version (FM-1_982)</summary>
-<p>New in FM-1_982: the master pages are apart from the channel pages. FX opens the effects panel on FILTER, DRIVE, LFO, LO-FI; FX again shows MASTER, ECHO, ECHO MOD (C4-F4 mute there); FX a third time closes it. SELECT turns the pages of the list shown.</p>
+<details><summary>What's in this version (FM-1_983)</summary>
+<p>New in FM-1_983: the FM-1's screen shows on this page, above Effects (My FM-1), exactly as its display shows it, effects panels included. It is view only; fold it away to stop it reading. Older firmware says it needs FM-1_983.</p>
+<p>From FM-1_982: the master pages are apart from the channel pages. FX opens the effects panel on FILTER, DRIVE, LFO, LO-FI; FX again shows MASTER, ECHO, ECHO MOD (C4-F4 mute there); FX a third time closes it. SELECT turns the pages of the list shown.</p>
 <p>From FM-1_981: autosave (GLO › SETTINGS, the last line; every minute at most by default): once nothing has changed for 5 seconds the song and effects are saved, without stopping the music. The battery shows as 3/3 .. 0/3 (or USB): a full battery used to look like LSDj's background.</p>
 <p>From FM-1_980: MASTER K3 / K4 set the echo mix and time (the ECHO page keeps them too); FX THEME sits under THEME in GLO › DISPLAY; and a fix: a long knob turn that opened a settings page could change its first setting (it switched PAGE WRAP on, so SELECT went round the effects pages).</p>
 <p>From FM-1_979: the echo send on FILTER K2, next to Channel FX (filter type on LO-FI K3); SELECT stops at the first and last effects page; a muted channel's effects panel goes grey and says why when you turn it; effects moved by MIDI CC show on screen, and the FX knobs can send their CCs; GLO › FX+LIGHTS switches for knobs-as-channels, black-key page lights, a light sweep on HOME and a battery indicator; the effects panel's own colours. 30 sample-kit banks fit (31 before FM-1_979).</p>
@@ -444,7 +451,7 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 </section>
 </div>
 
-<p class="hint foot">The firmware is free software (GPL-3.0), based on <a href="https://github.com/ChanceTheMaker/gamedude-fm1-smk" target="_blank" rel="noopener">GameDude</a>. Source: <a href="https://github.com/dreamsofbacon/lsdj-burrito-src" target="_blank" rel="noopener">lsdj-burrito-src</a>; <a href="lsdj/fm1-lsdj-template-source.zip" download>matching FM-1_982 template source</a>. Not affiliated with M-VAVE or <a href="https://www.littlesounddj.com/" target="_blank" rel="noopener">LSDj's author, Johan Kotlinski</a>.</p>
+<p class="hint foot">The firmware is free software (GPL-3.0), based on <a href="https://github.com/ChanceTheMaker/gamedude-fm1-smk" target="_blank" rel="noopener">GameDude</a>. Source: <a href="https://github.com/dreamsofbacon/lsdj-burrito-src" target="_blank" rel="noopener">lsdj-burrito-src</a>; <a href="lsdj/fm1-lsdj-template-source.zip" download>matching FM-1_983 template source</a>. Not affiliated with M-VAVE or <a href="https://www.littlesounddj.com/" target="_blank" rel="noopener">LSDj's author, Johan Kotlinski</a>.</p>
 </main>
 <script type="module" src="lsdj/ui.js"></script>
 <script type="module" src="lsdj/lsdj-app.js"></script>

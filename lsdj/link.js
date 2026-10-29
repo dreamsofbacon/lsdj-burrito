@@ -8,7 +8,7 @@
 export const OP = {INFO: 0x01, READ: 0x02, BEGIN: 0x03, CHUNK: 0x04, COMMIT: 0x05, ABORT: 0x06,
   SETTINGS_GET: 0x10, SETTINGS_SET: 0x11, FX_GET: 0x12, FX_SET: 0x13, THEME_GET: 0x14, THEME_SET: 0x15,
   STORE: 0x16, MIDI_GET: 0x17, MIDI_SET: 0x18, FEAT_GET: 0x19, FEAT_SET: 0x1A, LIVE: 0x20, BLUETOOTH: 0x21,
-  CART_INFO: 0x22, CART_READ: 0x23, MUTE_SET: 0x24};
+  CART_INFO: 0x22, CART_READ: 0x23, MUTE_SET: 0x24, SCREEN_INFO: 0x25, SCREEN_ROW: 0x26};
 export const BT_STATES = ['off', 'starting', 'ready', 'advertising', 'connected', 'failed'];
 export const BT_ERRORS = ['', 'no radio calibration in flash', 'start timed out', 'no task', 'address refused', 'advertising refused', 'link refused'];
 export const STATUS = ['ok', 'bad request', 'wrong state', 'checksum mismatch', 'flash error'];
@@ -190,6 +190,17 @@ export class Link {
   }
   /* FM-1_977 and newer: the channel mutes (bit per channel) and the echo freeze; live only, never saved */
   async muteSet(mute, freeze) { await this.req(OP.MUTE_SET, [mute & 15, freeze ? 1 : 0], {retries: 2}); }
+  /* FM-1_983 and newer: the screen (lsdj/screen.js). {shown, hashes: 18 bands}, or null before */
+  async screenInfo() {
+    const r = await this.req(OP.SCREEN_INFO, [], {timeout: 800, retries: 1, allow: [0, 1]});
+    if (r.status || r.data.length !== 40) return null;
+    return {shown: rd32(r.data, 0), hashes: Array.from({length: 18}, (_, b) => rd16(r.data, 4 + 2 * b))};
+  }
+  /* one row's data (lsdj/screen.js decodeRow), or null if it has more than 16 colours */
+  async screenRow(y) {
+    const r = await this.req(OP.SCREEN_ROW, [y], {timeout: 800, retries: 1, allow: [0, 2], accept: r => r.data[0] === y});
+    return r.status ? null : r.data;
+  }
   async live() {
     const {data: d} = await this.req(OP.LIVE, [], {timeout: 800});
     const words = (d.length - 7) >> 2;   // 17 (11 before alpha 66); FM-1_979: a battery byte after them

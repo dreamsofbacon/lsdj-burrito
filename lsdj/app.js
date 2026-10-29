@@ -12,6 +12,7 @@ import {CHANNELS, pagesForFx, PARAM, paramGet, paramSet, valueText, channelSumma
 import {fxDiagram} from './fx-diagram.js';
 import {zipStore} from './zip.js';
 import {romFromSlot} from './lsdj-rom.js';
+import {ScreenMirror} from './screen.js';
 
 const $ = id => document.getElementById(id);
 const say = (id, text, cls = 'hint') => { const el = $(id); el.textContent = text; el.className = cls; };
@@ -25,11 +26,13 @@ let features = null;   // the feature switches, SETTINGS / FX+LIGHTS (null: firm
 let fwId = '', fwNum = 0;   // the firmware: "FM-1_979", 979
 let link = null, ports = null, fx = null, settings = null, theme = PRESETS[0].slice(), poll = null, busy = false, touched = 0, ble = null;
 let connected = false;
+let mirror = null;   // the FM-1's screen above Effects (lsdj/screen.js)
 
 /* ---------- connect ---------- */
 async function connectTo(input, output, how = 'USB') {
   if (busy || installing()) return;
   connected = false;
+  mirror?.stop(); mirror = null;
   link?.close(); link = new Link(input, output, {slow: how === 'Bluetooth'});
   if (how !== 'Bluetooth') { ble?.close(); ble = null; }
   try {
@@ -48,6 +51,7 @@ async function connectTo(input, output, how = 'USB') {
     pageTheme();
     connected = true;
     clearInterval(poll); poll = setInterval(tick, how === 'Bluetooth' ? 500 : 250);
+    startMirror(how);
   } catch (e) { enable(false); say('device', e.message, 'bad'); }
 }
 $('connect-btn').onclick = async () => {
@@ -74,7 +78,7 @@ $('connect-ble').onclick = async () => {
   try {
     ble?.close();
     ble = await connectBleMidi();
-    ble.ondisconnected(() => { connected = false; link?.close(); clearInterval(poll); enable(false); say('device', 'Bluetooth disconnected. Connect again when the FM-1 is near.', 'warn'); });
+    ble.ondisconnected(() => { connected = false; mirror?.stop(); link?.close(); clearInterval(poll); enable(false); say('device', 'Bluetooth disconnected. Connect again when the FM-1 is near.', 'warn'); });
     await connectTo(ble.input, ble.output, 'Bluetooth');
   } catch (e) {
     if (e.name === 'NotFoundError') return say('device', 'No FM-1 chosen. Turn on BLUETOOTH: DEVICE in the FM-1\'s settings (GLO), then try again.', 'warn');
@@ -301,6 +305,20 @@ async function tick() {
       (l.freeze ? '<span class="badge on">FROZEN</span>' : '') +
       (bat ? `<span class="badge" title="The FM-1's battery (3 bars: full)">${bat.usb ? 'USB power' : 'Battery ' + '▮'.repeat(bat.bars) + '▯'.repeat(3 - bat.bars)}</span>` : '');
   } catch (e) { /* a missed poll: try again on the next */ }
+}
+/* ---------- the FM-1's screen (FM-1_983 and newer) ----------
+   Read only while it can be seen (Effects shown, the fold-out open, the page in front) and no
+   other device operation runs; it shares the link with the live poll above. */
+function startMirror(how) {
+  const box = $('fm1-screen-box'), note = $('fm1-screen-note');
+  box.hidden = false; note.hidden = true;
+  mirror = new ScreenMirror(link, $('fm1-screen'), {every: how === 'Bluetooth' ? 400 : 100,
+    active: () => connected && !busy && !installing() && !document.hidden && !$('live-sec').hidden && $('fx-screen').open,
+    onSupport: ok => {
+      box.hidden = !ok; note.hidden = ok;
+      if (!ok) note.textContent = `The FM-1's screen shows here with FM-1_983 or newer (this FM-1 runs ${fwId}).`;
+    }});
+  mirror.start();
 }
 $('fx-keep').onclick = () => run('fx-status', async () => { await link.fxSet(packFx(fx)); await link.store(); say('fx-status', 'Kept on the FM-1.', 'ok'); });
 

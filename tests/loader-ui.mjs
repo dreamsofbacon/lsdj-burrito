@@ -148,7 +148,7 @@ export async function runLoaderUiTests() {
     assert($('rom').disabled && $('fw-file').disabled, 'Preparation locks conflicting file inputs');
     assert($('emu-selected').disabled, 'Preparation blocks preview of the previous installer selection');
     await preparing;
-    text('rom-info', /Prepared FM-1_982/);
+    text('rom-info', /Prepared FM-1_983/);
     text('rom-info', /Cursor-following FX unavailable: FX targets ALL channels/);
     text('rom-next', /Step 4/);
     assert(!$('rom-download').hidden && !$('fw-install').disabled, 'Prepared package available for download and explicit install');
@@ -200,7 +200,7 @@ export async function runUnsupportedMidiUiTests() {
     $('rom-experimental').checked = true;
     $('rom-experimental').onchange();
     await $('rom-build').onclick();
-    text('rom-info', /Prepared FM-1_982/);
+    text('rom-info', /Prepared FM-1_983/);
     assert(!$('rom-download').hidden && $('fw-install').disabled && !$('emu-selected').disabled,
       'Unsupported USB still allows preparing, downloading and selecting local previews');
     return 'PASS unsupported Web MIDI: no device access/confirmation, USB disabled, local preparation/download/preview preserved';
@@ -242,6 +242,7 @@ export async function runDeviceUpdateUiTests() {
       if (mode === 'hold') { held = () => send([...le32(off), ...data]); started?.(); return; }
       return send([...le32(off), ...data]);
     }
+    if (op === OP.SCREEN_INFO) return send([], 1);   // FM-1_974: no screen
     throw Error(`Unexpected write/device operation ${op}`);
   }};
   const originalFetch = globalThis.fetch;
@@ -282,7 +283,7 @@ export async function runDeviceUpdateUiTests() {
     noFirmware();
     $('rom-experimental').checked = true; $('rom-experimental').onchange();
     await $('rom-build').onclick();
-    text('rom-info', /Prepared FM-1_982/);
+    text('rom-info', /Prepared FM-1_983/);
     assert(!$('rom-download').hidden, 'Device-based package available for explicit download/install');
 
     globalThis.fetch = async (path, options) => {
@@ -300,7 +301,7 @@ export async function runDeviceUpdateUiTests() {
     assert(!$('rom-build').disabled, 'Unticking a kit lets the smaller update be prepared');
     noFirmware();
     assert(ops.every(op => [OP.INFO, OP.FX_GET, OP.SETTINGS_GET, OP.MIDI_GET, OP.THEME_GET,
-      OP.BLUETOOTH, OP.LIVE, OP.CART_INFO, OP.CART_READ].includes(op)), 'Only read-only device requests');
+      OP.BLUETOOTH, OP.LIVE, OP.CART_INFO, OP.CART_READ, OP.SCREEN_INFO].includes(op)), 'Only read-only device requests');
     return 'PASS device update UI: connect/bootstrap guidance, cancellation, competing-action locks, corrupt transfer, adjustable kits, explicit preparation, untick to fit, no device writes';
   } finally {
     globalThis.fetch = originalFetch;
