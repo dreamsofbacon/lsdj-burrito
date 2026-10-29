@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 import assert from 'node:assert/strict';
-import {PAGES, LEGACY_PAGES, pagesForFx, unpackFx, packFx, paramGet, paramSet, channelSummary} from '../lsdj/fx-model.js';
+import {PAGES, PAGES_978, LEGACY_PAGES, pagesForFx, firmwareNumber, unpackFx, packFx, paramGet, paramSet, channelSummary,
+        FEATURES, FEATURE_DEFAULTS, packFeatures, unpackFeatures, MIDI_CC_MAP, THEMES} from '../lsdj/fx-model.js';
 
 const setup = (layout, page, n = 17) => {
   const b = Array(4 * n).fill(0);
@@ -8,13 +9,22 @@ const setup = (layout, page, n = 17) => {
   return Array.from({length: n}, (_, i) => (b[4 * i] | b[4 * i + 1] << 8 | b[4 * i + 2] << 16 | b[4 * i + 3] << 24) >>> 0);
 };
 assert.deepEqual(PAGES.map(p => p.name), ['MASTER', 'FILTER', 'DRIVE', 'LFO', 'LO-FI', 'ECHO', 'ECHO MOD']);
+/* FM-1_979: echo send on FILTER K2 (next to Channel FX), filter type on LO-FI K3; 975-978 the other way round */
 assert.deepEqual(PAGES.map(p => p.knobs.map(k => k?.[1] ?? null)), [
-  ['allFxOn', 'comp', null, null], ['fxOn', 'type', 'cutoff', 'reso'],
+  ['allFxOn', 'comp', null, null], ['fxOn', 'send', 'cutoff', 'reso'],
   ['drive', 'dist', 'warm', null], ['lfoRate', 'lfoDepth', 'lfoShape', 'lfoDest'],
-  ['crush', 'decim', 'send', null], ['time', 'feedback', 'mix', 'tone'], ['wobble', 'sync', 'mode', 'freeze']
+  ['crush', 'decim', 'type', null], ['time', 'feedback', 'mix', 'tone'], ['wobble', 'sync', 'mode', 'freeze']
 ]);
-const keys = PAGES.flatMap(p => p.knobs.filter(Boolean).map(k => k[1]));
-assert.equal(keys.length, new Set(keys).size);
+assert.deepEqual(PAGES_978.map(p => p.knobs.map(k => k?.[1] ?? null))[1], ['fxOn', 'type', 'cutoff', 'reso']);
+assert.deepEqual(PAGES_978.map(p => p.knobs.map(k => k?.[1] ?? null))[4], ['crush', 'decim', 'send', null]);
+for (const pages of [PAGES, PAGES_978]) {
+  const keys = pages.flatMap(p => p.knobs.filter(Boolean).map(k => k[1]));
+  assert.equal(keys.length, new Set(keys).size);
+}
+assert.equal(firmwareNumber('FM-1_979'), 979); assert.equal(firmwareNumber('FM-1_978'), 978); assert.equal(firmwareNumber('GameDude'), 0);
+{ const v3 = unpackFx(setup(2, 1));
+  assert.equal(pagesForFx(v3, 979), PAGES); assert.equal(pagesForFx(v3, 980), PAGES); assert.equal(pagesForFx(v3, 978), PAGES_978);
+  assert.equal(pagesForFx(v3, 975), PAGES_978); assert.equal(pagesForFx(v3), PAGES); }
 for (let page = 0; page < 7; page++) {
   const fx = unpackFx(setup(2, page));
   assert.equal(pagesForFx(fx), PAGES);
@@ -45,4 +55,20 @@ const badFlag = setup(2, 0); badFlag[9] |= 2 << 24;
 assert.throws(() => unpackFx(badFlag), /master effects/);
 const oldKnobs = setup(1, 5); oldKnobs[10] |= 5;
 assert.equal(unpackFx(oldKnobs).page, 0);
-console.log('PASS FX model: exact seven-page mapping, global bypass/settings roundtrip, 11/17-word legacy layouts, invalid data');
+/* The feature switches (firmware/lsdj_feat.h): the defaults are the firmware's, every value round-trips,
+   unknown bits and values are refused. */
+assert.equal(packFeatures(FEATURE_DEFAULTS), 0x460001CE);
+assert.deepEqual(unpackFeatures(0x460001CE), FEATURE_DEFAULTS);
+for (const f of FEATURES) for (let v = 0; v < f.choices.length; v++) {
+  const o = {...FEATURE_DEFAULTS, [f.key]: v};
+  assert.deepEqual(unpackFeatures(packFeatures(o)), o);
+}
+assert.equal(FEATURES.find(f => f.key === 'fxTheme').choices.length, THEMES.length + 1);
+assert.throws(() => unpackFeatures(0x4D0001CE), /Not a feature/);
+assert.throws(() => unpackFeatures(0x460001CE | 1 << 16), /Unknown/);
+assert.throws(() => unpackFeatures(0x460001CE | (THEMES.length + 1) << 9), /Unknown/);
+/* The CC map: every CC the firmware takes (firmware/lsdj_midi.h lsdj_midi_cc_num), once */
+assert.deepEqual(MIDI_CC_MAP.map(m => m[0]).sort((a, b) => a - b),
+  [70, 71, 74, 75, 76, 77, 91, 80, 81, 12, 13, 14, 15, 16, 17, 18, 19, 72, 73, 78, 79, 82, 83, 20].sort((a, b) => a - b));
+assert.ok(MIDI_CC_MAP.every(m => m[2] === 'channel' || m[2] === 'shared'));
+console.log('PASS FX model: seven-page mapping (979 and 975-978), global bypass/settings roundtrip, 11/17-word legacy layouts, invalid data, feature switches, CC map');

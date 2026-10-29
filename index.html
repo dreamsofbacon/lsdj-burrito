@@ -130,6 +130,28 @@ input[type=range]{accent-color:var(--accent)}
 .badge.on{background:var(--hi);color:var(--hi-ink);border-color:var(--hi)}
 table.fx{border-collapse:collapse;width:100%;font-size:13px}
 table.fx th,table.fx td{padding:3px 6px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
+#cc-map td:last-child{white-space:normal}
+#cc-map th{padding-top:10px}
+/* a muted channel: its controls grey but still work (as on the FM-1), and why */
+.fx-pages.muted .fx-card{filter:grayscale(1);opacity:.6}
+#fx-muted{margin:6px 0 10px}
+/* the wiring (lsdj/fx-diagram.js) */
+.fxd-wrap{overflow-x:auto;margin:8px 0 0;border:1px solid var(--line);border-radius:10px;background:var(--card2);padding:6px}
+.fxd{display:block;width:100%;min-width:560px;height:auto}
+.fxd text{font:600 11px ui-monospace,monospace;fill:var(--ink)}
+.fxd text.sub{font-weight:400;fill:var(--muted)}
+.fxd text.ch{font-size:13px}
+.fxd .wire{stroke:var(--muted);stroke-width:1.5;fill:none}
+.fxd .wire.idle,.fxd .send.idle{stroke-dasharray:3 4;opacity:.5}
+.fxd .box{fill:var(--card);stroke:var(--line);stroke-width:1.2}
+.fxd .blk.on .box{fill:color-mix(in srgb,var(--accent) 16%,var(--card));stroke:var(--accent);stroke-width:2}
+.fxd .send{stroke:var(--accent);stroke-width:1.5;fill:none}
+.fxd .tap{fill:var(--accent)}
+.fxd .mod{stroke:var(--hi);stroke-width:1.5;stroke-dasharray:4 3;fill:none}
+.fxd .row.muted,.fxd .row.dry .blk{opacity:.35}
+.fxd .why{font-weight:700;fill:var(--warn)}
+.fxd.bypass .chain .blk{opacity:.35}
+.fxd .alloff{fill:var(--warn);font-size:12px}
 /* songs */
 .actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(230px,100%),1fr));gap:10px;margin:10px 0}
 .action{border:1px solid var(--line);border-radius:10px;padding:12px;background:var(--card2);display:flex;flex-direction:column;gap:8px;align-items:flex-start}
@@ -239,13 +261,19 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <div id="fx-channels" class="chan-tabs"></div>
 <div id="fx-pagebar" class="page-tabs" aria-label="Effects page"></div>
 <p id="fx-editing" class="fx-editing"></p>
+<p id="fx-muted" class="callout" role="status" hidden></p>
 <div id="fx-pages" class="fx-pages one"></div>
 <div class="row" style="margin-top:12px"><button id="fx-keep" type="button">Keep on FM-1</button><span id="fx-status" class="hint"></span></div>
+<details open id="fx-wiring"><summary>Wiring: what each channel goes through</summary>
+<div class="fxd-wrap" id="fx-diagram"></div>
+<p class="hint">Each channel: drive, filter, lo-fi, then the LFO (volume or pan; to the cutoff it moves the filter, dashed). Its echo send is taken after that into the one shared echo. Lit = doing something. Grey: muted, dry (Channel FX off) or All FX off.</p>
+</details>
 <details><summary>How the effects work</summary>
-<p>Changes go to the FM-1 straight away. <b>Keep on FM-1</b> stores them, as the SAVE button does. K1-K4 are the knobs that play each control on the FM-1; turn SELECT there to change pages. A control the FM-1 changes lights up here.</p>
+<p>Changes go to the FM-1 straight away. <b>Keep on FM-1</b> stores them, as the SAVE button does. K1-K4 are the knobs that play each control on the FM-1; turn SELECT there to change pages (it stops at the first and last page: Settings › FX and lights can make it go round). A control the FM-1 changes lights up here.</p>
 <p>By default this follows the FM-1: the channel under its cursor and the page it shows. Pick a channel or page to edit something else.</p>
 <p><b>Master</b> is the MASTER page (All FX, compressor) and the channel mutes. On the FM-1, hold FX for it (K1-K4 play it); the channel strip shows PU1 PU2 WAV NOI and keys C4-F4 mute them. The PU1-NOI buttons here are the same mutes: lit means playing. Tap FX for the other pages: FILTER, DRIVE, LFO, LO-FI, ECHO, ECHO MOD.</p>
-<p>The echo is one echo shared by all channels: each channel sets how much it sends to it (LO-FI K3: Echo send), and ECHO / ECHO MOD set its time, feedback, mix and character.</p>
+<p>The echo is one echo shared by all channels: each channel sets how much it sends to it (FILTER K2: Echo send, next to Channel FX; LO-FI K3 before FM-1_979), and ECHO / ECHO MOD set its time, feedback, mix and character.</p>
+<p>A muted channel's effects can still be changed: on the FM-1 its panel goes grey and the top line says who muted it (the keys, this page or MIDI CC 81). Every effect has a MIDI CC too: see Settings › MIDI.</p>
 <p><b>MASTER K1: All FX</b> bypasses every effect without losing settings; <b>FILTER K1: Channel FX</b> bypasses one channel. Mutes and freeze are not saved. Muting and freeze from this page need FM-1_977 or newer; firmware before FM-1_975 shows its older layout.</p>
 </details>
 </section>
@@ -255,6 +283,9 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <div class="actions">
 <div class="action"><p><b>Back up</b></p><p class="hint">Save all the FM-1's songs to this computer as <span class="mono">lsdj.sav</span>.</p><button id="export" type="button" class="primary">Export lsdj.sav</button></div>
 <div class="action"><p><b>Load songs</b></p><p class="hint">Replace the FM-1's songs with a 128 KiB <span class="mono">.sav</span> file. If it fails, the FM-1 keeps its songs.</p><button id="import-pick" type="button">Import a .sav…</button><input id="import" type="file" accept=".sav" hidden></div>
+<div class="action"><p><b>Installed LSDj</b></p><p class="hint">Read the LSDj installed on the FM-1 back as <span class="mono">lsdj-installed.gb</span>, for your own use (web installs from FM-1_974 on).</p><button id="export-rom" type="button">Export LSDj (.gb)</button></div>
+<div class="action"><p><b>Effects</b></p><p class="hint">Every effects page and channel as <span class="mono">lsdj-burrito-effects.json</span>, or load one back.</p><div class="row"><button id="export-fx" type="button">Export effects</button><button id="import-fx-pick" type="button">Load effects…</button><input id="import-fx" type="file" accept=".json" hidden></div></div>
+<div class="action"><p><b>Everything</b></p><p class="hint">Songs, installed LSDj and effects as three separate files in one <span class="mono">.zip</span>.</p><button id="export-all" type="button">Export all</button></div>
 </div>
 <progress id="save-progress" value="0" max="1" hidden></progress>
 <p id="save-status" role="status"></p>
@@ -264,6 +295,7 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <section id="theme-sec" class="tab-panel needs-device" aria-disabled="true">
 <h2>Colours</h2>
 <label class="check"><input id="page-theme" type="checkbox" checked><span>Show this page in the FM-1's colours <span class="hint">(follows its THEME setting)</span></span></label>
+<label class="row" id="fx-theme-row" hidden>Effects panel on the FM-1 <select id="fx-theme"></select> <span class="hint">LSDj keeps its own THEME</span></label>
 <h3 class="subhead">Custom theme</h3>
 <p class="hint">Start from a preset, change any colour, then send it. The FM-1 uses it as THEME: CUSTOM.</p>
 <div class="theme-wrap" style="margin-top:10px">
@@ -280,9 +312,16 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <div id="midi-sec" hidden>
 <h3 class="subhead">MIDI</h3>
 <div class="grid2" id="midi-form"></div>
-<details><summary>What the MIDI options do</summary>
-<p><b>Clock in, Transport, Sync delay:</b> with LSDj's SYNC set to MIDI, LSDj follows the incoming clock. <b>Note in:</b> with SYNC = KEYBD, LSDj plays incoming notes, like the FM-1's keys in note mode. <b>Clock out:</b> with SYNC = LSDJ, the FM-1 leads and sends MIDI clock, Start and Stop. <b>CC to effects:</b> the first MIDI channel controls PU1, the next PU2, then WAV and NOI.</p>
+<details><summary>What the MIDI options do, and every effect's CC</summary>
+<p><b>Clock in, Transport, Sync delay:</b> with LSDj's SYNC set to MIDI, LSDj follows the incoming clock. <b>Note in:</b> with SYNC = KEYBD, LSDj plays incoming notes, like the FM-1's keys in note mode. <b>Clock out:</b> with SYNC = LSDJ, the FM-1 leads and sends MIDI clock, Start and Stop. <b>CC to effects:</b> the first MIDI channel controls PU1, the next PU2, then WAV and NOI. From FM-1_979 a CC change shows on the FM-1's screen (FX and lights › Show effects moved by MIDI CC) and is kept by SAVE like a knob turn.</p>
 <table class="fx" id="cc-map"></table>
+</details>
+</div>
+<div id="feat-sec" hidden>
+<h3 class="subhead">FX and lights</h3>
+<div class="grid2" id="feat-form"></div>
+<details><summary>What these do</summary>
+<p><b>SELECT goes round:</b> off, turning SELECT past the last effects page stops there, so turning back always reaches FILTER (Channel FX). <b>FX knobs: Channels:</b> SELECT picks one effect and K1-K4 set it for PU1, PU2, WAV and NOI. <b>Black keys show the page:</b> a soft light on C#4 D#4 F#4 G#4 A#4 C#5 for effects pages 1-6, or LSDj's SONG, CHAIN, PHRASE, INSTR, TABLE and GROOVE screens (LSDj 9.3.9). <b>FX knobs send their MIDI CC:</b> on the CC to effects channels (channel 1 if that is off). The same switches are on the FM-1: GLO › FX+LIGHTS.</p>
 </details>
 </div>
 <div class="row" style="margin-top:14px"><button id="settings-apply" class="primary" type="button">Apply and keep</button><span id="settings-status" class="hint" role="status"></span></div>
@@ -332,7 +371,8 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <p id="wiz-backup-status" role="status" hidden></p></div>
 <label class="check"><input id="rom-experimental" type="checkbox" disabled><span>I understand this firmware is experimental and may not start or sound right, and I have backed up my songs.</span></label>
 <div class="row"><button id="rom-build" type="button" class="primary" aria-describedby="rom-next" disabled>Prepare firmware</button><span class="hint">Builds the file on this computer. Nothing is installed yet.</span></div>
-<details><summary>What's in this version (FM-1_978)</summary>
+<details><summary>What's in this version (FM-1_979)</summary>
+<p>New: the echo send on FILTER K2, next to Channel FX (filter type on LO-FI K3); SELECT stops at the first and last effects page; a muted channel's effects panel goes grey and says why when you turn it; effects moved by MIDI CC show on screen, and the FX knobs can send their CCs; GLO › FX+LIGHTS switches for knobs-as-channels, black-key page lights, a light sweep on HOME, a battery indicator and the effects panel's own colours. 30 sample-kit banks fit (31 before).</p>
 <p>Hold FX for the master page: All FX and compressor on the knobs, and keys C4-F4 mute PU1-NOI with a channel strip on screen; tap FX for the channel and echo pages. With LSDj 9.3.9: SEQ switches live / song mode, and EDIT tempo, ARP song cues, MIDI clock and KEYBD sync and the PLAY beat light work in web-installed builds; effects follow the cursor. Also: MASTER page with All FX bypass (K1) and compressor (K2); Channel FX on FILTER K1; reading LSDj back from the FM-1; theme-coloured bars.</p>
 <p>Other LSDj versions are unverified: their effects act on all channels, and SEQ, tempo, song cues and MIDI sync stay off. Sample banks keep their numbers. Save compatibility between LSDj versions isn't guaranteed.</p>
 </details>
@@ -400,7 +440,7 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 </section>
 </div>
 
-<p class="hint foot">The firmware is free software (GPL-3.0), based on <a href="https://github.com/ChanceTheMaker/gamedude-fm1-smk" target="_blank" rel="noopener">GameDude</a>. Source: <a href="https://github.com/dreamsofbacon/lsdj-burrito-src" target="_blank" rel="noopener">lsdj-burrito-src</a>; <a href="lsdj/fm1-lsdj-template-source.zip" download>matching FM-1_978 template source</a>. Not affiliated with M-VAVE or <a href="https://www.littlesounddj.com/" target="_blank" rel="noopener">LSDj's author, Johan Kotlinski</a>.</p>
+<p class="hint foot">The firmware is free software (GPL-3.0), based on <a href="https://github.com/ChanceTheMaker/gamedude-fm1-smk" target="_blank" rel="noopener">GameDude</a>. Source: <a href="https://github.com/dreamsofbacon/lsdj-burrito-src" target="_blank" rel="noopener">lsdj-burrito-src</a>; <a href="lsdj/fm1-lsdj-template-source.zip" download>matching FM-1_979 template source</a>. Not affiliated with M-VAVE or <a href="https://www.littlesounddj.com/" target="_blank" rel="noopener">LSDj's author, Johan Kotlinski</a>.</p>
 </main>
 <script type="module" src="lsdj/ui.js"></script>
 <script type="module" src="lsdj/lsdj-app.js"></script>

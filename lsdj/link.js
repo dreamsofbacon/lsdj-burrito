@@ -7,8 +7,8 @@
 
 export const OP = {INFO: 0x01, READ: 0x02, BEGIN: 0x03, CHUNK: 0x04, COMMIT: 0x05, ABORT: 0x06,
   SETTINGS_GET: 0x10, SETTINGS_SET: 0x11, FX_GET: 0x12, FX_SET: 0x13, THEME_GET: 0x14, THEME_SET: 0x15,
-  STORE: 0x16, MIDI_GET: 0x17, MIDI_SET: 0x18, LIVE: 0x20, BLUETOOTH: 0x21, CART_INFO: 0x22, CART_READ: 0x23,
-  MUTE_SET: 0x24};
+  STORE: 0x16, MIDI_GET: 0x17, MIDI_SET: 0x18, FEAT_GET: 0x19, FEAT_SET: 0x1A, LIVE: 0x20, BLUETOOTH: 0x21,
+  CART_INFO: 0x22, CART_READ: 0x23, MUTE_SET: 0x24};
 export const BT_STATES = ['off', 'starting', 'ready', 'advertising', 'connected', 'failed'];
 export const BT_ERRORS = ['', 'no radio calibration in flash', 'start timed out', 'no task', 'address refused', 'advertising refused', 'link refused'];
 export const STATUS = ['ok', 'bad request', 'wrong state', 'checksum mismatch', 'flash error'];
@@ -176,6 +176,9 @@ export class Link {
   /* the MIDI options word, or null for firmware before alpha 57 */
   async midiGet() { const r = await this.req(OP.MIDI_GET, [], {retries: 2, allow: [0, 1]}); return r.status ? null : rd32(r.data, 0); }
   async midiSet(v) { await this.req(OP.MIDI_SET, le32(v), {retries: 2}); }
+  /* the feature switches word (SETTINGS / FX+LIGHTS), or null for firmware before FM-1_979 */
+  async featGet() { const r = await this.req(OP.FEAT_GET, [], {retries: 2, allow: [0, 1]}); return r.status ? null : rd32(r.data, 0); }
+  async featSet(v) { await this.req(OP.FEAT_SET, le32(v), {retries: 2}); }
   async store() { await this.req(OP.STORE, [], {timeout: 10000, retries: 1}); }
   /* the FM-1's Bluetooth (firmware/lsdj_ble.h), or null in a build without it */
   async bluetooth() {
@@ -189,9 +192,16 @@ export class Link {
   async muteSet(mute, freeze) { await this.req(OP.MUTE_SET, [mute & 15, freeze ? 1 : 0], {retries: 2}); }
   async live() {
     const {data: d} = await this.req(OP.LIVE, [], {timeout: 800});
+    const words = (d.length - 7) >> 2;   // 17 (11 before alpha 66); FM-1_979: a battery byte after them
     return {page: d[0], cursor: d[1], bpm: rd16(d, 2), mute: d[4], freeze: d[5], playing: d[6],
-            fx: Array.from({length: (d.length - 7) >> 2}, (_, i) => rd32(d, 7 + 4 * i))};
+            fx: Array.from({length: words}, (_, i) => rd32(d, 7 + 4 * i)), battery: battery(d[7 + 4 * words])};
   }
+}
+
+/* LIVE's battery byte: 0..3 bars of 3, +0x80 on USB power; 0xFF (or none: before FM-1_979) unknown */
+export function battery(b) {
+  if (b === undefined || b === 0xFF || (b & 0x7F) > 3) return null;
+  return {bars: b & 3, usb: !!(b & 0x80)};
 }
 
 /* Web MIDI: the FM-1's ports (its USB name is Felucca), or every port to choose from. */

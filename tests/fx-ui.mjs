@@ -1,19 +1,20 @@
 // SPDX-License-Identifier: GPL-3.0-only
 import {OP, le32} from '../lsdj/link.js';
-import {unpackFx, packFx} from '../lsdj/fx-model.js';
+import {unpackFx, packFx, THEMES} from '../lsdj/fx-model.js';
+const THEME_11 = THEMES[10];
 
 const $ = id => document.getElementById(id);
 const assert = (v, message) => { if (!v) throw Error(message); };
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-async function until(check, message) {
-  for (let n = 0; n < 80; n++) { if (check()) return; await sleep(50); }
+async function until(check, message, tries = 80) {
+  for (let n = 0; n < tries; n++) { if (check()) return; await sleep(50); }
   throw Error(message);
 }
 export async function runFxUiTests() {
   assert(['localhost', '127.0.0.1'].includes(location.hostname), 'Use a fresh local preview, never a real device');
   const descriptor = Object.getOwnPropertyDescriptor(navigator, 'requestMIDIAccess');
   const input = {name: 'FM-1 test'}, ops = [];
-  let bytes = Array(68).fill(0), writes = 0, cursor = 0, firmware = 'FM-1_975', muteSent = null;
+  let bytes = Array(68).fill(0), writes = 0, cursor = 0, firmware = 'FM-1_975', muteSent = null, liveMute = 0, featWord = 0x460001CE, featSets = 0;
   bytes[36] = 5; bytes[37] = 2; bytes[42] = 0xf2; bytes[43] = 70;
   bytes[2] = 40; bytes[30] = 80; bytes[35] = 4;
   const output = {name: 'FM-1 test', send(message) {
@@ -33,7 +34,9 @@ export async function runFxUiTests() {
     if (op === OP.SETTINGS_GET) return send(le32(0x5a000000));
     if (op === OP.THEME_GET) return send(Array(16).fill(0));
     if (op === OP.MIDI_GET || op === OP.BLUETOOTH) return send([], 1);
-    if (op === OP.LIVE) return send([bytes[38], cursor, 120, 0, 0, 0, 0, ...bytes]);
+    if (op === OP.LIVE) return send([bytes[38], cursor, 120, 0, liveMute, 0, 0, ...bytes, ...(firmware >= 'FM-1_979' ? [0x82] : [])]);
+    if (op === OP.FEAT_GET) return firmware >= 'FM-1_979' ? send(le32(featWord)) : send([], 1);
+    if (op === OP.FEAT_SET) { featWord = (args[0] | args[1] << 8 | args[2] << 16 | args[3] << 24) >>> 0; featSets++; return send(); }
     if (op === OP.MUTE_SET) { muteSent = args; return send(); }
     if ([OP.STORE, OP.THEME_SET, OP.SETTINGS_SET].includes(op)) return send();
     throw Error(`Unexpected device operation ${op}`);
@@ -104,9 +107,83 @@ export async function runFxUiTests() {
     muteSent = null; radio('freeze', 1).click();
     await until(() => muteSent, 'Freeze sent');
     assert(muteSent.join() === '2,1', `Freeze keeps the mutes: ${muteSent}`);
+    /* FM-1_979: echo send on FILTER K2, the filter type on LO-FI K3; FX and lights; FX panel colours;
+       the wiring; a muted channel greyed with why; the battery */
+    assert(document.querySelectorAll('[data-page="1"] .fx-row .fx-name')[1].textContent === 'Filter', '977: FILTER K2 is still the filter type');
+    firmware = 'FM-1_979';
+    await $('connect-btn').onclick();
+    assert([...document.querySelectorAll('[data-page="1"] .fx-row .fx-name')].map(n => n.textContent).join() === 'Channel FX,Echo send,Cutoff,Resonance', '979: FILTER K2 = Echo send');
+    assert([...document.querySelectorAll('[data-page="4"] .fx-row .fx-name')].map(n => n.textContent).join() === 'Crush,Decimate,Filter', '979: LO-FI K3 = filter type');
+    assert(!$('feat-sec').hidden && $('feat-form').querySelectorAll('select').length === 9, 'FX and lights: nine switches (FX theme in Colours)');
+    assert(!$('fx-theme-row').hidden && $('fx-theme').value === '0' && $('fx-theme').options.length > 90, 'FX panel colours: Match by default');
+    assert($('fx-diagram').querySelector('svg.fxd') && $('fx-diagram').querySelectorAll('g.row').length === 4, 'Wiring drawn');
+    liveMute = 1; cursor = 0; $('fx-follow').click();
+    await until(() => !$('fx-muted').hidden, 'Muted notice');
+    assert($('fx-muted').textContent.startsWith('PU1 is muted') && $('fx-pages').classList.contains('muted'), 'PU1 muted: notice and grey');
+    assert($('fx-diagram').querySelector('g.row.muted[data-ch="0"]'), 'Wiring: PU1 muted');
+    assert($('live-badges').textContent.includes('USB power'), 'Battery badge');
+    liveMute = 0;
+    await until(() => $('fx-muted').hidden, 'Notice gone when PU1 plays');
+    const wrap = $('feat-form').querySelector('select[data-key="pageWrap"]'); wrap.value = '1'; wrap.onchange();
+    $('settings-apply').onclick();
+    await until(() => $('settings-status').textContent.includes('Applied'), 'Settings applied');
+    assert(featWord === (0x460001CE | 1) >>> 0, `FEAT_SET with PAGE WRAP on: ${featWord.toString(16)}`);
+    const sets = featSets; $('fx-theme').value = '11'; $('fx-theme').onchange();
+    await until(() => featSets > sets, 'FX theme sent');
+    assert(((featWord >>> 9) & 127) === 11 && $('theme-status').textContent.includes(THEME_11), 'FX THEME = the 11th theme');
     firmware = 'FM-1_975';
-    return 'PASS FX browser: matching pages, one master switch across four selected channels, LIVE state, 17/11-word backups and old firmware gating';
+    return 'PASS FX browser: matching pages (975-978 and 979), one master switch across four selected channels, LIVE state, 17/11-word backups, old firmware gating, FX and lights, FX colours, wiring, muted notice, battery';
   } finally {
+    if (descriptor) Object.defineProperty(navigator, 'requestMIDIAccess', descriptor);
+    else delete navigator.requestMIDIAccess;
+  }
+}
+
+/* Songs tab exports: effects alone, and "Export all" as one .zip of separate files. A mocked FM-1
+   whose firmware cannot read its cartridge back: the .zip says so and holds the other two. */
+export async function runExportUiTests() {
+  assert(['localhost', '127.0.0.1'].includes(location.hostname), 'Use a fresh local preview, never a real device');
+  const descriptor = Object.getOwnPropertyDescriptor(navigator, 'requestMIDIAccess');
+  const realUrl = URL.createObjectURL, input = {name: 'FM-1 test'}, saved = [];
+  const fxBytes = Array.from({length: 17}, (_, i) => i === 9 ? 0x00010205 : i === 10 ? 0x00F20000 : 0).flatMap(le32);   // target CUR, layout 2, page 1, mark
+  const output = {name: 'FM-1 test', send(message) {
+    const op = message[4], args = [];
+    for (let i = 5; i < message.length - 1; i += 2) args.push(message[i] | message[i + 1] << 7);
+    const send = (data = [], status = 0) => queueMicrotask(() => input.onmidimessage?.({
+      data: [0xf0, 0x7d, 0x47, 0x53, op, status, ...data.flatMap(b => [b & 127, b >> 7]), 0xf7]}));
+    if (op === OP.INFO) { const info = Array(35).fill(0); info[0] = 1; [...'FM-1_979'].forEach((c, i) => info[1 + i] = c.charCodeAt(0)); return send(info); }
+    if (op === OP.FX_GET) return send(fxBytes);
+    if (op === OP.SETTINGS_GET) return send(le32(0x5a000000));
+    if (op === OP.THEME_GET) return send(Array(16).fill(0));
+    if (op === OP.FEAT_GET) return send(le32(0x460001CE));
+    if (op === OP.MIDI_GET || op === OP.BLUETOOTH || op === OP.CART_INFO) return send([], 1);
+    if (op === OP.READ) { const off = args[0] | args[1] << 8 | args[2] << 16; return send(Array.from({length: 128}, (_, i) => (off + i) & 255)); }
+    if (op === OP.LIVE) return send([1, 0, 120, 0, 0, 0, 0, ...fxBytes, 0xFF]);
+    if (op === OP.FX_SET || op === OP.STORE) return send();
+    throw Error(`Unexpected device operation ${op}`);
+  }};
+  try {
+    URL.createObjectURL = blob => { saved.push(blob); return realUrl.call(URL, blob); };
+    HTMLAnchorElement.prototype.click = function () { saved[saved.length - 1].fileName = this.download; };
+    Object.defineProperty(navigator, 'requestMIDIAccess', {configurable: true,
+      value: async () => ({inputs: new Map([['test', input]]), outputs: new Map([['test', output]])})});
+    await $('connect-btn').onclick();
+    $('export-fx').onclick();
+    await until(() => $('save-status').textContent.includes('Exported the effects'), 'Effects exported');
+    const fxFile = JSON.parse(await saved.at(-1).text());
+    assert(saved.at(-1).fileName === 'lsdj-burrito-effects.json' && fxFile.format === 'lsdj-burrito-fx' && fxFile.firmware === 'FM-1_979' &&
+      fxFile.fx.length === 17 && unpackFx(fxFile.fx).v3, 'Effects file');
+    $('export-all').onclick();
+    await until(() => $('save-status').textContent.includes('in one .zip'), 'Export all', 400);
+    const zip = new Uint8Array(await saved.at(-1).arrayBuffer());
+    assert(/^lsdj-burrito-FM-1_979-\d{4}-\d\d-\d\d\.zip$/.test(saved.at(-1).fileName), saved.at(-1).fileName);
+    const names = new TextDecoder().decode(zip);
+    assert(names.includes('lsdj.sav') && names.includes('lsdj-burrito-effects.json') && !names.includes('lsdj-installed.gb'), 'Two files without readback');
+    assert($('save-status').className === 'warn' && $('save-status').textContent.includes('installed LSDj was left out'), 'Says why the ROM is missing');
+    assert(zip.length > 131072 && zip[30 + 'lsdj.sav'.length + 200] === 200, 'Songs stored whole');
+    return 'PASS exports: effects file, Export all as a .zip of separate files (readback unavailable: left out, said)';
+  } finally {
+    URL.createObjectURL = realUrl; delete HTMLAnchorElement.prototype.click;
     if (descriptor) Object.defineProperty(navigator, 'requestMIDIAccess', descriptor);
     else delete navigator.requestMIDIAccess;
   }

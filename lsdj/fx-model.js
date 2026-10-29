@@ -29,7 +29,8 @@ export const LEGACY_PAGES = [
   {name: 'LO-FI', knobs: [['ch', 'crush'], ['ch', 'decim'], ['ch', 'send'], ['flags', 'fxOn']]},
   {name: 'ECHO', knobs: [['echo', 'time'], ['echo', 'feedback'], ['echo', 'mix'], ['echo', 'tone']]},
   {name: 'ECHO MORE', knobs: [['echo', 'wobble'], ['echo', 'sync'], ['echo', 'mode'], ['echo', 'freeze']]}];
-export const PAGES = [
+/* FM-1_975 .. 978 */
+export const PAGES_978 = [
   {name: 'MASTER', knobs: [['master', 'allFxOn'], ['comp', 'comp'], null, null]},
   {name: 'FILTER', knobs: [['flags', 'fxOn'], ['ch', 'type'], ['ch', 'cutoff'], ['ch', 'reso']]},
   {name: 'DRIVE', knobs: [['ch', 'drive'], ['q', 'dist'], ['q', 'warm'], null]},
@@ -37,7 +38,14 @@ export const PAGES = [
   {name: 'LO-FI', knobs: [['ch', 'crush'], ['ch', 'decim'], ['ch', 'send'], null]},
   LEGACY_PAGES[4],
   {...LEGACY_PAGES[5], name: 'ECHO MOD'}];
-export const pagesForFx = fx => fx.v3 ? PAGES : LEGACY_PAGES;
+/* FM-1_979 and newer: the echo send on FILTER K2, next to Channel FX; the filter type on LO-FI K3.
+   (The saved words do not say which: the firmware's number does.) */
+export const PAGES = PAGES_978.map((pg, i) =>
+  i === 1 ? {name: 'FILTER', knobs: [['flags', 'fxOn'], ['ch', 'send'], ['ch', 'cutoff'], ['ch', 'reso']]} :
+  i === 4 ? {name: 'LO-FI', knobs: [['ch', 'crush'], ['ch', 'decim'], ['ch', 'type'], null]} : pg);
+/* fw: the firmware's number (979 for FM-1_979; leave it out for the newest) */
+export const firmwareNumber = id => +(/^FM-1_(9\d\d)$/.exec(id || '')?.[1] ?? 0);
+export const pagesForFx = (fx, fw = Infinity) => !fx.v3 ? LEGACY_PAGES : fw >= 979 ? PAGES : PAGES_978;
 /* FM-1_977 and newer: MASTER opens with FX held on the FM-1; tapping FX shows the others
    (FM-1_978: ECHO and ECHO MOD with the channel pages again; the echo is shared, each channel sends to it). */
 export const MASTER_PAGES = [0];
@@ -278,12 +286,21 @@ export const MIDI_SETTINGS = [
   {key: 'ccFx', bits: [11, 4], name: 'CC to effects', choices: ['Off', ...Array.from({length: 13}, (_, i) => `Channels ${i + 1}-${i + 4}`)]},
   {key: 'clockOut', bits: [15, 2], name: 'Clock out (SYNC LSDJ)', choices: ['Off', 'USB', 'Bluetooth', 'USB + Bluetooth']},
   {key: 'pcCue', bits: [17, 1], name: 'Program change cues row', choices: ['Off', 'On']}];
-/* CC -> effects (lsdj_midi_cc_apply): per channel, and the echo on any of the four */
+/* CC -> effects (firmware/lsdj_midi.h lsdj_midi_cc_apply). With CC FX = channels N..N+3, channel N
+   is PU1, N+1 PU2, N+2 WAV, N+3 NOI; the shared ones (echo, compressor) work on any of the four.
+   Choices are bands of the 0-127 value. [cc, what, 'channel' | 'shared'] */
 export const MIDI_CC_MAP = [
-  [70, 'Filter type (0-31 off, 32-63 LP, 64-95 HP, 96-127 BP)'], [71, 'Resonance'], [74, 'Cutoff'], [75, 'Drive'],
-  [76, 'Crush'], [77, 'Decimate'], [91, 'Echo send'], [80, 'Channel FX on (64+)'], [81, 'Mute (64+)'],
-  [12, 'Echo time'], [13, 'Echo feedback'], [14, 'Echo mix'], [15, 'Echo tone'], [16, 'Echo wobble'],
-  [17, 'Echo sync (64+)'], [18, 'Echo ping-pong (64+)'], [19, 'Freeze (64+)']];
+  [70, 'Filter type: 0-21 off, 22-42 low-pass, 43-63 high-pass, 64-85 band-pass, 86-106 notch, 107-127 low-pass 24 dB', 'channel'],
+  [74, 'Cutoff', 'channel'], [71, 'Resonance', 'channel'], [75, 'Drive', 'channel'],
+  [79, 'Distortion: 0-31 soft, 32-63 hard, 64-95 fold, 96-127 fuzz', 'channel'], [78, 'Warm', 'channel'],
+  [72, 'LFO rate', 'channel'], [73, 'LFO depth', 'channel'],
+  [82, 'LFO shape: 0-25 sine, 26-51 triangle, 52-76 square, 77-102 saw, 103-127 random', 'channel'],
+  [83, 'LFO to: 0-42 cutoff, 43-85 volume, 86-127 pan', 'channel'],
+  [76, 'Crush', 'channel'], [77, 'Decimate', 'channel'], [91, 'Echo send', 'channel'],
+  [80, 'Channel FX (64-127 on)', 'channel'], [81, 'Mute (64-127 muted)', 'channel'],
+  [12, 'Echo time (synced: 12 note values)', 'shared'], [13, 'Echo feedback', 'shared'], [14, 'Echo mix', 'shared'],
+  [15, 'Echo tone (64 flat)', 'shared'], [16, 'Echo wobble', 'shared'], [17, 'Echo sync (64-127 tempo)', 'shared'],
+  [18, 'Echo mode (64-127 ping-pong)', 'shared'], [19, 'Freeze (64-127 on)', 'shared'], [20, 'Compressor', 'shared']];
 export function unpackMidi(v) {
   if (v >>> 24 !== 0x4D) throw Error('Not a MIDI options word from this firmware.');
   return Object.fromEntries(MIDI_SETTINGS.map(s => [s.key, (v >>> s.bits[0]) & ((1 << s.bits[1]) - 1)]));
@@ -303,5 +320,32 @@ export function packSettings(o) {
     v |= (o[s.key] & ((1 << s.bits[1]) - 1)) << s.bits[0];
     (s.hi || []).forEach((b, i) => { v |= ((o[s.key] >> (s.bits[1] + i)) & 1) << b; });
   }
+  return v >>> 0;
+}
+
+/* The feature switches (firmware/lsdj_feat.h: SETTINGS / FX+LIGHTS, one word with 'F' on top;
+   save-store record 23, FM-1_979 and newer). */
+export const FEATURES = [
+  {key: 'pageWrap', bits: [0, 1], name: 'FX pages: SELECT goes round', choices: ['Off (stops at the first and last)', 'On']},
+  {key: 'greyMuted', bits: [1, 1], name: 'Muted channel: FX panel grey', choices: ['Off', 'On'], def: 1},
+  {key: 'mutePopup', bits: [2, 1], name: 'Muted channel: say why when its FX are turned', choices: ['Off', 'On'], def: 1},
+  {key: 'showCc', bits: [3, 1], name: 'Show effects moved by MIDI CC', choices: ['Off', 'On'], def: 1},
+  {key: 'ccOut', bits: [4, 1], name: 'FX knobs send their MIDI CC (USB)', choices: ['Off', 'On']},
+  {key: 'knobs', bits: [5, 1], name: 'FX knobs', choices: ['Parameters: 4 effects of one channel', 'Channels: one effect on PU1 PU2 WAV NOI']},
+  {key: 'pageLights', bits: [6, 1], name: 'Black keys show the page', choices: ['Off', 'On'], def: 1},
+  {key: 'modeLights', bits: [7, 1], name: 'Light sweep on HOME (note / button mode)', choices: ['Off', 'On'], def: 1},
+  {key: 'battery', bits: [8, 1], name: 'Battery on the FM-1\'s screen', choices: ['Off', 'On'], def: 1},
+  {key: 'fxTheme', bits: [9, 7], name: 'FX panel colours', choices: ['Match the LSDj theme', ...THEMES]}];
+export const FEATURE_DEFAULTS = Object.fromEntries(FEATURES.map(f => [f.key, f.def || 0]));
+export function unpackFeatures(v) {
+  if (v >>> 24 !== 0x46) throw Error('Not a feature switches word from this firmware.');
+  const o = Object.fromEntries(FEATURES.map(f => [f.key, (v >>> f.bits[0]) & ((1 << f.bits[1]) - 1)]));
+  const used = FEATURES.reduce((m, f) => m | ((1 << f.bits[1]) - 1) << f.bits[0], 0);
+  if ((v & 0xFFFFFF & ~used) || FEATURES.some(f => o[f.key] >= f.choices.length)) throw Error('Unknown feature switches. Update the webpage.');
+  return o;
+}
+export function packFeatures(o) {
+  let v = 0x46000000;
+  for (const f of FEATURES) v |= (Math.min(o[f.key] | 0, f.choices.length - 1) & ((1 << f.bits[1]) - 1)) << f.bits[0];
   return v >>> 0;
 }

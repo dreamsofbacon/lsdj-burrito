@@ -7,7 +7,11 @@ import {connectBleMidi} from './ble-midi.js';
 import {showDeviceTheme, setMatching, matching} from './page-theme.js';
 import {setBeforeInstall, installing, usbMidiUnavailable} from './install-ui.js';
 import {CHANNELS, pagesForFx, PARAM, paramGet, paramSet, valueText, channelSummary, unpackFx, packFx, PRESETS, THEMES, COLOR_NAMES, toHex, fromHex,
-        SETTINGS, unpackSettings, packSettings, MIDI_SETTINGS, MIDI_CC_MAP, unpackMidi, packMidi, CUSTOM_THEME, isMasterPage} from './fx-model.js';
+        SETTINGS, unpackSettings, packSettings, MIDI_SETTINGS, MIDI_CC_MAP, unpackMidi, packMidi, CUSTOM_THEME, isMasterPage,
+        firmwareNumber, FEATURES, unpackFeatures, packFeatures} from './fx-model.js';
+import {fxDiagram} from './fx-diagram.js';
+import {zipStore} from './zip.js';
+import {romFromSlot} from './lsdj-rom.js';
 
 const $ = id => document.getElementById(id);
 const say = (id, text, cls = 'hint') => { const el = $(id); el.textContent = text; el.className = cls; };
@@ -17,6 +21,8 @@ const enable = on => {
 };
 
 let midi = null;   // the MIDI options (null: firmware without them)
+let features = null;   // the feature switches, SETTINGS / FX+LIGHTS (null: firmware before FM-1_979)
+let fwId = '', fwNum = 0;   // the firmware: "FM-1_979", 979
 let link = null, ports = null, fx = null, settings = null, theme = PRESETS[0].slice(), poll = null, busy = false, touched = 0, ble = null;
 let connected = false;
 
@@ -29,12 +35,14 @@ async function connectTo(input, output, how = 'USB') {
   try {
     const info = await link.info();
     if (info.protocol !== 1) throw new LinkError(`This page speaks link version 1; the FM-1 speaks ${info.protocol}. Update the page or the firmware.`);
-    muteOk = +(/^FM-1_9(\d\d)$/.exec(info.firmware)?.[1] ?? 0) >= 77;   // MUTE_SET: FM-1_977 and newer
+    fwId = info.firmware; fwNum = firmwareNumber(info.firmware);
+    muteOk = fwNum >= 977;   // MUTE_SET: FM-1_977 and newer
     say('device', `Connected over ${how}: ${info.firmware} running ${info.title || 'a game'}` + (info.liveKnown ? '' : ' (live data needs LSDj 9.3.9)'), 'ok');
     showBluetooth(how);
     fx = unpackFx(await link.fxGet());
     settings = unpackSettings(await link.settingsGet());
     { const w = await link.midiGet(); midi = w === null ? null : unpackMidi(w); }
+    { const w = fwNum >= 979 ? await link.featGet() : null; features = w === null ? null : unpackFeatures(w); }
     theme = await link.themeGet(); customTheme = theme.slice();
     buildFx(); buildSettings(); buildTheme(); enable(true);
     pageTheme();
@@ -166,7 +174,7 @@ function buildFx() {
   const box = $('fx-pages'); box.replaceChildren();
   const masterBox = $('fx-master-pages'); masterBox.replaceChildren();
   $('fx-master').hidden = $('fx-ch-head').hidden = !fx.v3;   // FM-1_975 and newer: shared pages apart
-  pagesForFx(fx).forEach((pg, i) => {
+  pagesForFx(fx, fwNum).forEach((pg, i) => {
     if (pg.v2 && !fx.v2) return;                     // the new pages need alpha 66
     const card = document.createElement('div'); card.className = 'fx-card'; card.dataset.page = i;
     const perCh = pg.knobs.some(slot => slot && (slot[0] === 'ch' || slot[0] === 'q' || slot[1] === 'fxOn'));
@@ -247,6 +255,13 @@ function refresh(hot = []) {
     b.querySelector('small').textContent = [channelSummary(fx, n), ...tags].join(' · ');
   });
   $('fx-follow').classList.toggle('on', followCursor);
+  /* the channel shown is muted: its controls grey (still adjustable) and why it is silent, as the FM-1 does */
+  const silent = (mute >> c) & 1;
+  $('fx-pages').classList.toggle('muted', !!silent);
+  $('fx-muted').hidden = !silent;
+  if (silent) $('fx-muted').textContent = `${CHANNELS[c]} is muted: changes are kept, but you won't hear them until it plays again ` +
+    `(Master above${muteOk ? '' : ' needs FM-1_977'}, or hold FX + ${['C4', 'D4', 'E4', 'F4'][c]} on the FM-1).`;
+  $('fx-diagram').innerHTML = fxDiagram(fx, {mute});
   $('fx-editing').innerHTML = `Editing <b>${CHANNELS[c]}</b>` + (followCursor ? ' <span class="hint">(under the FM-1\'s cursor)</span>' : ' <span class="hint">(picked here)</span>');
   document.querySelectorAll('#live-sec .fx-card').forEach(card => card.classList.toggle('fm1', !!lastLive && +card.dataset.page === onFm1));
   hot.forEach(key => {
@@ -267,7 +282,7 @@ async function tick() {
     const l = await link.live();
     const live = unpackFx(l.fx);
     live.freeze = l.freeze; cursorCh = l.cursor < 4 ? l.cursor : cursorCh; bpm = l.bpm;
-    fm1Page = l.page < pagesForFx(live).length ? l.page : live.page;
+    fm1Page = l.page < pagesForFx(live, fwNum).length ? l.page : live.page;
     if (!isMasterPage(live, fm1Page)) lastChPage = fm1Page;
     if (Date.now() - muteTouched > 1000) mute = l.mute & 15;
     let hot = [];
@@ -277,9 +292,11 @@ async function tick() {
     } else if (Date.now() - muteTouched > 1000) fx.freeze = l.freeze;
     lastLive = l;
     refresh(hot);
-    $('live-badges').innerHTML = `<span class="badge">${pagesForFx(live)[fm1Page]?.name || ''}</span><span class="badge">${l.bpm} BPM</span>` +
+    const bat = l.battery;   // {bars, usb} or null (lsdj/link.js)
+    $('live-badges').innerHTML = `<span class="badge">${pagesForFx(live, fwNum)[fm1Page]?.name || ''}</span><span class="badge">${l.bpm} BPM</span>` +
       (live.bypass ? '<span class="badge">ALL FX OFF</span>' : '') +
-      (l.freeze ? '<span class="badge on">FROZEN</span>' : '');
+      (l.freeze ? '<span class="badge on">FROZEN</span>' : '') +
+      (bat ? `<span class="badge" title="The FM-1's battery (3 bars: full)">${bat.usb ? 'USB power' : 'Battery ' + '▮'.repeat(bat.bars) + '▯'.repeat(3 - bat.bars)}</span>` : '');
   } catch (e) { /* a missed poll: try again on the next */ }
 }
 $('fx-keep').onclick = () => run('fx-status', async () => { await link.fxSet(packFx(fx)); await link.store(); say('fx-status', 'Kept on the FM-1.', 'ok'); });
@@ -313,14 +330,62 @@ export async function readInstalledCartridge(progress, signal) {
   }
 }
 const progress = () => { const p = $('save-progress'); p.hidden = false; p.value = 0; return (n, t) => { p.max = t; p.value = n; }; };
-$('export').onclick = () => run('save-status', async () => {
-  say('save-status', 'Reading songs from the FM-1…');
-  const bytes = await link.exportSave(progress());
+/* a file to this computer */
+function download(bytes, name, type = 'application/octet-stream') {
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([bytes], {type: 'application/octet-stream'})); a.download = 'lsdj.sav'; a.click();
+  a.href = URL.createObjectURL(new Blob([bytes], {type})); a.download = name; a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+}
+const stamp = () => new Date().toISOString().slice(0, 10);
+/* The three exports (each its own file): songs, the installed LSDj (read back from the FM-1:
+   FM-1_974 and newer web-installed builds), the effects setup. Nothing is written to the FM-1. */
+async function songsFile() {
+  say('save-status', 'Reading songs from the FM-1…');
+  return {name: 'lsdj.sav', bytes: await link.exportSave(progress())};
+}
+async function romFile() {
+  say('save-status', 'Reading the installed LSDj from the FM-1 (no device writes)…');
+  const rom = romFromSlot(await link.exportCartridge(progress()));
+  return {name: 'lsdj-installed.gb', bytes: rom};
+}
+async function fxFile() {
+  const data = {format: 'lsdj-burrito-fx', version: 1, firmware: fwId, fx: await link.fxGet()};
+  return {name: 'lsdj-burrito-effects.json', bytes: new TextEncoder().encode(JSON.stringify(data, null, 1))};
+}
+$('export').onclick = () => run('save-status', async () => {
+  const f = await songsFile(); download(f.bytes, f.name);
   say('save-status', 'Exported lsdj.sav.', 'ok');
 });
+$('export-rom').onclick = () => run('save-status', async () => {
+  const f = await romFile(); download(f.bytes, f.name);
+  say('save-status', 'Exported lsdj-installed.gb: the LSDj installed on the FM-1, for your own use. Kit banks left out at install are empty in it.', 'ok');
+});
+$('export-fx').onclick = () => run('save-status', async () => {
+  const f = await fxFile(); download(f.bytes, f.name, 'application/json');
+  say('save-status', 'Exported the effects setup (all pages, every channel).', 'ok');
+});
+$('export-all').onclick = () => run('save-status', async () => {
+  const files = [await songsFile(), await fxFile()];
+  let note = '';
+  try { files.splice(1, 0, await romFile()); }
+  catch (e) { note = ` The installed LSDj was left out: ${e.message}`; }
+  download(zipStore(files), `lsdj-burrito-${fwId || 'fm1'}-${stamp()}.zip`, 'application/zip');
+  say('save-status', `Exported ${files.map(f => f.name).join(', ')} in one .zip.${note}`, note ? 'warn' : 'ok');
+});
+$('import-fx-pick').onclick = () => $('import-fx').click();
+$('import-fx').onchange = e => {
+  const file = e.target.files[0]; e.target.value = ''; if (!file) return;
+  run('save-status', async () => {
+    let d; try { d = JSON.parse(await file.text()); } catch { throw new LinkError('This is not an effects file.'); }
+    const words = d.format === 'lsdj-burrito-fx' && d.version === 1 ? d.fx : d.format === 'lsdj-burrito-backup' && d.version === 1 ? d.fx : null;
+    if (!Array.isArray(words) || ![11, 17].includes(words.length)) throw new LinkError('This is not an LSDJ Burrito effects file.');
+    const loaded = unpackFx(words);
+    if (loaded.v3 && !fx.v3) throw new LinkError('These effects need FM-1_975 or newer firmware.');
+    await link.fxSet(words); await link.store();
+    fx = unpackFx(await link.fxGet()); buildFx();
+    say('save-status', `Loaded the effects from ${file.name} and kept them on the FM-1.`, 'ok');
+  });
+};
 $('import-pick').onclick = () => $('import').click();
 $('import').onchange = e => {
   const file = e.target.files[0]; e.target.value = ''; if (!file) return;
@@ -390,6 +455,19 @@ async function followThemeSetting() {
   if (sel && document.activeElement !== sel) sel.value = id;
   pageTheme(id);
 }
+/* FX panel colours (FM-1_979: FX THEME): the FM-1's effects panel in a theme of its own, or matching LSDj's */
+function buildFxTheme() {
+  const sel = $('fx-theme'), f = FEATURES.find(x => x.key === 'fxTheme');
+  $('fx-theme-row').hidden = !features;
+  if (!features) return;
+  sel.replaceChildren(...f.choices.map((name, i) => new Option(name, i)));
+  sel.value = features.fxTheme;
+}
+$('fx-theme').onchange = () => run('theme-status', async () => {
+  features.fxTheme = +$('fx-theme').value;
+  await link.featSet(packFeatures(features)); await link.store();
+  say('theme-status', features.fxTheme ? `The FM-1's effects panel now uses ${THEMES[features.fxTheme - 1]}.` : 'The effects panel matches the LSDj theme again.', 'ok');
+});
 $('page-theme').checked = matching();
 $('page-theme').onchange = () => { setMatching($('page-theme').checked); if ($('page-theme').checked && connected) pageTheme(); };
 $('theme-send').onclick = () => run('theme-status', async () => {
@@ -416,11 +494,26 @@ function buildSettings() {
   const mbox = $('midi-form'); mbox.replaceChildren();
   $('midi-sec').hidden = !midi;
   if (midi) selects(mbox, MIDI_SETTINGS, midi);
+  const fbox = $('feat-form'); fbox.replaceChildren();
+  $('feat-sec').hidden = !features;
+  if (features) selects(fbox, FEATURES.filter(f => f.key !== 'fxTheme'), features);
+  buildFxTheme();
 }
-$('cc-map').replaceChildren(...MIDI_CC_MAP.map(([cc, what]) => { const tr = document.createElement('tr'); tr.insertCell().textContent = 'CC ' + cc; tr.insertCell().textContent = what; return tr; }));
+/* The CC map: per channel, then the shared ones */
+{
+  const rows = [];
+  for (const [scope, title] of [['channel', 'Per channel (PU1 on the first CC FX channel, PU2 the next, then WAV, NOI)'], ['shared', 'Shared (any of the four channels)']]) {
+    const th = document.createElement('tr'), cell = document.createElement('th'); cell.colSpan = 2; cell.textContent = title; th.append(cell); rows.push(th);
+    for (const [cc, what] of MIDI_CC_MAP.filter(m => m[2] === scope)) {
+      const tr = document.createElement('tr'); tr.insertCell().textContent = 'CC ' + cc; tr.insertCell().textContent = what; rows.push(tr);
+    }
+  }
+  $('cc-map').replaceChildren(...rows);
+}
 $('settings-apply').onclick = () => run('settings-status', async () => {
   await link.settingsSet(packSettings(settings));
   if (midi) await link.midiSet(packMidi(midi));
+  if (features) await link.featSet(packFeatures(features));
   await link.store();
   pageTheme();
   say('settings-status', 'Applied and kept on the FM-1.', 'ok');
@@ -428,6 +521,7 @@ $('settings-apply').onclick = () => run('settings-status', async () => {
 $('backup').onclick = () => run('settings-status', async () => {
   const data = {format: 'lsdj-burrito-backup', version: 1, settings: await link.settingsGet(), fx: await link.fxGet(), theme: await link.themeGet()};
   const m = await link.midiGet(); if (m !== null) data.midi = m;
+  if (features) data.features = await link.featGet();
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 1)], {type: 'application/json'})); a.download = 'lsdj-burrito-backup.json'; a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 10000);
@@ -444,11 +538,14 @@ $('restore').onchange = e => {
     const restoredFx = unpackFx(d.fx);
     if (restoredFx.v3 && !fx.v3) throw new LinkError('This effects backup requires FM-1_975 or newer firmware.');
     if (d.midi !== undefined) unpackMidi(d.midi);   /* checks */
+    if (d.features !== undefined) unpackFeatures(d.features);
     await link.themeSet(d.theme); await link.settingsSet(d.settings); await link.fxSet(d.fx);
     if (d.midi !== undefined && midi) await link.midiSet(d.midi);
+    if (d.features !== undefined && features) await link.featSet(d.features);
     await link.store();
     settings = unpackSettings(d.settings); fx = unpackFx(await link.fxGet()); theme = d.theme;
     if (d.midi !== undefined && midi) midi = unpackMidi(d.midi);
+    if (d.features !== undefined && features) features = unpackFeatures(d.features);
     buildSettings(); buildFx(); drawColors();
     customTheme = d.theme.slice(); pageTheme();
     say('settings-status', `Restored ${file.name} and kept it on the FM-1.`, 'ok');

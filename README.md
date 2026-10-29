@@ -262,9 +262,20 @@ to check disabled USB controls, early rejection before install confirmation and
 continued local preparation/download/preview selection. This test does not start
 the emulator or access a device.
 
-Run `node tests/fx-model.mjs` for FX format/layout tests. On a fresh local preview,
+Run `node tests/fx-model.mjs` for FX format/layout tests (the FM-1_979 knob layout and
+the 975-978 one, the FX+LIGHTS feature switches, the complete MIDI CC map),
+`node tests/fx-diagram.mjs` for the Effects tab's wiring diagram and `node tests/zip.mjs`
+for the Export all archive. On a fresh local preview,
 run `await (await import('./tests/fx-ui.mjs')).runFxUiTests()` for simulated MIDI
-controls and backup compatibility; reload afterward to remove the mock connection.
+controls and backup compatibility, and `.runExportUiTests()` from the same module for the
+Songs tab's effects export and Export all .zip; reload afterward to remove the mock
+connection. `tests/fx-shot.mjs` only connects a pretend FM-1_979 for screenshots and the
+narrow-screen check.
+
+From FM-1_979 the Songs tab exports the songs (`lsdj.sav`), the installed LSDj read back
+from the FM-1 (`lsdj-installed.gb`, web installs from FM-1_974) and the effects
+(`lsdj-burrito-effects.json`) separately, or all three as separate files in one `.zip`.
+These go to the user's own computer only; nothing ROM-bearing is published.
 
 Run `node tests/loader.mjs` with Node 22+ for synthetic ROM, sample selection, slot, protected-template, package and simulated transport regressions. Optional positional arguments are local ROM paths; these test package round trips without saving ROM-bearing packages. With `LSDJ_SLOT_SMOKE` set to the firmware's compiled `tests/lsdj_rom.c` executable, they also test each generated slot with the emulator for 600 frames. This is not an audible sample or hardware test.
 
