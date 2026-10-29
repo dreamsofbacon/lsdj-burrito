@@ -193,12 +193,12 @@ function buildFx() {
     $('fx-master-status')?.remove();
     const masterStatus = document.createElement('p'); masterStatus.id = 'fx-master-status'; masterStatus.className = 'hint';
     masterStatus.setAttribute('role', 'status'); box.before(masterStatus);
-    (isMasterPage(fx, i) ? masterBox : box).append(card);
+    (isMasterPage(fx, i, fwNum) ? masterBox : box).append(card);
   });
   const mutes = $('fx-mutes'); mutes.replaceChildren();
   CHANNELS.forEach((name, n) => {
     const b = document.createElement('button'); b.type = 'button'; b.dataset.mute = n; b.textContent = name;
-    b.disabled = !muteOk; b.title = muteOk ? `Mute or play ${name}` : 'Muting from this page needs FM-1_977 or newer (hold FX + C4-F4 on the FM-1)';
+    b.disabled = !muteOk; b.title = muteOk ? `Mute or play ${name}` : 'Muting from this page needs FM-1_977 or newer (C4-F4 on the FM-1\'s MASTER page)';
     b.onclick = () => { mute ^= 1 << n; sendMute(); refresh(); };
     mutes.append(b);
   });
@@ -263,7 +263,7 @@ function refresh(hot = []) {
   $('fx-pages').classList.toggle('muted', !!silent);
   $('fx-muted').hidden = !silent;
   if (silent) $('fx-muted').textContent = `${CHANNELS[c]} is muted: changes are kept, but you won't hear them until it plays again ` +
-    `(Master above${muteOk ? '' : ' needs FM-1_977'}, or hold FX + ${['C4', 'D4', 'E4', 'F4'][c]} on the FM-1).`;
+    `(Master above${muteOk ? '' : ' needs FM-1_977'}, or ${['C4', 'D4', 'E4', 'F4'][c]} on the FM-1's MASTER page).`;
   $('fx-diagram').innerHTML = fxDiagram(fx, {mute});
   $('fx-editing').innerHTML = `Editing <b>${CHANNELS[c]}</b>` + (followCursor ? ' <span class="hint">(under the FM-1\'s cursor)</span>' : ' <span class="hint">(picked here)</span>');
   document.querySelectorAll('#live-sec .fx-card').forEach(card => card.classList.toggle('fm1', !!lastLive && +card.dataset.page === onFm1));
@@ -286,7 +286,7 @@ async function tick() {
     const live = unpackFx(l.fx);
     live.freeze = l.freeze; cursorCh = l.cursor < 4 ? l.cursor : cursorCh; bpm = l.bpm;
     fm1Page = l.page < pagesForFx(live, fwNum).length ? l.page : live.page;
-    if (!isMasterPage(live, fm1Page)) lastChPage = fm1Page;
+    if (!isMasterPage(live, fm1Page, fwNum)) lastChPage = fm1Page;
     if (Date.now() - muteTouched > 1000) mute = l.mute & 15;
     let hot = [];
     if (Date.now() - touched > 1000) {   /* not while the user is moving a control */
@@ -485,13 +485,18 @@ function buildSettings() {
     const tmp = document.createElement('div'), theme = box.querySelector('select[data-key="theme"]')?.parentElement;
     selects(tmp, FEATURES.filter(f => f.key === 'fxTheme'), features);
     if (theme) theme.after(...tmp.children); else box.append(...tmp.children);
+    if (fwNum >= 981) {   // AUTOSAVE first, as on the FM-1's SETTINGS page
+      const as = document.createElement('div');
+      selects(as, FEATURES.filter(f => f.key === 'autosave'), features);
+      box.prepend(...as.children);
+    }
   }
   const mbox = $('midi-form'); mbox.replaceChildren();
   $('midi-sec').hidden = !midi;
   if (midi) selects(mbox, MIDI_SETTINGS, midi);
   const fbox = $('feat-form'); fbox.replaceChildren();
   $('feat-sec').hidden = !features;
-  if (features) selects(fbox, FEATURES.filter(f => f.key !== 'fxTheme'), features);
+  if (features) selects(fbox, FEATURES.filter(f => f.key !== 'fxTheme' && f.key !== 'autosave'), features);
 }
 /* The CC map: per channel, then the shared ones */
 {

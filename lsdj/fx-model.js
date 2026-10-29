@@ -52,7 +52,10 @@ export const pagesForFx = (fx, fw = Infinity) => !fx.v3 ? LEGACY_PAGES : fw >= 9
 /* FM-1_977 and newer: MASTER opens with FX held on the FM-1; tapping FX shows the others
    (FM-1_978: ECHO and ECHO MOD with the channel pages again; the echo is shared, each channel sends to it). */
 export const MASTER_PAGES = [0];
-export const isMasterPage = (fx, i) => !!fx.v3 && MASTER_PAGES.includes(i);
+/* FM-1_981: FX opens the panel until FX again; SELECT goes FILTER .. LO-FI, then MASTER, ECHO, ECHO MOD
+   (the shared echo with the master pages). fw: the firmware's number (leave it out for the newest). */
+export const MASTER_PAGES_981 = [0, 5, 6];
+export const isMasterPage = (fx, i, fw = Infinity) => !!fx.v3 && (fw >= 981 ? MASTER_PAGES_981 : MASTER_PAGES).includes(i);
 export const PAGES_OLD = [0, 3, 4, 5];   // the old firmware's page numbers -> these pages
 export const PARAM = Object.fromEntries([
   ...CH_PARAMS.map(p => [p.key, {...p, where: 'ch'}]), ...Q_PARAMS.map(p => [p.key, {...p, where: 'q'}]),
@@ -338,17 +341,19 @@ export const FEATURES = [
   {key: 'pageLights', bits: [6, 1], name: 'Black keys show the page', choices: ['Off', 'On'], def: 1},
   {key: 'modeLights', bits: [7, 1], name: 'Light sweep on HOME (note / button mode)', choices: ['Off', 'On'], def: 1},
   {key: 'battery', bits: [8, 1], name: 'Battery on the FM-1\'s screen', choices: ['Off', 'On'], def: 1},
-  {key: 'fxTheme', bits: [9, 7], name: 'FX panel colours', choices: ['Match the LSDj theme', ...THEMES]}];
+  {key: 'fxTheme', bits: [9, 7], name: 'FX panel colours', choices: ['Match the LSDj theme', ...THEMES]},
+  /* FM-1_981. xor: stored as value XOR xor, so a word from 979 / 980 (no bits) reads as the default */
+  {key: 'autosave', bits: [16, 2], xor: 1, name: 'Autosave', choices: ['Off', 'Every minute at most', 'Every 5 minutes at most', 'Every 15 minutes at most'], def: 1}];
 export const FEATURE_DEFAULTS = Object.fromEntries(FEATURES.map(f => [f.key, f.def || 0]));
 export function unpackFeatures(v) {
   if (v >>> 24 !== 0x46) throw Error('Not a feature switches word from this firmware.');
-  const o = Object.fromEntries(FEATURES.map(f => [f.key, (v >>> f.bits[0]) & ((1 << f.bits[1]) - 1)]));
+  const o = Object.fromEntries(FEATURES.map(f => [f.key, ((v >>> f.bits[0]) & ((1 << f.bits[1]) - 1)) ^ (f.xor || 0)]));
   const used = FEATURES.reduce((m, f) => m | ((1 << f.bits[1]) - 1) << f.bits[0], 0);
   if ((v & 0xFFFFFF & ~used) || FEATURES.some(f => o[f.key] >= f.choices.length)) throw Error('Unknown feature switches. Update the webpage.');
   return o;
 }
 export function packFeatures(o) {
   let v = 0x46000000;
-  for (const f of FEATURES) v |= (Math.min(o[f.key] | 0, f.choices.length - 1) & ((1 << f.bits[1]) - 1)) << f.bits[0];
+  for (const f of FEATURES) v |= ((Math.min(o[f.key] ?? f.def ?? 0, f.choices.length - 1) ^ (f.xor || 0)) & ((1 << f.bits[1]) - 1)) << f.bits[0];
   return v >>> 0;
 }

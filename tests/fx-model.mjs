@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 import assert from 'node:assert/strict';
 import {PAGES, PAGES_979, PAGES_978, LEGACY_PAGES, pagesForFx, firmwareNumber, unpackFx, packFx, paramGet, paramSet, channelSummary,
-        FEATURES, FEATURE_DEFAULTS, packFeatures, unpackFeatures, MIDI_CC_MAP, THEMES} from '../lsdj/fx-model.js';
+        FEATURES, FEATURE_DEFAULTS, packFeatures, unpackFeatures, MIDI_CC_MAP, THEMES, isMasterPage} from '../lsdj/fx-model.js';
 
 const setup = (layout, page, n = 17) => {
   const b = Array(4 * n).fill(0);
@@ -68,7 +68,18 @@ for (const f of FEATURES) for (let v = 0; v < f.choices.length; v++) {
 }
 assert.equal(FEATURES.find(f => f.key === 'fxTheme').choices.length, THEMES.length + 1);
 assert.throws(() => unpackFeatures(0x4D0001CE), /Not a feature/);
-assert.throws(() => unpackFeatures(0x460001CE | 1 << 16), /Unknown/);
+assert.throws(() => unpackFeatures(0x460001CE | 1 << 18), /Unknown/);
+/* FM-1_981 AUTOSAVE: default every minute, also for a 979 / 980 word; Off sets bit 16 (stored XOR 1) */
+assert.equal(FEATURE_DEFAULTS.autosave, 1);
+assert.equal(unpackFeatures(0x460001CE).autosave, 1);
+assert.equal(packFeatures({...FEATURE_DEFAULTS, autosave: 0}), (0x460001CE | 1 << 16) >>> 0);
+assert.equal(unpackFeatures(0x460001CE | 1 << 16).autosave, 0);
+assert.equal(unpackFeatures(0x460001CE | 3 << 16).autosave, 2);
+/* FM-1_981: ECHO and ECHO MOD with MASTER (the Master box); before, MASTER alone */
+{ const v3 = {v3: true};
+  assert.deepEqual([0, 1, 2, 3, 4, 5, 6].filter(i => isMasterPage(v3, i)), [0, 5, 6]);
+  assert.deepEqual([0, 1, 2, 3, 4, 5, 6].filter(i => isMasterPage(v3, i, 980)), [0]);
+  assert.deepEqual([0, 1, 2, 3, 4, 5, 6].filter(i => isMasterPage({v3: false}, i)), []); }
 assert.throws(() => unpackFeatures(0x460001CE | (THEMES.length + 1) << 9), /Unknown/);
 /* The CC map: every CC the firmware takes (firmware/lsdj_midi.h lsdj_midi_cc_num), once */
 assert.deepEqual(MIDI_CC_MAP.map(m => m[0]).sort((a, b) => a - b),

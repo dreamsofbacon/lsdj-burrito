@@ -142,8 +142,21 @@ export async function runFxUiTests() {
       assert(twins.length === 2, `echo mix on MASTER and ECHO: ${twins.length}`);
       twins[0].value = '77'; twins[0].oninput();
       assert(twins[1].value === '77', `the ECHO page's mix follows: ${twins[1].value}`); }
+    assert([...document.querySelectorAll('#fx-master-pages .fx-card')].map(c => c.dataset.page).join() === '0', '980: only MASTER in Master');
+    assert(!$('settings-form').querySelector('select[data-key="autosave"]'), '980: no Autosave');
+    /* FM-1_981: ECHO and ECHO MOD in the Master box; Autosave first in Settings (every minute by default) */
+    firmware = 'FM-1_981';
+    await $('connect-btn').onclick();
+    assert([...document.querySelectorAll('#fx-master-pages .fx-card')].map(c => c.dataset.page).join() === '0,5,6', '981: MASTER, ECHO, ECHO MOD in Master');
+    assert(![...document.querySelectorAll('#fx-pages .fx-card')].some(c => c.dataset.page === '5' || c.dataset.page === '6'), '981: no echo with the channel effects');
+    { const first = $('settings-form').querySelector('select');
+      assert(first.dataset.key === 'autosave' && first.value === '1', `981: Autosave first, every minute: ${first.dataset.key} ${first.value}`);
+      assert($('feat-form').querySelectorAll('select').length === 9, 'FX and lights: still nine switches');
+      const sets = featSets; first.value = '0'; first.onchange(); $('settings-apply').onclick();
+      await until(() => featSets > sets, 'Autosave sent');
+      assert((featWord >>> 16 & 3) === 1, `Autosave off: stored 1 (XOR 1): ${featWord.toString(16)}`); }
     firmware = 'FM-1_975';
-    return 'PASS FX browser: matching pages (975-978, 979 and 980 echo on MASTER), one master switch across four selected channels, LIVE state, 17/11-word backups, old firmware gating, FX and lights, FX colours, wiring, muted notice, battery';
+    return 'PASS FX browser: matching pages (975-978, 979, 980 echo on MASTER, 981 echo in Master), autosave, one master switch across four selected channels, LIVE state, 17/11-word backups, old firmware gating, FX and lights, FX colours, wiring, muted notice, battery';
   } finally {
     if (descriptor) Object.defineProperty(navigator, 'requestMIDIAccess', descriptor);
     else delete navigator.requestMIDIAccess;
