@@ -30,15 +30,16 @@ function updatePlan() {
   try {
     const p = planRom(rom, selected(), metadata.cartridge_capacity);
     currentPlan = p;
-    const excess = Math.max(0, Math.ceil((p.needed - p.capacity) / BANK));
-    const cannotFit = excess > p.kept;
+    /* FM-1_991: a kit takes only the part of its bank it uses, so what to free is said in KiB */
+    const excess = Math.max(0, Math.ceil((p.needed - p.capacity) / 1024));
+    const cannotFit = !p.fits && !planRom(rom, [], metadata.cartridge_capacity).fits;
     $('rom-budget').textContent = `Uses ${Math.ceil(p.needed / 1024)} of ${Math.floor(p.capacity / 1024)} KiB ` +
       `(${p.codeBanks} program banks + ${p.kept} kit banks). ` +
       (p.omitted.length ? `Omitted banks: ${p.omitted.map(k => k.bank.toString(16).toUpperCase().padStart(2, '0')).join(', ')}: songs using these kits lose those samples. ` +
         (fromDevice ? 'Unticked kits are removed from the FM-1; only your original ROM file can bring them back. ' : '') : '') +
       (p.fits ? 'Fits.' :
         cannotFit ? 'The required program/data alone exceeds this template. Removing kits cannot make this ROM fit. Choose a smaller compatible ROM.' :
-        `Deselect at least ${excess} kit ${excess === 1 ? 'bank' : 'banks'} to fit. No kits are removed automatically.`);
+        `Deselect kits to free at least ${excess} KiB. No kits are removed automatically.`);
     $('rom-budget').className = p.fits ? 'hint' : 'warn';
   } catch (err) { say(err.message, 'bad'); }
   updateControls();

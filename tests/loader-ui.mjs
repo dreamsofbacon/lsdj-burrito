@@ -133,7 +133,7 @@ export async function runLoaderUiTests() {
     text('rom-budget', /Removing kits cannot make this ROM fit/);
     assert($('rom-build').disabled, 'Oversized required data cannot be prepared');
     await choose('rom', synthetic(28), 'kit-budget.gb');
-    text('rom-budget', /Deselect at least 1 kit bank/);
+    text('rom-budget', /Deselect kits to free at least \d+ KiB/);
     const kits = [...$('rom-kits').querySelectorAll('input')];
     assert(kits.length === 3 && kits.every(k => k.checked), 'All kits selected initially');
     kits[0].checked = false;
@@ -148,7 +148,7 @@ export async function runLoaderUiTests() {
     assert($('rom').disabled && $('fw-file').disabled, 'Preparation locks conflicting file inputs');
     assert($('emu-selected').disabled, 'Preparation blocks preview of the previous installer selection');
     await preparing;
-    text('rom-info', /Prepared FM-1_990/);
+    text('rom-info', /Prepared FM-1_991/);
     text('rom-info', /Cursor-following FX unavailable: FX targets ALL channels/);
     text('rom-next', /Step 4/);
     assert(!$('rom-download').hidden && !$('fw-install').disabled, 'Prepared package available for download and explicit install');
@@ -200,7 +200,7 @@ export async function runUnsupportedMidiUiTests() {
     $('rom-experimental').checked = true;
     $('rom-experimental').onchange();
     await $('rom-build').onclick();
-    text('rom-info', /Prepared FM-1_990/);
+    text('rom-info', /Prepared FM-1_991/);
     assert(!$('rom-download').hidden && $('fw-install').disabled && !$('emu-selected').disabled,
       'Unsupported USB still allows preparing, downloading and selecting local previews');
     return 'PASS unsupported Web MIDI: no device access/confirmation, USB disabled, local preparation/download/preview preserved';
@@ -212,7 +212,7 @@ export async function runUnsupportedMidiUiTests() {
 export async function runDeviceUpdateUiTests() {
   assert(location.hostname === 'localhost' || location.hostname === '127.0.0.1', 'Run only on a local preview');
   const descriptor = Object.getOwnPropertyDescriptor(navigator, 'requestMIDIAccess');
-  const {slot} = await buildSlot(synthetic(2, [40, 41]), [40, 41], 256 + 4 * BANK);
+  const {slot} = await buildSlot(synthetic(2, [40, 41]), [40, 41], 256 + 4 * (8 + BANK));   /* four full banks, slot v2 */
   const input = {name: 'FM-1 test'}, ops = [], fx = Array(68).fill(0);
   fx[42] = 0xf2;
   let mode = 'old', held, started;
@@ -283,16 +283,16 @@ export async function runDeviceUpdateUiTests() {
     noFirmware();
     $('rom-experimental').checked = true; $('rom-experimental').onchange();
     await $('rom-build').onclick();
-    text('rom-info', /Prepared FM-1_990/);
+    text('rom-info', /Prepared FM-1_991/);
     assert(!$('rom-download').hidden, 'Device-based package available for explicit download/install');
 
     globalThis.fetch = async (path, options) => {
       const response = await originalFetch(path, options);
-      if (String(path).endsWith('template.json')) return Response.json({...await response.json(), cartridge_capacity: 256 + 3 * BANK});
+      if (String(path).endsWith('template.json')) return Response.json({...await response.json(), cartridge_capacity: 256 + 3 * (8 + BANK)});   /* three full banks in a version 2 slot */
       return response;
     };
     await $('rom-device').onclick();
-    text('rom-budget', /Deselect at least 1 kit bank/);
+    text('rom-budget', /Deselect kits to free at least \d+ KiB/);
     assert(!$('rom-kits').disabled && $('rom-build').disabled, 'Smaller update waits for the user to untick a kit');
     assert($('rom-kits').querySelectorAll('input:checked').length === 2, 'No installed kit is unticked automatically');
     $('rom-kits').querySelector('input:checked').checked = false; $('rom-kits').onchange();

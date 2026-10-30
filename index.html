@@ -469,8 +469,9 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <p id="wiz-backup-status" role="status" hidden></p></div>
 <label class="check"><input id="rom-experimental" type="checkbox" disabled><span>I understand this firmware is experimental and may not start or sound right, and I have backed up my songs.</span></label>
 <div class="row"><button id="rom-build" type="button" class="primary" aria-describedby="rom-next" disabled>Prepare firmware</button><span class="hint">Builds the file on this computer. Nothing is installed yet.</span></div>
-<details><summary>What's in this version (FM-1_990)</summary>
-<p>New in FM-1_990: the FM-1 sends each new picture of its screen to this page by itself, so the screen here keeps up with the FM-1 at SCREEN RATE 30 (before, the page asked for each picture and waited, and skipped some). USB only.</p>
+<details><summary>What's in this version (FM-1_991)</summary>
+<p>New in FM-1_991: more sample kits fit. A kit often uses only part of its 16 KiB bank; the rest is empty filler, which is no longer stored, and the FM-1 reads it back as before. A stock LSDj 9.3.9 now fits with all 21 kits (17 before), with room to spare for your own. Songs and save space are unchanged.</p>
+<p>From FM-1_990: the FM-1 sends each new picture of its screen to this page by itself, so the screen here keeps up with the FM-1 at SCREEN RATE 30 (before, the page asked for each picture and waited, and skipped some). USB only.</p>
 <p>From FM-1_989: SCREEN RATE, on the FM-1 under SETTINGS / DISPLAY (under CPU METER) and here in Settings: the FM-1 draws its screen 10, 15, 20 or 30 times a second (10 before), and the screen on this page follows. More pictures take CPU time from the sound: turn on the CPU meter and go back a step if U shows underruns or the sound clicks.</p>
 <p>Also new on this page: <b>My FM-1 › Perform</b> puts the live controls on one 16:9 screen without scrolling: the FM-1's screen, the wiring, Master with the mutes, and the channel effects with PU1, PU2, WAV and NOI side by side. ⇱ opens a panel in its own window (a second monitor or a projector); closing that window puts it back. Full screen hides the rest.</p>
 <p>From FM-1_988: the FM-1's screen on this page keeps up with the FM-1's own screen. The FM-1 sends the changed rows back to back instead of one at a time, and the line under the screen shows how many pictures a second the FM-1 draws and how many the page shows.</p>
@@ -550,7 +551,7 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 </section>
 </div>
 
-<p class="hint foot">The firmware is free software (GPL-3.0), based on <a href="https://github.com/ChanceTheMaker/gamedude-fm1-smk" target="_blank" rel="noopener">GameDude</a>. Source: <a href="https://github.com/dreamsofbacon/lsdj-burrito-src" target="_blank" rel="noopener">lsdj-burrito-src</a>; <a href="lsdj/fm1-lsdj-template-source.zip" download>matching FM-1_990 template source</a>. Not affiliated with M-VAVE or <a href="https://www.littlesounddj.com/" target="_blank" rel="noopener">LSDj's author, Johan Kotlinski</a>.</p>
+<p class="hint foot">The firmware is free software (GPL-3.0), based on <a href="https://github.com/ChanceTheMaker/gamedude-fm1-smk" target="_blank" rel="noopener">GameDude</a>. Source: <a href="https://github.com/dreamsofbacon/lsdj-burrito-src" target="_blank" rel="noopener">lsdj-burrito-src</a>; <a href="lsdj/fm1-lsdj-template-source.zip" download>matching FM-1_991 template source</a>. Not affiliated with M-VAVE or <a href="https://www.littlesounddj.com/" target="_blank" rel="noopener">LSDj's author, Johan Kotlinski</a>.</p>
 </main>
 <script type="module" src="lsdj/ui.js"></script>
 <script type="module" src="lsdj/lsdj-app.js"></script>

@@ -31,13 +31,15 @@ input.fill(0);
 assert.deepEqual(checked.bytes, template, 'emulator receives an independent firmware snapshot');
 
 for (const path of process.argv.slice(2)) {
-  let bytes = new Uint8Array(readFileSync(path));
+  let bytes = new Uint8Array(readFileSync(path)), kitsKept = "";
   if (/\.gb$/i.test(path)) {
     const meta = JSON.parse(readFileSync(new URL('../lsdj/template.json', import.meta.url)));
     const kits = listKits(bytes);
-    const required = planRom(bytes, [], meta.cartridge_capacity).codeBanks;
-    // Explicit test fixture selection, not automatic kit removal in the user interface.
-    const keep = kits.slice(0, Math.floor((meta.cartridge_capacity - SLOT_HEADER) / BANK) - required).map(k => k.bank);
+    // Explicit test fixture selection, not automatic kit removal in the user interface:
+    // the first kits that fit (FM-1_991: by their real length; a stock LSDj 9.3.9 fits all 21).
+    const keep = [];
+    for (const k of kits) if (planRom(bytes, [...keep, k.bank], meta.cartridge_capacity).fits) keep.push(k.bank); else break;
+    kitsKept = `${keep.length} of ${kits.length} kits`;
     bytes = (await prepareLsdjFirmware(bytes, keep, template, meta, {experimental: true})).bytes;
   }
   const firmware = firmwareForEmulator(bytes);
@@ -65,7 +67,7 @@ for (const path of process.argv.slice(2)) {
   for (let n = 0; n < 4410; n += 128) x.fm1_render(128, 50_000_000);
   x.fm1_key(KEY_IDS.ArrowRight, 0);
   assert.equal(x.fm1_halted(), 0);
-  console.log(`PASS actual firmware ${firmware.product}: ${frames} audio frames, ${lit} LCD pixels, input accepted, CPU not halted (not audible/hardware validation)`);
+  console.log(`PASS actual firmware ${firmware.product}: ${frames} audio frames, ${lit} LCD pixels, input accepted, CPU not halted${kitsKept ? ", " + kitsKept : ""} (not audible/hardware validation)`);
   console.log(`Runtime: ${seconds}s, peak audio ${peak.toFixed(4)}, ${jit.regions} JIT regions, ${(jit.bytes / 1048576).toFixed(1)} MiB JIT modules, ${(x.memory.buffer.byteLength / 1048576).toFixed(1)} MiB WASM memory`);
 }
 console.log('PASS emulator: pinned assets, runtime integrity/errors, package rejection and immutable firmware snapshot');

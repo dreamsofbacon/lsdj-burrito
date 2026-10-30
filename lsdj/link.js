@@ -114,7 +114,7 @@ export class Link {
     if (r.status === 1) throw new LinkError('This firmware cannot read back its cartridge. Install FM-1_974 or newer once using your original LSDj ROM, then reconnect. Nothing was prepared.');
     if (r.data.length !== 12) throw new LinkError('Invalid cartridge information from the FM-1.');
     const size = rd32(r.data, 0);
-    if (size < 256 + 16384 || size > 256 + 128 * 16384 || (size - 256) % 16384)
+    if (size < 256 + 8 + 1 || size > 256 + 128 * (8 + 16384))   // slot v1: whole banks; v2 (FM-1_991): trimmed, any size
       throw new LinkError('Invalid installed cartridge size.');
     return {size, headerCrc: rd32(r.data, 4), dataCrc: rd32(r.data, 8)};
   }

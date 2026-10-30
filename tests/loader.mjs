@@ -3,7 +3,7 @@ import {readFileSync, mkdtempSync, writeFileSync, unlinkSync, rmdirSync} from 'n
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {spawnSync} from 'node:child_process';
-import {BANK, SLOT_HEADER, crc32, identifyRom, programHash, listKits, sparsePack, planRom, buildSlot, parseSlot} from '../lsdj/lsdj-rom.js';
+import {BANK, SLOT_HEADER, crc32, identifyRom, programHash, listKits, sparsePack, planRom, buildSlot, parseSlot, romFromSlot} from '../lsdj/lsdj-rom.js';
 import {prepareLsdjFirmware} from '../lsdj/lsdj-firmware.js';
 import {checkPackage} from '../lsdj/install.js';
 import {Package, crc16} from '../vendor/fm1pkg.js';
@@ -27,7 +27,7 @@ function synthetic() {
   header(rom);
   return rom;
 }
-const rom = synthetic(), original = rom.slice(), cap = SLOT_HEADER + 4 * BANK;
+const rom = synthetic(), original = rom.slice(), cap = SLOT_HEADER + 4 * (8 + BANK);   /* slot v2: a table entry per bank */
 assert.deepEqual(listKits(rom).map(k => k.bank), [8, 26, 40]);
 assert.equal(planRom(rom, [8, 26, 40], cap).fits, false);
 const plan = planRom(rom, [26, 40], cap);
@@ -63,7 +63,29 @@ assert.equal(parseSlot(badProfile, cap).error, 'layout');
   p2[148] = 3; seal(); assert.equal(parseSlot(p2, cap).error, 'layout');
 }
 for (const size of [0, 8, 255, slot.length - 1]) assert.ok(parseSlot(slot.subarray(0, size), cap).error);
-const corrupt = slot.slice(); corrupt[300] ^= 1; assert.equal(parseSlot(corrupt, cap).error, 'data');
+const corrupt = slot.slice(); corrupt[1000] ^= 1; assert.equal(parseSlot(corrupt, cap).error, 'data');
+{ /* slot v2 (FM-1_991): banks stored without their 0xFF filler; read back byte for byte */
+  const half = rom.slice(); half.fill(255, 26 * BANK + 5000, 27 * BANK); half.fill(255, 40 * BANK + 9, 41 * BANK);
+  const hp = planRom(half, [8, 26, 40], cap);
+  assert.equal(hp.fits, true, 'three kits fit once two of them are trimmed');
+  assert.equal(hp.needed, SLOT_HEADER + 5 * 8 + 3 * BANK + 5000 + 9);
+  const hs = (await buildSlot(half, [8, 26, 40], cap)).slot, hparsed = parseSlot(hs, cap);
+  assert.equal(hs.length, hp.needed); assert.equal(hparsed.version, 2);
+  assert.deepEqual(hparsed.lengths, [BANK, BANK, BANK, 5000, 9]);
+  const back = romFromSlot(hs);
+  assert.deepEqual(back.subarray(BANK), half.subarray(BANK), 'every bank reads back exactly (bank 0: its checksum bytes are recomputed)');
+  assert.deepEqual(back.subarray(0, 0x14e), half.subarray(0, 0x14e));
+  /* a version 1 slot (FM-1_990 and older) still reads back */
+  const v1 = new Uint8Array(SLOT_HEADER + 5 * BANK); v1.set(hs.subarray(0, SLOT_HEADER)); const dv = new DataView(v1.buffer);
+  dv.setUint16(8, 1, true); dv.setUint32(153, 0, true);
+  hparsed.lengths.forEach((n, i) => { v1.fill(255, SLOT_HEADER + i * BANK, SLOT_HEADER + (i + 1) * BANK); v1.set(hs.subarray(hparsed.dataOff + hparsed.starts[i], hparsed.dataOff + hparsed.starts[i] + n), SLOT_HEADER + i * BANK); });
+  dv.setUint32(16, crc32(v1.subarray(SLOT_HEADER)), true); dv.setUint32(252, crc32(v1.subarray(0, 252)), true);
+  assert.equal(parseSlot(v1, v1.length).version, 1);
+  assert.deepEqual(romFromSlot(v1), back, 'version 1 and 2 read back the same ROM');
+  /* a broken table */
+  const gap = hs.slice(), gv = new DataView(gap.buffer); gv.setUint32(SLOT_HEADER + 8 * 4, 1 + gv.getUint32(SLOT_HEADER + 8 * 4, true), true);
+  gv.setUint32(252, crc32(gap.subarray(0, 252)), true); assert.equal(parseSlot(gap, cap).error, 'layout');
+}
 const duplicate = slot.slice(); duplicate[20 + 40] = 2;
 new DataView(duplicate.buffer).setUint32(252, crc32(duplicate.subarray(0, 252)), true);
 assert.equal(parseSlot(duplicate, cap).error, 'layout');
@@ -104,7 +126,7 @@ const template = new Uint8Array(readFileSync(new URL('../lsdj/fm1-lsdj-template.
 const templateBefore = template.slice();
 await assert.rejects(prepareLsdjFirmware(rom, [26, 40], template, metadata), /consent/);
 const result = await prepareLsdjFirmware(rom, [26, 40], template, metadata, {experimental: true});
-assert.equal(checkPackage(result.bytes).product, 'FM-1_990');
+assert.equal(checkPackage(result.bytes).product, 'FM-1_991');
 await assert.rejects(prepareLsdjFirmware(rom, [], template, {...metadata, product: 'FM-1_972'}, {experimental: true}), /Unsupported/);
 assert.deepEqual(template, templateBefore);
 const p = new Package(result.bytes);
@@ -125,8 +147,10 @@ for (const file of process.argv.slice(2)) {
   if (info.tested) assert.equal(info.sameProgram, true, 'catalogue program fingerprint matches known full ROM');
   const full = planRom(local, kits.map(k => k.bank), metadata.cartridge_capacity);
   // Test explicit first-kit selection only; the UI never makes this choice for the user.
-  const keep = kits.slice(0, Math.max(0, Math.floor((metadata.cartridge_capacity - SLOT_HEADER) / BANK) - full.codeBanks)).map(k => k.bank);
-  if (full.codeBanks * BANK + SLOT_HEADER > metadata.cartridge_capacity) {
+  /* the first kits that fit (slot v2: by their real length, FM-1_991) */
+  const keep = [];
+  for (const k of kits) if (planRom(local, [...keep, k.bank], metadata.cartridge_capacity).fits) keep.push(k.bank); else break;
+  if (!planRom(local, [], metadata.cartridge_capacity).fits) {
     await assert.rejects(prepareLsdjFirmware(local, [], template, metadata, {experimental: true}), /Deselect kits/);
     console.log('PASS oversized program refused:', (await identifyRom(local, [])).title);
     continue;

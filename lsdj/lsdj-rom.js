@@ -143,37 +143,51 @@ export function sparsePack(rom, keepKits) {
   }
   total = (total - storage[0x14e] - storage[0x14f]) & 0xffff;
   storage[0x14e] = total >> 8; storage[0x14f] = total & 255;
-  return {storage, bankMap: map, kept};
+  // Slot version 2 (FM-1_991): each stored bank without its trailing 0xFF filler (reads
+  // 0xFF anyway), so a kit that fills half its bank takes half the room.
+  const lengths = Array.from({length: stored.length}, (_, i) => {
+    let n = BANK;
+    while (n > 1 && storage[i * BANK + n - 1] === 0xff) n--;
+    return n;
+  });
+  return {storage, bankMap: map, kept, lengths};
 }
 
-export const slotBytes = storedBanks => SLOT_HEADER + storedBanks * BANK;
+// The slot's size: version 2's header, a table entry per stored bank and the trimmed banks.
+export const slotBytes = lengths => SLOT_HEADER + 8 * lengths.length + lengths.reduce((n, l) => n + l, 0);
+const checkCapacity = capacity => {
+  if (!Number.isInteger(capacity) || capacity < SLOT_HEADER + BANK) throw Error('Invalid firmware slot capacity.');
+};
 
 export function planRom(rom, keepKits, capacity) {
-  if (!Number.isInteger(capacity) || capacity < SLOT_HEADER + BANK || (capacity - SLOT_HEADER) % BANK)
-    throw Error('Invalid firmware slot capacity.');
+  checkCapacity(capacity);
   const packed = sparsePack(rom, keepKits);
-  const stored = packed.storage.length / BANK;
+  const stored = packed.lengths.length, needed = slotBytes(packed.lengths);
   const omitted = listKits(rom).filter(k => packed.bankMap[k.bank] === 0xff);
-  return {stored, kept: packed.kept, codeBanks: stored - packed.kept, omitted,
-    needed: slotBytes(stored), capacity, fits: slotBytes(stored) <= capacity};
+  return {stored, kept: packed.kept, codeBanks: stored - packed.kept, omitted, needed, capacity, fits: needed <= capacity};
 }
 
-// Build the window contents read by lsdj_slot_parse().
+// Build the window contents read by lsdj_slot_parse() (version 2).
 export async function buildSlot(rom, keepKits, capacity) {
-  if (!Number.isInteger(capacity) || capacity < SLOT_HEADER + BANK || (capacity - SLOT_HEADER) % BANK)
-    throw Error('Invalid firmware slot capacity.');
-  const {storage, bankMap, kept} = sparsePack(rom, keepKits), stored = storage.length / BANK;
-  if (slotBytes(stored) > capacity)
-    throw Error(`Too many kits: needs ${slotBytes(stored)} bytes, the firmware slot holds ${capacity}.`);
-  const slot = new Uint8Array(slotBytes(stored)), v = new DataView(slot.buffer);
+  checkCapacity(capacity);
+  const {storage, bankMap, kept, lengths} = sparsePack(rom, keepKits), stored = lengths.length;
+  const size = slotBytes(lengths), table = SLOT_HEADER, data = SLOT_HEADER + 8 * stored;
+  if (size > capacity)
+    throw Error(`Too many kits: needs ${size} bytes, the firmware slot holds ${capacity}.`);
+  const slot = new Uint8Array(size), v = new DataView(slot.buffer);
   slot.set([..."LSDJSLOT"].map(c => c.charCodeAt(0)));
-  v.setUint16(8, 1, true); v.setUint16(10, bankMap.length, true); v.setUint16(12, stored, true); v.setUint16(14, kept, true);
+  v.setUint16(8, 2, true); v.setUint16(10, bankMap.length, true); v.setUint16(12, stored, true); v.setUint16(14, kept, true);
   slot.fill(0xff, 20, 20 + SLOT_MAX_BANKS); slot.set(bankMap, 20);
   const profile = await findProfile(rom);
   slot[148] = profile?.profile ?? 0;
   if (profile?.profile === 2) { v.setUint16(149, profile.cursor, true); v.setUint16(151, profile.tempo, true); }
-  slot.set(storage, SLOT_HEADER);
-  v.setUint32(16, crc32(storage), true);
+  let at = 0;
+  lengths.forEach((n, i) => {
+    v.setUint32(table + 8 * i, at, true); v.setUint32(table + 8 * i + 4, n, true);
+    slot.set(storage.subarray(i * BANK, i * BANK + n), data + at); at += n;
+  });
+  v.setUint32(153, at, true);
+  v.setUint32(16, crc32(slot.subarray(SLOT_HEADER)), true);
   v.setUint32(252, crc32(slot.subarray(0, 252)), true);
   return {slot, stored, kept};
 }
@@ -183,33 +197,55 @@ export function parseSlot(w, capacity) {
   if (!(w instanceof Uint8Array) || !Number.isInteger(capacity) || capacity < SLOT_HEADER || w.length < SLOT_HEADER)
     return {error: 'layout'};
   const v = new DataView(w.buffer, w.byteOffset, w.byteLength);
-  if (capacity < SLOT_HEADER) return {error: 'layout'};
   if (w.subarray(0, 8).every(b => b === 0xff)) return {error: 'empty'};
-  if (String.fromCharCode(...w.subarray(0, 8)) !== 'LSDJSLOT' || v.getUint16(8, true) !== 1 ||
+  const version = v.getUint16(8, true);
+  if (String.fromCharCode(...w.subarray(0, 8)) !== 'LSDJSLOT' || (version !== 1 && version !== 2) ||
       v.getUint32(252, true) !== crc32(w.subarray(0, 252))) return {error: 'header'};
   const cursor = v.getUint16(149, true), tempo = v.getUint16(151, true), wram = a => a >= 0xc000 && a <= 0xdfff;
   if (w[148] > 2 || (w[148] === 2 ? !wram(cursor) || (tempo && !wram(tempo)) : cursor || tempo)) return {error: 'layout'};
   const logical = v.getUint16(10, true), stored = v.getUint16(12, true), kits = v.getUint16(14, true);
-  if (logical < 2 || logical > SLOT_MAX_BANKS || (logical & (logical - 1)) || !stored || kits > stored ||
-      stored > logical || stored > Math.floor((capacity - SLOT_HEADER) / BANK) || w.length < slotBytes(stored))
+  if (logical < 2 || logical > SLOT_MAX_BANKS || (logical & (logical - 1)) || !stored || kits > stored || stored > logical)
     return {error: 'layout'};
+  /* where each stored bank starts (from the data) and how much of it is stored */
+  let starts, lengths, dataOff;
+  if (version === 1) {
+    if (v.getUint32(153, true)) return {error: 'layout'};
+    starts = Array.from({length: stored}, (_, i) => i * BANK); lengths = Array(stored).fill(BANK); dataOff = SLOT_HEADER;
+  } else {
+    const data = v.getUint32(153, true);
+    dataOff = SLOT_HEADER + 8 * stored;
+    if (dataOff > capacity || dataOff > w.length) return {error: 'layout'};
+    starts = []; lengths = [];
+    let at = 0;
+    for (let i = 0; i < stored; i++) {
+      const st = v.getUint32(SLOT_HEADER + 8 * i, true), n = v.getUint32(SLOT_HEADER + 8 * i + 4, true);
+      if (st !== at || n < 1 || n > BANK) return {error: 'layout'};
+      starts.push(st); lengths.push(n); at += n;
+    }
+    if (at !== data) return {error: 'layout'};
+  }
+  const total = dataOff + lengths.reduce((n, l) => n + l, 0);
+  if (total > capacity || w.length < total) return {error: 'layout'};
   const map = Array.from(w.subarray(20, 20 + SLOT_MAX_BANKS));
   if (map.some((m, b) => b >= logical ? m !== 0xff : m !== 0xff && m >= stored) || map[0] !== 0) return {error: 'layout'};
   const present = map.filter(m => m !== 0xff);
   if (present.length !== stored || present.some((m, i) => m !== i)) return {error: 'layout'};
-  if (v.getUint32(16, true) !== crc32(w.subarray(SLOT_HEADER, SLOT_HEADER + stored * BANK))) return {error: 'data'};
-  return {logical, stored, kits, cursorProfile: w[148], cursor: w[148] === 2 ? cursor : w[148] ? 0xc41d : 0,
-    tempo: w[148] === 2 ? tempo : 0, map: map.slice(0, logical)};
+  if (v.getUint32(16, true) !== crc32(w.subarray(SLOT_HEADER, total))) return {error: 'data'};
+  return {version, logical, stored, kits, cursorProfile: w[148], cursor: w[148] === 2 ? cursor : w[148] ? 0xc41d : 0,
+    tempo: w[148] === 2 ? tempo : 0, map: map.slice(0, logical), dataOff, starts, lengths, total};
 }
 
-// Recover exactly what the emulator can read, not sample banks previously omitted.
+// Recover exactly what the emulator can read, not sample banks previously omitted
+// (slot version 1 or 2: a bank's bytes past its stored length read 0xFF).
 export function romFromSlot(slot) {
   const parsed = parseSlot(slot, slot.length);
-  if (parsed.error || slot.length !== slotBytes(parsed.stored))
+  if (parsed.error || slot.length !== parsed.total)
     throw Error('Installed cartridge failed slot integrity/layout checks. Nothing was prepared.');
   const rom = new Uint8Array(parsed.logical * BANK).fill(0xff);
   parsed.map.forEach((stored, logical) => {
-    if (stored !== 0xff) rom.set(slot.subarray(SLOT_HEADER + stored * BANK, SLOT_HEADER + (stored + 1) * BANK), logical * BANK);
+    if (stored === 0xff) return;
+    const from = parsed.dataOff + parsed.starts[stored];
+    rom.set(slot.subarray(from, from + parsed.lengths[stored]), logical * BANK);
   });
   validateRom(rom);
   return rom;
