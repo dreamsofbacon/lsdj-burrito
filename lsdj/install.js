@@ -22,13 +22,16 @@ export function checkPackage(bytes) {
   let p;
   try { p = new Package(bytes); } catch (e) { throw new InstallError(`This is not a valid FM-1 firmware file (${e.message}). Nothing was installed.`); }
   const product = p.product;
-  if (!/^FM-1_\d{3}$/.test(product)) throw new InstallError(`This firmware is for "${product}", not the FM-1. Nothing was installed.`);
+  /* FM-1_ and 3 to 15 digits (a package name holds 20 characters): FM-1_015, FM-1_991, FM-1_5370992 */
+  if (!/^FM-1_\d{3,15}$/.test(product)) throw new InstallError(`This firmware is for "${product}", not the FM-1. Nothing was installed.`);
   if (p.appBase !== 0x4000 || p.appOff !== 0x4120 || p.flashSize !== 0x93000)
     throw new InstallError('This FM-1 firmware has an unknown layout. Nothing was installed.');
   if (p.entries.filter(e => e.type === 100 && e.name === 'ota.bin').length !== 1)
     throw new InstallError('The firmware must include exactly one checked update loader.');
-  const version = +product.slice(5);
-  return {product, version, burrito: version >= 955 && version <= 999, image: logicalImage(bytes)};
+  /* LSDJ Burrito: FM-1_955..FM-1_991, then FM-1_537 + a 4-digit version (FM-1_5370992 = version 992) */
+  const ours = /^FM-1_537(\d{4})$/.exec(product), number = +product.slice(5);
+  const version = ours ? +ours[1] : number;
+  return {product, version, burrito: !!ours || (number >= 955 && number <= 999), image: logicalImage(bytes)};
 }
 
 /* Install (or finish an interrupted install of) pkg. onStep(phase, detail): 'found', 'stage', 'loader',

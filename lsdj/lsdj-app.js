@@ -174,7 +174,7 @@ $('rom-build').onclick = async () => {
     downloadUrl = URL.createObjectURL(new Blob([result.bytes], {type: 'application/octet-stream'}));
     $('rom-download').href = downloadUrl; $('rom-download').download = name; $('rom-download').hidden = false;
     $('rom-actions').hidden = false;
-    say(`Prepared ${result.product}; checks passed. ` +
+    say(`Prepared ${result.product}${metadata?.version ? ` (LSDJ Burrito ${metadata.version})` : ''}; checks passed. ` +
       (result.info.cursorProfile ? '' : 'Cursor-following FX unavailable: FX targets ALL channels. ') +
       `The file contains your LSDj: keep it private. SHA-256 ${result.sha256}`, 'ok');
   } catch (err) { say(err.message, 'bad'); }
