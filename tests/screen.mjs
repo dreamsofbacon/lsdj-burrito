@@ -4,7 +4,7 @@
 // FM-1_985's SCREEN_SYNC: packed rows sent by the FM-1, lost and late rows, fallback.
 // (The firmware's side: tests/lsdj_link.c; both together: harness/link_page_test.mjs.)
 import assert from 'node:assert/strict';
-import {decodeRow, decodePixels, changedBands, rgb, ScreenMirror, W, H, BANDS} from '../lsdj/screen.js';
+import {decodeRow, decodePixels, decodeFrame, changedBands, rgb, ScreenMirror, W, H, BANDS} from '../lsdj/screen.js';
 
 /* a row as the firmware sends it (firmware/lsdj_link.h SCREEN_ROW); null: more than 16 colours */
 function encodeRow(px, y) {
@@ -23,6 +23,7 @@ function fakeLink(px, {supported = true} = {}) {
     async screenRow(y) { l.rows++; return encodeRow(l.px, y); }};
   return l;
 }
+const ROW_GAP = 120;   // lsdj/screen.js ROW_GAP_MS
 const canvas = () => ({getContext: () => ({createImageData: (w, h) => ({data: new Uint8ClampedArray(4 * w * h)}), putImageData() { this.puts = (this.puts || 0) + 1; }})});
 // an LSDj-like picture: 4 shades in 8x8 cells, plus a few panel colours
 const SHADES = [0xFFFF, 0xAD55, 0x52AA, 0x0000], PANEL = [0xFD20, 0x9CD3];
@@ -173,4 +174,77 @@ function syncLink(px, {supported = true} = {}) {
   l.lose.clear(); assert.equal(await m.step(), 'more');
   for (let y = 6 * 8; y < 7 * 8; y++) assert.equal(m.pixels()[y * W + 9], 0x001F);
   m.stop(); }
-console.log('PASS screen: rows decoded exactly, only changed bands read, 17-colour row kept, stop mid-round, older firmware; sync: packed rows, lost / late rows, fallback, loop; whole rounds shown at once, a band missing rows stays old, the FM-1 picture count');
+/* ---------- FM-1_990: the FM-1 pushes each new picture (SCREEN_FRAME, then its rows) ---------- */
+/* a SCREEN_FRAME as the firmware builds it (firmware/lsdj_link.h lsdj_link_push_frame) */
+function encodeFrame(round, shown, bands, hashes) {
+  const out = [0xF0, 0x7D, 0x47, 0x53, 0x29, 0, round & 127];
+  let acc = 0, bits = 0;
+  const put = (v, w) => { acc |= v << bits; bits += w; while (bits >= 7) { out.push(acc & 127); acc >>>= 7; bits -= 7; } };
+  put(shown & 0xFFFF, 16); put(shown >>> 16, 16); put(bands & 0xFFFF, 16); put(bands >>> 16, 2);
+  for (const h of hashes) put(h, 16);
+  if (bits) out.push(acc & 127);
+  out.push(0xF7);
+  return Uint8Array.from(out);
+}
+{ const hs = Array.from({length: BANDS}, (_, b) => b * 3001 & 0xFFFF), m = encodeFrame(127, 70000, 1 << 17 | 1 << 9, hs);
+  assert.equal(m.length, 57);   // = tests/lsdj_link.c
+  assert.deepEqual(decodeFrame(m), {round: 127, shown: 70000, bands: 1 << 17 | 1 << 9, hashes: hs});
+  assert.equal(decodeFrame(Uint8Array.from([...m.slice(0, m.length - 2), 0xF7])), null);
+  const bad = m.slice(); bad[5] = 1; assert.equal(decodeFrame(bad), null); }
+/* the FM-1 side, pushing: a SYNC with push sets what the page will hold; picture() pushes a new one */
+function pushLink(px) {
+  const l = syncLink(px), sync = l.screenSync;
+  Object.assign(l, {pushes: 0, held: null, round: 0, dropFrame: false,
+    async screenSync(known, round, push) {
+      const r = await sync(known, round);
+      if (push) { l.pushes++; l.held = r.hashes.slice(); l.round = round; }
+      return r;
+    },
+    picture() {   // = board.c screen_push: the bands that changed since what was sent, then their rows
+      const hashes = Array.from({length: BANDS}, (_, b) => bandHash(l.px, b));
+      let bands = 0; hashes.forEach((h, b) => { if (h !== l.held[b]) bands |= 1 << b; });
+      if (!bands) return;
+      const round = l.round = (l.round + 1) & 127;
+      hashes.forEach((h, b) => { if (bands >> b & 1) l.held[b] = h; });
+      if (!l.dropFrame) l.onPixels?.(encodeFrame(round, 1000 + round, bands, hashes));
+      for (let y = 0; y < H; y++) if (bands >> (y >> 3) & 1) { l.sent++; if (!l.lose.has(y)) l.onPixels?.(encodePixels(l.px, y, round)); }
+    }});
+  return l;
+}
+{ const l = pushLink(pic.slice()), m = new ScreenMirror(l, canvas(), {push: true});
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  assert.equal(await m.step(), 1000); await wait(5);   // one SYNC with push; renew in a second
+  assert.equal(l.pushes, 1); assert.deepEqual([...m.pixels()], [...pic]);
+  // new pictures come by themselves: no SYNC, each shown as soon as its rows are in
+  const puts = () => m.ctx.puts || 0, p0 = puts();
+  l.px[5 * 8 * W + 2 * W + 100] = 0xF800; l.picture();
+  assert.equal(m.pixels()[5 * 8 * W + 2 * W + 100], 0xF800); assert.equal(puts(), p0 + 1); assert.equal(m.stats.fm1Shown, 1000 + l.round);
+  l.px[9 * 8 * W] = 0x07E0; l.px[17 * 8 * W + 7 * W + 159] = 0x001F; l.picture();
+  assert.equal(m.pixels()[9 * 8 * W], 0x07E0); assert.equal(m.pixels()[H * W - 1], 0x001F); assert.equal(puts(), p0 + 2);
+  assert.equal(l.syncs, 1); assert.equal(l.sent, H + 8 + 16);
+  // a lost row: that band stays old, the next renewal comes soon and brings it
+  l.px[7 * 8 * W + 3] = 0xF81F; l.lose.add(7 * 8 + 1); l.picture(); l.lose.clear();
+  await wait(ROW_GAP + 20);
+  assert.equal(m.pixels()[7 * 8 * W + 3], pic[7 * 8 * W + 3]); assert.equal(m.stats.lost, 1);
+  assert.equal(await m.step(), 1000); await wait(5);
+  assert.equal(m.pixels()[7 * 8 * W + 3], 0xF81F); assert.equal(l.syncs, 2);
+  // a lost SCREEN_FRAME: its rows are a round the page does not know (not painted); the next SYNC brings it
+  l.px[2 * 8 * W] = 0x1234; l.dropFrame = true; l.picture(); l.dropFrame = false;
+  assert.equal(m.pixels()[2 * 8 * W], pic[2 * 8 * W]);
+  // a newer picture still comes (bands it does not bring stay as they were)
+  l.px[3 * 8 * W] = 0x4321; l.picture(); assert.equal(m.pixels()[3 * 8 * W], 0x4321);
+  await m.step(); await wait(5); assert.equal(m.pixels()[2 * 8 * W], 0x1234, 'the SYNC carried the old hash: sent again');
+  m.stop(); assert.equal(l.onPixels, null); }
+// the loop pushing: renews once a second, at once (100 ms) after a loss
+{ const l = pushLink(pic.slice()), m = new ScreenMirror(l, canvas(), {push: true, every: 5});
+  m.start(); await new Promise(r => setTimeout(r, 50));
+  assert.equal(l.syncs, 1, 'one SYNC, then the FM-1 pushes');
+  l.px[4 * 8 * W] = 0xF800; l.lose.add(4 * 8); l.picture(); l.lose.clear();
+  await new Promise(r => setTimeout(r, ROW_GAP + 150));
+  assert.equal(l.syncs, 2, 'renewed soon after the loss'); assert.equal(m.pixels()[4 * 8 * W], 0xF800);
+  m.stop(); }
+// FM-1 before 990 (SYNC but no push): never pushed, so the page asks round by round as before (app.js
+// sets push only for FM-1_990 and newer); with push on and no SYNC at all: row by row
+{ const l = fakeLink(pic.slice()); l.screenSync = async () => null; const m = new ScreenMirror(l, canvas(), {push: true});
+  assert.equal(await m.step(), true); assert.equal(m.push, false); assert.equal(m.sync, false); assert.deepEqual([...m.pixels()], [...pic]); }
+console.log('PASS screen: rows decoded exactly, only changed bands read, 17-colour row kept, stop mid-round, older firmware; sync: packed rows, lost / late rows, fallback, loop; whole rounds shown at once, a band missing rows stays old, the FM-1 picture count; push (990): frames by themselves, lost rows / frame, renewals');

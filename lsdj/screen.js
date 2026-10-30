@@ -4,10 +4,15 @@
 // hashes each 8-row band; only bands whose hash changed are read again.
 //   FM-1_985+, USB: one SCREEN_SYNC carries the hashes the page holds; the FM-1 answers with its
 //   own and then sends the changed rows by itself (SCREEN_PIXELS, packed), no request per row.
+//   FM-1_990+, USB: that SYNC also asks the FM-1 to push: it then sends each new picture by itself (a
+//   SCREEN_FRAME with the bands that changed, then their rows) with no request, so the page keeps up
+//   with the FM-1 (a round trip per picture could not at 30 a second). The page renews the push every
+//   PUSH_MS (sooner when rows were lost: the SYNC carries the hashes it holds, so they come again).
 //   FM-1_983/984, or Bluetooth: SCREEN_INFO, then SCREEN_ROW a row at a time.
 export const W = 160, H = 144, BANDS = 18, BAND_ROWS = 8;
 const ROW_GAP_MS = 120;   // sync: no row for this long = the rest was lost (read again next round);
                           // FM-1_988 sends rows back to back (985-987: one a main-loop pass, 300 ms)
+const PUSH_MS = 1000, PUSH_RETRY_MS = 100;   // FM-1_990: renew the push (it lasts 3 s); after a loss
 
 /* RGB565 (as the LCD) -> [r, g, b] */
 export const rgb = c => [Math.round((c >> 11) * 255 / 31), Math.round((c >> 5 & 63) * 255 / 63), Math.round((c & 31) * 255 / 31)];
@@ -55,6 +60,23 @@ export function decodePixels(m) {
   } catch { return null; }
 }
 
+/* A SCREEN_FRAME message (FM-1_990: F0 7D 'G' 'S' 29 00 round bits F7) -> {round, shown, bands, hashes},
+   or null if it is malformed. The bits as SCREEN_PIXELS: u32 shown, 18 bits bands, 18 x u16 hashes. */
+export function decodeFrame(m) {
+  const n = m?.length ?? 0;
+  if (n < 10 || m[0] !== 0xF0 || m[4] !== 0x29 || m[5] !== 0 || m[n - 1] !== 0xF7) return null;
+  let i = 7, acc = 0, bits = 0;
+  const take = w => {
+    while (bits < w) { if (i >= n - 1 || m[i] > 127) throw 0; acc += m[i++] * 2 ** bits; bits += 7; }
+    const v = acc % 2 ** w; acc = Math.floor(acc / 2 ** w); bits -= w; return v;
+  };
+  try {
+    const shown = take(16) + take(16) * 65536, bands = take(16) + take(2) * 65536;
+    const hashes = Array.from({length: BANDS}, () => take(16));
+    return i === n - 1 ? {round: m[6], shown, bands, hashes} : null;
+  } catch { return null; }
+}
+
 /* Which bands to read again: those whose hash differs from the one last read (all at first). */
 export const changedBands = (known, hashes) => hashes.map((h, b) => b).filter(b => known[b] !== hashes[b]);
 
@@ -63,9 +85,10 @@ export class ScreenMirror {
      onSupport(ok): told once whether the firmware has the screen (false: before FM-1_983).
      every: ms between rounds when nothing changed (and between row-by-row rounds).
      clock(): the window whose timers to use, one on screen (a hidden window's timers are slowed;
-     the canvas may be in a pop-out window while the page is behind, lsdj/popout.js). */
-  constructor(link, canvas, {active = () => true, onSupport = () => {}, every = 100, clock = () => globalThis} = {}) {
-    Object.assign(this, {link, canvas, active, onSupport, every, clock});
+     the canvas may be in a pop-out window while the page is behind, lsdj/popout.js).
+     push: the FM-1 sends new pictures by itself (FM-1_990 and newer). */
+  constructor(link, canvas, {active = () => true, onSupport = () => {}, every = 100, clock = () => globalThis, push = false} = {}) {
+    Object.assign(this, {link, canvas, active, onSupport, every, clock, push});
     this.known = new Array(BANDS).fill(null);
     this.ctx = canvas.getContext('2d');
     this.img = this.ctx.createImageData(W, H);
@@ -83,7 +106,9 @@ export class ScreenMirror {
   }
   start() { if (this.running) return; this.running = true; this.loop(++this.gen); }
   stop() {
-    this.running = false; this.gen++; this.cancel?.(); this.present();
+    this.running = false; this.gen++; this.cancel?.(); this.cancelGap?.(); this.soon = false;
+    if (this.cur) { this.finish(this.cur); this.cur = null; }
+    this.present();
     if (this.link.onPixels === this.onPixels) this.link.onPixels = null;
     this.wake?.();
   }
@@ -95,15 +120,22 @@ export class ScreenMirror {
           const r = await this.step();
           if (r === false) { this.stop(); return; }
           if (r === 'more') wait = 0;   // rows came: look again at once
+          else if (typeof r === 'number') wait = r;   // pushing: renew then
         } catch { /* a missed reply: next round */ }
       }
       if (gen !== this.gen) return;
-      await new Promise(r => { this.cancel = this.after(wait, r); });
+      await new Promise(r => { this.wakeNow = r; this.cancel = this.after(wait, r); });
+      this.wakeNow = null;
     }
     if (gen === this.gen) this.running = false;
   }
   /* One round. false: the firmware has no screen; 'more': rows were read; true: nothing changed. */
   async step() {
+    if (this.sync && this.push) {
+      const r = await this.stepPush();
+      if (r !== null) return r;
+      this.push = false;
+    }
     if (this.sync) {
       const r = await this.stepSync();
       if (r !== null) return r;
@@ -158,6 +190,80 @@ export class ScreenMirror {
       cancelGap();
       if (this.link.onPixels === this.onPixels) this.link.onPixels = null;
     }
+  }
+  /* FM-1_990+, USB: SCREEN_SYNC with the push bit; the FM-1's pictures then come by themselves (onPush).
+     The ms until the next renewal, or null: SCREEN_SYNC not here. */
+  async stepPush() {
+    this.onPixels = this.onPush; this.link.onPixels = this.onPush;
+    const round = ((this.cur ? this.cur.round : this.round) + 1) & 127;
+    this.begin({round, bands: null, hashes: null});
+    this.lostSince = false;
+    const info = await this.link.screenSync(this.known, round, true);
+    if (this.supported === undefined && info) { this.supported = true; this.onSupport(true); }
+    if (!info) return null;
+    this.stats.syncs++; this.stats.fm1Shown = info.shown;
+    const c = this.cur;
+    if (c.round === round && c.bands === null) {
+      c.bands = info.bands; c.hashes = info.hashes;
+      if (!info.bands && this.unshown) { this.stats.settled++; this.present(); }
+      this.check(c);
+    }
+    return this.lostSince ? PUSH_RETRY_MS : PUSH_MS;
+  }
+  /* a pushed message: a SCREEN_FRAME starts a picture, SCREEN_PIXELS rows fill it */
+  onPush = m => {
+    if (m[4] === 0x29) {
+      const f = decodeFrame(m);
+      if (!f) return;
+      this.stats.fm1Shown = f.shown;
+      this.begin({round: f.round, bands: f.bands, hashes: f.hashes});
+      this.check(this.cur);
+      return;
+    }
+    const p = decodePixels(m), c = this.cur;
+    if (!p || !c || c.done || p.round !== c.round) return;   // a late row: not counted
+    this.stats.rows++;
+    c.rows.set(p.row, p.px);
+    if (!p.px) this.stats.skipped++;
+    this.check(c);
+  };
+  /* a new picture: the last one ends with what came of it */
+  begin(c) {
+    if (this.cur) this.finish(this.cur);
+    c.rows = new Map(); this.cur = c;
+  }
+  /* all its rows here: show it; else wait (ROW_GAP_MS without a row: the rest was lost) */
+  check(c) {
+    if (c.done || c.bands === null) return;
+    for (let b = 0; b < BANDS; b++)
+      if (c.bands >> b & 1) for (let y = b * BAND_ROWS; y < (b + 1) * BAND_ROWS; y++) if (!c.rows.has(y)) {
+        this.cancelGap?.(); this.cancelGap = this.after(ROW_GAP_MS, () => this.finish(c));
+        return;
+      }
+    this.finish(c);
+  }
+  finish(c) {
+    if (c.done) return;
+    c.done = true; this.cancelGap?.();
+    if (!c.bands) return;   // nothing changed (null: its SYNC never answered)
+    for (let b = 0; b < BANDS; b++) {
+      if (!(c.bands >> b & 1)) continue;
+      let all = true, came = true;
+      for (let y = b * BAND_ROWS; y < (b + 1) * BAND_ROWS; y++) { if (!c.rows.get(y)) all = false; if (!c.rows.has(y)) came = false; }
+      // as stepSync: a band that lost rows stays as it was (the second time in a row: what came goes in)
+      this.miss[b] = came ? 0 : this.miss[b] + 1;
+      if (came || this.miss[b] >= 2) for (let y = b * BAND_ROWS; y < (b + 1) * BAND_ROWS; y++) { const px = c.rows.get(y); if (px) this.put({row: y, px}); }
+      if (all) this.known[b] = c.hashes[b];
+      else { this.stats.lost++; this.lostSince = true; this.renewSoon(); }   // the FM-1 counts it as here: ask again
+    }
+    this.stats.frames++;
+    this.unshown = true; this.present();
+  }
+  /* rows lost: renew the push in PUSH_RETRY_MS, not PUSH_MS (the SYNC carries the hashes held) */
+  renewSoon() {
+    if (!this.wakeNow || this.soon) return;
+    const wake = this.wakeNow; this.cancel?.(); this.soon = true;
+    this.cancel = this.after(PUSH_RETRY_MS, () => { this.soon = false; wake(); });
   }
   /* FM-1_983/984 or Bluetooth: the hashes, then the changed bands' rows one request each. */
   async stepRows() {

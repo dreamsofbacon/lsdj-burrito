@@ -317,6 +317,7 @@ function startMirror(how) {
   const box = $('fm1-screen-box'), note = $('fm1-screen-note'), canvas = $('fm1-screen');
   box.hidden = false; note.hidden = true;
   mirror = new ScreenMirror(link, canvas, {every: how === 'Bluetooth' ? 400 : 33, clock: visibleWindow,
+    push: how !== 'Bluetooth' && fwNum >= 990,   // FM-1_990: the FM-1 sends each new picture by itself
     active: () => connected && !busy && !installing() && seen(canvas) && (isOut('screen') || !$('live-sec').hidden),
     onSupport: ok => {
       box.hidden = !ok; note.hidden = ok;
