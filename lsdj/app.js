@@ -320,15 +320,18 @@ function startMirror(how) {
       if (!ok) note.textContent = `The FM-1's screen shows here with FM-1_983 or newer (this FM-1 runs ${fwId}).`;
     }});
   mirror.start();
-  /* how the mirror keeps up, once a second: pictures shown, and the rows behind them */
+  /* how the mirror keeps up, once a second: the pictures the FM-1 put on its own LCD, the ones shown
+     here (only those that changed), the rows behind them */
   clearInterval(mirrorRate);
   let last = {...mirror.stats};
   const m = mirror;
   mirrorRate = setInterval(() => {
     if (m !== mirror) return clearInterval(mirrorRate);
     const s = m.stats, shown = s.shown - last.shown, rows = s.rows - last.rows, lost = s.lost - last.lost;
+    const fm1 = s.fm1Shown != null && last.fm1Shown != null ? (s.fm1Shown - last.fm1Shown) >>> 0 : null;
     $('fm1-screen-rate').textContent = !m.running || !m.active() ? '' :
-      `${shown} picture${shown === 1 ? '' : 's'} a second · ${rows} rows` + (lost ? ` · ${lost} band${lost === 1 ? '' : 's'} read again` : '');
+      (fm1 != null ? `FM-1 draws ${fm1}/s · ` : '') + `here ${shown} new picture${shown === 1 ? '' : 's'}/s · ${rows} rows/s` +
+      (lost ? ` · ${lost} band${lost === 1 ? '' : 's'} read again` : '');
     last = {...s};
   }, 1000);
 }

@@ -6,8 +6,8 @@
 //   own and then sends the changed rows by itself (SCREEN_PIXELS, packed), no request per row.
 //   FM-1_983/984, or Bluetooth: SCREEN_INFO, then SCREEN_ROW a row at a time.
 export const W = 160, H = 144, BANDS = 18, BAND_ROWS = 8;
-const STALE_MS = 50;      // sync: the screen keeps changing: show what came at least this often
-const ROW_GAP_MS = 300;   // sync: no row for this long = the rest was lost (read again next round)
+const ROW_GAP_MS = 120;   // sync: no row for this long = the rest was lost (read again next round);
+                          // FM-1_988 sends rows back to back (985-987: one a main-loop pass, 300 ms)
 
 /* RGB565 (as the LCD) -> [r, g, b] */
 export const rgb = c => [Math.round((c >> 11) * 255 / 31), Math.round((c >> 5 & 63) * 255 / 63), Math.round((c & 31) * 255 / 31)];
@@ -67,7 +67,7 @@ export class ScreenMirror {
     this.known = new Array(BANDS).fill(null);
     this.ctx = canvas.getContext('2d');
     this.img = this.ctx.createImageData(W, H);
-    this.stats = {infos: 0, rows: 0, skipped: 0, frames: 0, syncs: 0, lost: 0, shown: 0, settled: 0};
+    this.stats = {infos: 0, rows: 0, skipped: 0, frames: 0, syncs: 0, lost: 0, shown: 0, settled: 0, fm1Shown: null};
     this.shownAt = -1e9;
     this.miss = new Array(BANDS).fill(0);   // rounds in a row a band lost rows   // sync: the rows go into img; the canvas gets img a round at a time (present)
     this.gen = 0; this.running = false;   // gen: a stop (or a new start) ends the loop and round under way
@@ -125,7 +125,7 @@ export class ScreenMirror {
       const info = await this.link.screenSync(this.known, round);
       if (this.supported === undefined && info) { this.supported = true; this.onSupport(true); }
       if (!info) return null;
-      this.stats.syncs++;
+      this.stats.syncs++; this.stats.fm1Shown = info.shown;   // the pictures the FM-1 has put on its LCD
       expect = [];
       for (let b = 0; b < BANDS; b++) if (info.bands >> b & 1) expect.push(b);
       // Nothing changed since the last round: the rows it brought were all one frame. Show it now.
@@ -145,8 +145,7 @@ export class ScreenMirror {
         if (all) this.known[b] = info.hashes[b]; else this.stats.lost++;   // read again next round
       }
       this.stats.frames++;
-      this.unshown = true;
-      if (this.now() - this.shownAt >= STALE_MS) this.present();   // still changing: show anyway
+      this.unshown = true; this.present();   // a round done: on the canvas at once (whole bands only)
       return 'more';
     } finally {
       clearTimeout(timer);
@@ -159,7 +158,7 @@ export class ScreenMirror {
     const info = await this.link.screenInfo();
     if (this.supported === undefined) { this.supported = !!info; this.onSupport(this.supported); }
     if (!info) return false;
-    this.stats.infos++;
+    this.stats.infos++; this.stats.fm1Shown = info.shown;
     const bands = changedBands(this.known, info.hashes);
     for (const b of bands) {
       if (gen !== this.gen || !this.active()) return true;   // the rest next time (their hashes still differ)

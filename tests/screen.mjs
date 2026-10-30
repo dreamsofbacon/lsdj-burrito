@@ -134,7 +134,7 @@ function syncLink(px, {supported = true} = {}) {
   assert.equal(await m.step(), true);
   // the very last row lost: the gap (300 ms with no row) ends the round
   l.px[H * W - 1] = 0x001F; l.lose.add(H - 1);
-  const t0 = Date.now(); assert.equal(await m.step(), 'more'); assert.ok(Date.now() - t0 >= 250, 'waited for the gap');
+  const t0 = Date.now(); assert.equal(await m.step(), 'more'); assert.ok(Date.now() - t0 >= 100, 'waited for the gap');
   l.lose.clear(); await m.step(); assert.equal(m.pixels()[H * W - 1], 0x001F); assert.equal(await m.step(), true);
   // a late row from an earlier round: not painted, not counted
   const stale = pic.slice(); stale.fill(0xF81F, 0, W);
@@ -153,17 +153,17 @@ function syncLink(px, {supported = true} = {}) {
   m.start(); await new Promise(r => setTimeout(r, 60)); m.stop();
   assert.ok(l.syncs >= 2); assert.deepEqual([...m.pixels()], [...pic]); assert.equal(l.onPixels, null);
   const seen = l.syncs; await new Promise(r => setTimeout(r, 30)); assert.equal(l.syncs, seen); }
-// FM-1_987 page: the canvas gets whole rounds, not rows as they come; a settled round (the next one finds
-// nothing changed) is shown at once, one still changing at most every 50 ms; a band that lost rows stays old
+// the canvas gets whole rounds, not rows as they come, each as soon as it is done (FM-1_988 page; 987
+// held changing rounds back up to 50 ms); a band that lost rows stays old; the FM-1's own picture count
 { const l = syncLink(pic.slice()), m = new ScreenMirror(l, canvas());
   const puts = () => m.ctx.puts || 0;
   assert.equal(await m.step(), 'more'); assert.equal(puts(), 1, 'the first round is shown');
+  assert.equal(m.stats.fm1Shown, l.syncs, "the FM-1's pictures shown (SYNC's count)");
   l.px[3 * 8 * W] = 0xF800;
-  assert.equal(await m.step(), 'more'); assert.equal(puts(), 1, 'changed within 50 ms: held back');
-  assert.equal(await m.step(), true); assert.equal(puts(), 2, 'settled: shown'); assert.equal(m.stats.settled, 1);
+  assert.equal(await m.step(), 'more'); assert.equal(puts(), 2, 'the next round at once');
   assert.equal(await m.step(), true); assert.equal(puts(), 2, 'nothing new: not drawn again');
-  l.px[4 * 8 * W] = 0x07E0; await new Promise(r => setTimeout(r, 60));
-  assert.equal(await m.step(), 'more'); assert.equal(puts(), 3, 'still changing after 50 ms: shown anyway');
+  l.px[4 * 8 * W] = 0x07E0;
+  assert.equal(await m.step(), 'more'); assert.equal(puts(), 3);
   // a band with a lost row keeps all its old pixels (not half new), then comes whole
   const before = m.pixels().slice();
   for (let y = 6 * 8; y < 7 * 8; y++) l.px[y * W + 9] = 0x001F;
@@ -173,4 +173,4 @@ function syncLink(px, {supported = true} = {}) {
   l.lose.clear(); assert.equal(await m.step(), 'more');
   for (let y = 6 * 8; y < 7 * 8; y++) assert.equal(m.pixels()[y * W + 9], 0x001F);
   m.stop(); }
-console.log('PASS screen: rows decoded exactly, only changed bands read, 17-colour row kept, stop mid-round, older firmware; sync: packed rows, lost / late rows, fallback, loop; whole rounds shown (settled or every 50 ms), a band missing rows stays old');
+console.log('PASS screen: rows decoded exactly, only changed bands read, 17-colour row kept, stop mid-round, older firmware; sync: packed rows, lost / late rows, fallback, loop; whole rounds shown at once, a band missing rows stays old, the FM-1 picture count');

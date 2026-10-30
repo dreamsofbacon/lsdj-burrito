@@ -379,8 +379,9 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <p id="wiz-backup-status" role="status" hidden></p></div>
 <label class="check"><input id="rom-experimental" type="checkbox" disabled><span>I understand this firmware is experimental and may not start or sound right, and I have backed up my songs.</span></label>
 <div class="row"><button id="rom-build" type="button" class="primary" aria-describedby="rom-next" disabled>Prepare firmware</button><span class="hint">Builds the file on this computer. Nothing is installed yet.</span></div>
-<details><summary>What's in this version (FM-1_987)</summary>
-<p>New in FM-1_987: the FM-1's screen on this page no longer shows torn or missing effects panels and menus, and it updates up to 30 times a second over USB. Read from my FM-1 connects over USB by itself. The page now shows the screen a whole picture at a time (no rows sweeping down), with a pictures-a-second line under it.</p>
+<details><summary>What's in this version (FM-1_988)</summary>
+<p>New in FM-1_988: the FM-1's screen on this page keeps up with the FM-1's own screen. The FM-1 sends the changed rows back to back instead of one at a time, and the line under the screen shows how many pictures a second the FM-1 draws and how many the page shows.</p>
+<p>From FM-1_987: the FM-1's screen on this page no longer shows torn or missing effects panels and menus, and it updates up to 30 times a second over USB. Read from my FM-1 connects over USB by itself. The page now shows the screen a whole picture at a time (no rows sweeping down), with a pictures-a-second line under it.</p>
 <p>From FM-1_986: the effects follow LSDj's cursor on more LSDj versions. LSDj 9.3.9 with custom palettes or kits now counts as LSDj 9.3.9 (everything works). LSDj 9.4.0, 9.2.L, 9.1.C, 8.4.9, 8.4.2 and 4.6.2: the effects follow the cursor and the LFO follows the tempo; SEQ live mode, tempo editing, cues and MIDI sync still need LSDj 9.3.9. Choosing your LSDj says which it is.</p>
 <p>From FM-1_985: the FM-1's screen above Effects updates several times faster over USB. The page asks once and the FM-1 sends back only the rows that changed, packed small, instead of the page asking for each row. Over Bluetooth, and with FM-1_983 or FM-1_984, the screen updates as before.</p>
 <p>FM-1_984: two effects areas. Turning a knob or SELECT pops up the channel pages (FILTER, DRIVE, LFO, LO-FI) for the channel under LSDj's cursor, for a moment, as before. The FX button opens the master pages (MASTER, ECHO, ECHO MOD; C4-F4 mute there) and keeps them open until you press FX again.</p>
@@ -456,7 +457,7 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 </section>
 </div>
 
-<p class="hint foot">The firmware is free software (GPL-3.0), based on <a href="https://github.com/ChanceTheMaker/gamedude-fm1-smk" target="_blank" rel="noopener">GameDude</a>. Source: <a href="https://github.com/dreamsofbacon/lsdj-burrito-src" target="_blank" rel="noopener">lsdj-burrito-src</a>; <a href="lsdj/fm1-lsdj-template-source.zip" download>matching FM-1_987 template source</a>. Not affiliated with M-VAVE or <a href="https://www.littlesounddj.com/" target="_blank" rel="noopener">LSDj's author, Johan Kotlinski</a>.</p>
+<p class="hint foot">The firmware is free software (GPL-3.0), based on <a href="https://github.com/ChanceTheMaker/gamedude-fm1-smk" target="_blank" rel="noopener">GameDude</a>. Source: <a href="https://github.com/dreamsofbacon/lsdj-burrito-src" target="_blank" rel="noopener">lsdj-burrito-src</a>; <a href="lsdj/fm1-lsdj-template-source.zip" download>matching FM-1_988 template source</a>. Not affiliated with M-VAVE or <a href="https://www.littlesounddj.com/" target="_blank" rel="noopener">LSDj's author, Johan Kotlinski</a>.</p>
 </main>
 <script type="module" src="lsdj/ui.js"></script>
 <script type="module" src="lsdj/lsdj-app.js"></script>
