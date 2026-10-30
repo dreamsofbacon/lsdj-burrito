@@ -189,7 +189,7 @@ export async function runFxUiTests() {
       assert(ops.filter(o => o === OP.SCREEN_ROW).length === rowsBefore && ops.includes(OP.SCREEN_SYNC), '985: no row requests');
       const syncs = ops.filter(o => o === OP.SCREEN_SYNC).length; await sleep(300);
       const more = ops.filter(o => o === OP.SCREEN_SYNC).length - syncs;
-      assert(more >= 2 && more <= 8, `985: nothing changed: a look every 50 ms or so (${more} in 300 ms)`); }
+      assert(more >= 4 && more <= 12, `987: nothing changed: a look every 33 ms or so, 30 a second (${more} in 300 ms)`); }
     firmware = 'FM-1_975';
     return 'PASS FX browser: matching pages (975-978, 979, 980 echo on MASTER, 981 echo in Master), FM-1 screen (983, 985 sync, note before), autosave, one master switch across four selected channels, LIVE state, 17/11-word backups, old firmware gating, FX and lights, FX colours, wiring, muted notice, battery';
   } finally {

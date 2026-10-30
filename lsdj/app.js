@@ -312,7 +312,7 @@ async function tick() {
 function startMirror(how) {
   const box = $('fm1-screen-box'), note = $('fm1-screen-note');
   box.hidden = false; note.hidden = true;
-  mirror = new ScreenMirror(link, $('fm1-screen'), {every: how === 'Bluetooth' ? 400 : 50,
+  mirror = new ScreenMirror(link, $('fm1-screen'), {every: how === 'Bluetooth' ? 400 : 33,
     active: () => connected && !busy && !installing() && !document.hidden && !$('live-sec').hidden && $('fx-screen').open,
     onSupport: ok => {
       box.hidden = !ok; note.hidden = ok;
@@ -332,8 +332,17 @@ async function run(statusId, fn) {
   try { await fn(); } catch (e) { say(statusId, e.message, 'bad'); }
   finally { busy = false; buttons.forEach((b, i) => b.disabled = disabled[i]); $('save-progress').hidden = true; }
 }
+/* Not connected: connect over USB as the Connect button does, when the FM-1 is found by name. */
+async function connectUsbQuietly() {
+  if (connected || busy || installing() || usbMidiUnavailable()) return;
+  try {
+    ports = await midiPorts();
+    if (ports.input && ports.output) await connectTo(ports.input, ports.output);
+  } catch { /* MIDI blocked or unavailable: the message below says what to do */ }
+}
 export async function readInstalledCartridge(progress, signal) {
-  if (!link || !connected) throw new LinkError('Connect to the running FM-1 in the Connect section first, then try Read installed LSDj again.');
+  await connectUsbQuietly();
+  if (!link || !connected) throw new LinkError('No FM-1 found over USB. Turn it on and plug it in with a data cable, or connect to the running FM-1 in My FM-1 (Bluetooth, or choose its MIDI port), then try Read from my FM-1 again.');
   if (busy || installing() || sendTimer) throw new LinkError('Wait for the current device operation to finish.');
   const active = link;
   busy = true;

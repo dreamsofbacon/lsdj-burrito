@@ -148,7 +148,7 @@ export async function runLoaderUiTests() {
     assert($('rom').disabled && $('fw-file').disabled, 'Preparation locks conflicting file inputs');
     assert($('emu-selected').disabled, 'Preparation blocks preview of the previous installer selection');
     await preparing;
-    text('rom-info', /Prepared FM-1_986/);
+    text('rom-info', /Prepared FM-1_987/);
     text('rom-info', /Cursor-following FX unavailable: FX targets ALL channels/);
     text('rom-next', /Step 4/);
     assert(!$('rom-download').hidden && !$('fw-install').disabled, 'Prepared package available for download and explicit install');
@@ -200,7 +200,7 @@ export async function runUnsupportedMidiUiTests() {
     $('rom-experimental').checked = true;
     $('rom-experimental').onchange();
     await $('rom-build').onclick();
-    text('rom-info', /Prepared FM-1_986/);
+    text('rom-info', /Prepared FM-1_987/);
     assert(!$('rom-download').hidden && $('fw-install').disabled && !$('emu-selected').disabled,
       'Unsupported USB still allows preparing, downloading and selecting local previews');
     return 'PASS unsupported Web MIDI: no device access/confirmation, USB disabled, local preparation/download/preview preserved';
@@ -247,14 +247,14 @@ export async function runDeviceUpdateUiTests() {
   }};
   const originalFetch = globalThis.fetch;
   try {
+    Object.defineProperty(navigator, 'requestMIDIAccess', {configurable: true, value: async () => ({inputs: new Map(), outputs: new Map()})});
     await $('rom-device').onclick();
-    text('rom-info', /Connect to the running FM-1/);
+    text('rom-info', /No FM-1 found over USB.*connect to the running FM-1 in My FM-1/);
     noFirmware();
     Object.defineProperty(navigator, 'requestMIDIAccess', {configurable: true,
       value: async () => ({inputs: new Map([['test', input]]), outputs: new Map([['test', output]])})});
-    await $('connect-btn').onclick();
+    await $('rom-device').onclick();   // not connected: Read from my FM-1 connects over USB by itself
     text('device', /Connected over USB/);
-    await $('rom-device').onclick();
     text('rom-info', /Install FM-1_974 or newer once/);
     noFirmware();
 
@@ -283,7 +283,7 @@ export async function runDeviceUpdateUiTests() {
     noFirmware();
     $('rom-experimental').checked = true; $('rom-experimental').onchange();
     await $('rom-build').onclick();
-    text('rom-info', /Prepared FM-1_986/);
+    text('rom-info', /Prepared FM-1_987/);
     assert(!$('rom-download').hidden, 'Device-based package available for explicit download/install');
 
     globalThis.fetch = async (path, options) => {
