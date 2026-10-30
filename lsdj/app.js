@@ -27,6 +27,7 @@ let fwId = '', fwNum = 0;   // the firmware: "FM-1_979", 979
 let link = null, ports = null, fx = null, settings = null, theme = PRESETS[0].slice(), poll = null, busy = false, touched = 0, ble = null;
 let connected = false;
 let mirror = null;   // the FM-1's screen above Effects (lsdj/screen.js)
+let mirrorRate = null;   // its pictures-a-second line
 
 /* ---------- connect ---------- */
 async function connectTo(input, output, how = 'USB') {
@@ -319,6 +320,17 @@ function startMirror(how) {
       if (!ok) note.textContent = `The FM-1's screen shows here with FM-1_983 or newer (this FM-1 runs ${fwId}).`;
     }});
   mirror.start();
+  /* how the mirror keeps up, once a second: pictures shown, and the rows behind them */
+  clearInterval(mirrorRate);
+  let last = {...mirror.stats};
+  const m = mirror;
+  mirrorRate = setInterval(() => {
+    if (m !== mirror) return clearInterval(mirrorRate);
+    const s = m.stats, shown = s.shown - last.shown, rows = s.rows - last.rows, lost = s.lost - last.lost;
+    $('fm1-screen-rate').textContent = !m.running || !m.active() ? '' :
+      `${shown} picture${shown === 1 ? '' : 's'} a second · ${rows} rows` + (lost ? ` · ${lost} band${lost === 1 ? '' : 's'} read again` : '');
+    last = {...s};
+  }, 1000);
 }
 $('fx-keep').onclick = () => run('fx-status', async () => { await link.fxSet(packFx(fx)); await link.store(); say('fx-status', 'Kept on the FM-1.', 'ok'); });
 

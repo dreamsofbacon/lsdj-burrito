@@ -6,6 +6,7 @@
 //   own and then sends the changed rows by itself (SCREEN_PIXELS, packed), no request per row.
 //   FM-1_983/984, or Bluetooth: SCREEN_INFO, then SCREEN_ROW a row at a time.
 export const W = 160, H = 144, BANDS = 18, BAND_ROWS = 8;
+const STALE_MS = 50;      // sync: the screen keeps changing: show what came at least this often
 const ROW_GAP_MS = 300;   // sync: no row for this long = the rest was lost (read again next round)
 
 /* RGB565 (as the LCD) -> [r, g, b] */
@@ -66,14 +67,16 @@ export class ScreenMirror {
     this.known = new Array(BANDS).fill(null);
     this.ctx = canvas.getContext('2d');
     this.img = this.ctx.createImageData(W, H);
-    this.stats = {infos: 0, rows: 0, skipped: 0, frames: 0, syncs: 0, lost: 0};
+    this.stats = {infos: 0, rows: 0, skipped: 0, frames: 0, syncs: 0, lost: 0, shown: 0, settled: 0};
+    this.shownAt = -1e9;
+    this.miss = new Array(BANDS).fill(0);   // rounds in a row a band lost rows   // sync: the rows go into img; the canvas gets img a round at a time (present)
     this.gen = 0; this.running = false;   // gen: a stop (or a new start) ends the loop and round under way
     this.sync = !link.slow && typeof link.screenSync === 'function';   // try SCREEN_SYNC (USB); false once the FM-1 says no
     this.round = 0;
   }
   start() { if (this.running) return; this.running = true; this.loop(++this.gen); }
   stop() {
-    this.running = false; this.gen++; clearTimeout(this.timer);
+    this.running = false; this.gen++; clearTimeout(this.timer); this.present();
     if (this.link.onPixels === this.onPixels) this.link.onPixels = null;
     this.wake?.();
   }
@@ -104,7 +107,7 @@ export class ScreenMirror {
   /* FM-1_985+: SCREEN_SYNC, then the rows the FM-1 sends. null: SCREEN_SYNC not here. */
   async stepSync() {
     const gen = this.gen, round = this.round = (this.round + 1) & 127;
-    const got = new Set();
+    const got = new Set(), arrived = new Map();   // rows with pixels; every row that came (null: skipped)
     let expect = null, lastRow = -1, done, timer;
     const finished = new Promise(r => { done = r; });
     const gap = () => { clearTimeout(timer); timer = setTimeout(done, ROW_GAP_MS); };
@@ -113,7 +116,8 @@ export class ScreenMirror {
       const p = decodePixels(m);
       if (!p || p.round !== round) return;   // a late row from an earlier round: not counted
       this.stats.rows++;
-      if (p.px) { this.put(p); got.add(p.row); this.dirty(); } else this.stats.skipped++;
+      arrived.set(p.row, p.px);
+      if (p.px) got.add(p.row); else this.stats.skipped++;
       if (expect) { gap(); if (p.row === lastRow) done(); }
     };
     this.link.onPixels = this.onPixels;
@@ -124,21 +128,29 @@ export class ScreenMirror {
       this.stats.syncs++;
       expect = [];
       for (let b = 0; b < BANDS; b++) if (info.bands >> b & 1) expect.push(b);
-      if (!expect.length) return true;
+      // Nothing changed since the last round: the rows it brought were all one frame. Show it now.
+      // (Rows come over a few frames, so while the screen changes img can hold two; held back.)
+      if (!expect.length) { if (this.unshown) { this.stats.settled++; this.present(); } return true; }
       lastRow = expect[expect.length - 1] * BAND_ROWS + BAND_ROWS - 1;
       if (!got.has(lastRow)) { gap(); await finished; }
       if (gen !== this.gen) return true;
       for (const b of expect) {
-        let all = true;
-        for (let y = b * BAND_ROWS; y < (b + 1) * BAND_ROWS; y++) if (!got.has(y)) all = false;
+        let all = true, came = true;
+        for (let y = b * BAND_ROWS; y < (b + 1) * BAND_ROWS; y++) { if (!got.has(y)) all = false; if (!arrived.has(y)) came = false; }
+        // a band whose rows all came goes into the picture (a skipped row keeps its old pixels); one
+        // that lost rows stays as it was, not half new, and is read again next round. Losing rows a
+        // second round in a row (a lossy link): the rows that came go in anyway, so it gets there.
+        this.miss[b] = came ? 0 : this.miss[b] + 1;
+        if (came || this.miss[b] >= 2) for (let y = b * BAND_ROWS; y < (b + 1) * BAND_ROWS; y++) { const px = arrived.get(y); if (px) this.put({row: y, px}); }
         if (all) this.known[b] = info.hashes[b]; else this.stats.lost++;   // read again next round
       }
       this.stats.frames++;
+      this.unshown = true;
+      if (this.now() - this.shownAt >= STALE_MS) this.present();   // still changing: show anyway
       return 'more';
     } finally {
       clearTimeout(timer);
       if (this.link.onPixels === this.onPixels) this.link.onPixels = null;
-      this.flush();
     }
   }
   /* FM-1_983/984 or Bluetooth: the hashes, then the changed bands' rows one request each. */
@@ -162,14 +174,13 @@ export class ScreenMirror {
     if (bands.length) this.stats.frames++;
     return true;
   }
-  /* the canvas follows the rows as they come, at most once a display frame */
-  dirty() {
-    if (this.pending) return;
-    this.pending = true;
-    const f = () => this.flush();
-    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(f); else setTimeout(f, 16);
+  now() { return typeof performance === 'object' ? performance.now() : Date.now(); }
+  /* the rows read so far onto the canvas at once */
+  present() {
+    if (!this.unshown) return;
+    this.unshown = false; this.shownAt = this.now(); this.stats.shown++;
+    this.ctx.putImageData(this.img, 0, 0);
   }
-  flush() { this.pending = false; this.ctx.putImageData(this.img, 0, 0); }
   put({row, px}) {
     const d = this.img.data;
     for (let x = 0; x < W; x++) {

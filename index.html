@@ -256,6 +256,7 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <div class="seg-pick" role="group" aria-label="Show"><button id="fx-view-one" type="button" aria-pressed="true">One page</button><button id="fx-view-all" type="button" aria-pressed="false">All pages</button></div></div>
 <details open id="fx-screen"><summary>The FM-1's screen</summary>
 <div id="fm1-screen-box" class="fm1-screen" hidden><canvas id="fm1-screen" width="160" height="144" role="img" aria-label="The FM-1's screen, as its display shows it"></canvas></div>
+<p id="fm1-screen-rate" class="hint" aria-live="off"></p>
 <p id="fm1-screen-note" class="hint" hidden></p>
 </details>
 <div id="fx-master" class="fx-master" hidden>
@@ -379,7 +380,7 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <label class="check"><input id="rom-experimental" type="checkbox" disabled><span>I understand this firmware is experimental and may not start or sound right, and I have backed up my songs.</span></label>
 <div class="row"><button id="rom-build" type="button" class="primary" aria-describedby="rom-next" disabled>Prepare firmware</button><span class="hint">Builds the file on this computer. Nothing is installed yet.</span></div>
 <details><summary>What's in this version (FM-1_987)</summary>
-<p>New in FM-1_987: the FM-1's screen on this page no longer shows torn or missing effects panels and menus, and it updates up to 30 times a second over USB. Read from my FM-1 connects over USB by itself.</p>
+<p>New in FM-1_987: the FM-1's screen on this page no longer shows torn or missing effects panels and menus, and it updates up to 30 times a second over USB. Read from my FM-1 connects over USB by itself. The page now shows the screen a whole picture at a time (no rows sweeping down), with a pictures-a-second line under it.</p>
 <p>From FM-1_986: the effects follow LSDj's cursor on more LSDj versions. LSDj 9.3.9 with custom palettes or kits now counts as LSDj 9.3.9 (everything works). LSDj 9.4.0, 9.2.L, 9.1.C, 8.4.9, 8.4.2 and 4.6.2: the effects follow the cursor and the LFO follows the tempo; SEQ live mode, tempo editing, cues and MIDI sync still need LSDj 9.3.9. Choosing your LSDj says which it is.</p>
 <p>From FM-1_985: the FM-1's screen above Effects updates several times faster over USB. The page asks once and the FM-1 sends back only the rows that changed, packed small, instead of the page asking for each row. Over Bluetooth, and with FM-1_983 or FM-1_984, the screen updates as before.</p>
 <p>FM-1_984: two effects areas. Turning a knob or SELECT pops up the channel pages (FILTER, DRIVE, LFO, LO-FI) for the channel under LSDj's cursor, for a moment, as before. The FX button opens the master pages (MASTER, ECHO, ECHO MOD; C4-F4 mute there) and keeps them open until you press FX again.</p>
