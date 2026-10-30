@@ -280,17 +280,17 @@ export const SETTINGS = [
   {key: 'selectKey', bits: [4, 2], name: 'Extra Select key', choices: ['Off', 'F#5', 'D#5']},
   {key: 'meter', bits: [6, 1], name: 'CPU meter', choices: ['Off', 'On']},
   {key: 'theme', bits: [7, 3], hi: [12, 15, 16, 17], name: 'Theme', choices: THEMES},   // hi: where the value's bits 3, 4, 5, 6 go
-  {key: 'popup', bits: [13, 2], name: 'Pop-up time (effects panel, messages)', choices: ['1.5 s', '3 s', '5 s', '10 s']},
-  {key: 'bluetooth', bits: [10, 2], name: 'Bluetooth', choices: ['Off', 'Device']}];
+  {key: 'popup', bits: [13, 2], name: 'Pop-up time (effects panel, messages)', choices: ['1.5 s', '3 s', '5 s', '10 s']}];
+   // (bits 10-11: Bluetooth until FM-1_993)
 /* The MIDI options (firmware/lsdj_midi.h, one word with 'M' on top; save-store record 16). */
 const CH16 = Array.from({length: 16}, (_, i) => `Channel ${i + 1}`);
 export const MIDI_SETTINGS = [
-  {key: 'clockIn', bits: [0, 3], name: 'Clock in', choices: ['Off', 'All', 'USB', 'TRS', 'Bluetooth']},
+  {key: 'clockIn', bits: [0, 3], name: 'Clock in', choices: ['Off', 'All', 'USB', 'TRS']},
   {key: 'transport', bits: [3, 1], name: 'Transport (Start/Stop)', choices: ['Off', 'On']},
   {key: 'delay', bits: [4, 2], name: 'Sync delay', choices: ['100 ms', '75 ms', '50 ms']},
   {key: 'noteIn', bits: [6, 5], name: 'Note in (SYNC KEYBD)', choices: ['Off', 'All', ...CH16]},
   {key: 'ccFx', bits: [11, 4], name: 'CC to effects', choices: ['Off', ...Array.from({length: 13}, (_, i) => `Channels ${i + 1}-${i + 4}`)]},
-  {key: 'clockOut', bits: [15, 2], name: 'Clock out (SYNC LSDJ)', choices: ['Off', 'USB', 'Bluetooth', 'USB + Bluetooth']},
+  {key: 'clockOut', bits: [15, 1], name: 'Clock out (SYNC LSDJ)', choices: ['Off', 'USB']},   // (bit 16: Bluetooth until FM-1_993)
   {key: 'pcCue', bits: [17, 1], name: 'Program change cues row', choices: ['Off', 'On']}];
 /* CC -> effects (firmware/lsdj_midi.h lsdj_midi_cc_apply). With CC FX = channels N..N+3, channel N
    is PU1, N+1 PU2, N+2 WAV, N+3 NOI; the shared ones (echo, compressor) work on any of the four.

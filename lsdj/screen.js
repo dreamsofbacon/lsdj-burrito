@@ -8,7 +8,7 @@
 //   SCREEN_FRAME with the bands that changed, then their rows) with no request, so the page keeps up
 //   with the FM-1 (a round trip per picture could not at 30 a second). The page renews the push every
 //   PUSH_MS (sooner when rows were lost: the SYNC carries the hashes it holds, so they come again).
-//   FM-1_983/984, or Bluetooth: SCREEN_INFO, then SCREEN_ROW a row at a time.
+//   FM-1_983/984: SCREEN_INFO, then SCREEN_ROW a row at a time.
 export const W = 160, H = 144, BANDS = 18, BAND_ROWS = 8;
 const ROW_GAP_MS = 120;   // sync: no row for this long = the rest was lost (read again next round);
                           // FM-1_988 sends rows back to back (985-987: one a main-loop pass, 300 ms)
@@ -96,7 +96,7 @@ export class ScreenMirror {
     this.shownAt = -1e9;
     this.miss = new Array(BANDS).fill(0);   // rounds in a row a band lost rows   // sync: the rows go into img; the canvas gets img a round at a time (present)
     this.gen = 0; this.running = false;   // gen: a stop (or a new start) ends the loop and round under way
-    this.sync = !link.slow && typeof link.screenSync === 'function';   // try SCREEN_SYNC (USB); false once the FM-1 says no
+    this.sync = typeof link.screenSync === 'function';   // try SCREEN_SYNC; false once the FM-1 says no
     this.round = 0;
   }
   /* a timer on the clock's window; the returned function cancels it */
@@ -265,7 +265,7 @@ export class ScreenMirror {
     const wake = this.wakeNow; this.cancel?.(); this.soon = true;
     this.cancel = this.after(PUSH_RETRY_MS, () => { this.soon = false; wake(); });
   }
-  /* FM-1_983/984 or Bluetooth: the hashes, then the changed bands' rows one request each. */
+  /* FM-1_983/984: the hashes, then the changed bands' rows one request each. */
   async stepRows() {
     const gen = this.gen;
     const info = await this.link.screenInfo();

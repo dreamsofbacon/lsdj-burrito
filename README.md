@@ -70,7 +70,7 @@ Raw LSDj saves are 131072 bytes. For a 131088-byte file (such as the reported LS
 Patcher export), the importer offers an explicit warning and confirmation to use
 only the first 131072 bytes, excluding the final 16. The extra bytes' format is
 not verified: this option is not suitable for a file with a leading header.
-Cancelling sends nothing. Your original file is never modified; the USB/Bluetooth
+Cancelling sends nothing. Your original file is never modified; the USB
 save protocol still accepts exactly 131072 bytes. Other file sizes are rejected.
 Back up the FM-1's songs before replacing them, and use the matching LSDj version.
 
@@ -219,7 +219,7 @@ channel tint across all 92 themes.
 
 The 975 FX tests additionally verify bit-exact global bypass with channel mutes,
 preserved settings, advancing echo/LFO/compressor state, seven-page mappings,
-inert unused knobs, legacy page migration, and USB/Bluetooth settings round trips.
+inert unused knobs, legacy page migration, and USB settings round trips.
 Browser checks cover All FX independently of the selected channel, live device
 state, 11/17-word backups, older-firmware gating and overflow-free controls at
 320/390/820/1280-pixel widths.

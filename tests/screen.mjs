@@ -146,9 +146,6 @@ function syncLink(px, {supported = true} = {}) {
   const m = new ScreenMirror(l, canvas());
   assert.equal(await m.step(), true); assert.equal(l.rows, H); assert.deepEqual([...m.pixels()], [...pic]);
   await m.step(); assert.equal(syncs, 1); }
-// Bluetooth (a slow link): never asks for SCREEN_SYNC
-{ const l = fakeLink(pic.slice()); l.slow = true; l.screenSync = async () => { throw new Error('not over Bluetooth'); };
-  const m = new ScreenMirror(l, canvas()); assert.equal(await m.step(), true); assert.equal(l.rows, H); }
 // the loop with sync: rows, then idle rounds; stop() ends it and lets go of the link
 { const l = syncLink(pic.slice()), m = new ScreenMirror(l, canvas(), {every: 5});
   m.start(); await new Promise(r => setTimeout(r, 60)); m.stop();

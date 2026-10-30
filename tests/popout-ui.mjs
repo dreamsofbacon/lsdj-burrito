@@ -31,7 +31,7 @@ async function popoutTest(which) {
     if (op === OP.SETTINGS_GET) return send(le32(0x5a000000));
     if (op === OP.THEME_GET) return send(Array(16).fill(0));
     if (op === OP.FEAT_GET) return send(le32(0x460001CE));
-    if (op === OP.MIDI_GET || op === OP.BLUETOOTH) return send([], 1);
+    if (op === OP.MIDI_GET) return send([], 1);
     if (op === OP.LIVE) return send([bytes[38], 1, 120, 0, 0, 0, 0, ...bytes, 0x82]);
     if ([OP.STORE, OP.MUTE_SET].includes(op)) return send();
     if (op === OP.SCREEN_SYNC) {   // every band new each time asked: every row one colour, blue

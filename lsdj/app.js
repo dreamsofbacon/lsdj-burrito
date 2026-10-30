@@ -3,7 +3,6 @@
 // for live effects, songs, colours and settings. Never writes firmware.
 import {Link, midiPorts, LinkError, SAVE_SIZE} from './link.js';
 import {confirmSaveImport} from './save-file.js';
-import {connectBleMidi} from './ble-midi.js';
 import {showDeviceTheme, setMatching, matching} from './page-theme.js';
 import {setBeforeInstall, installing, usbMidiUnavailable} from './install-ui.js';
 import {CHANNELS, pagesForFx, PARAM, paramGet, paramSet, valueText, channelSummary, unpackFx, packFx, PRESETS, THEMES, COLOR_NAMES, toHex, fromHex,
@@ -27,25 +26,22 @@ const enable = on => {
 let midi = null;   // the MIDI options (null: firmware without them)
 let features = null;   // the feature switches, SETTINGS / FX+LIGHTS (null: firmware before FM-1_979)
 let fwId = '', fwNum = 0;   // the firmware: "FM-1_979", 979
-let link = null, ports = null, fx = null, settings = null, theme = PRESETS[0].slice(), busy = false, touched = 0, ble = null;
+let link = null, ports = null, fx = null, settings = null, theme = PRESETS[0].slice(), busy = false, touched = 0;
 let connected = false;
 let mirror = null;   // the FM-1's screen above Effects (lsdj/screen.js)
-let mirrorRate = null;   // its pictures-a-second line
 
 /* ---------- connect ---------- */
 async function connectTo(input, output, how = 'USB') {
   if (busy || installing()) return;
   connected = false;
   mirror?.stop(); mirror = null;
-  link?.close(); link = new Link(input, output, {slow: how === 'Bluetooth'});
-  if (how !== 'Bluetooth') { ble?.close(); ble = null; }
+  link?.close(); link = new Link(input, output);
   try {
     const info = await link.info();
     if (info.protocol !== 1) throw new LinkError(`This page speaks link version 1; the FM-1 speaks ${info.protocol}. Update the page or the firmware.`);
     fwId = info.firmware; fwNum = firmwareNumber(info.firmware);
     muteOk = fwNum >= 977;   // MUTE_SET: FM-1_977 and newer
     say('device', `Connected over ${how}: ${info.firmware} running ${info.title || 'a game'}` + (info.liveKnown ? '' : ' (live data needs LSDj 9.3.9)'), 'ok');
-    showBluetooth(how);
     $('stage-dev').textContent = `· ${info.firmware} over ${how}`;
     fx = unpackFx(await link.fxGet());
     settings = unpackSettings(await link.settingsGet());
@@ -54,10 +50,51 @@ async function connectTo(input, output, how = 'USB') {
     theme = await link.themeGet(); customTheme = theme.slice();
     buildFx(); buildSettings(); buildTheme(); enable(true);
     pageTheme();
-    connected = true;
-    startPoll(how === 'Bluetooth' ? 500 : 250);
+    connected = true; lostAt = 0; missed = 0;
+    watchPorts(ports?.access);
+    startPoll(250);
     startMirror(how);
   } catch (e) { enable(false); say('device', e.message, 'bad'); }
+}
+/* ---------- a lost FM-1 ----------
+   Web MIDI says when the FM-1's port goes (the cable pulled, the FM-1 turned off); the live poll
+   also checks the ports, and LOST_POLLS unanswered polls in a row count as lost too. Then the page
+   goes back to Not connected, and connects again by itself when the FM-1's port comes back. */
+const LOST_POLLS = 4;
+let missed = 0, lostAt = 0, watching = null, reconnecting = false;
+const samePort = (a, b) => !!a && !!b && (a === b || (a.id != null && a.id === b.id));
+const portGone = () => [link?.input, link?.output].some(p => p?.state === 'disconnected');
+function lost(message) {
+  if (!connected || installing()) return;
+  connected = false; lostAt = Date.now(); missed = 0;
+  stopPoll(); mirror?.stop(); mirror = null; link?.close();
+  enable(false); say('device', message, 'warn');
+}
+const UNPLUGGED = 'The FM-1 was disconnected. Plug it in again: the page connects by itself (or press Connect).';
+function onPortChange(e) {
+  const p = e.port;
+  if (!p) return;
+  if (p.state === 'disconnected' && connected && (samePort(p, link?.input) || samePort(p, link?.output))) return lost(UNPLUGGED);
+  if (p.state === 'connected' && !connected && lostAt) reconnect();
+}
+function watchPorts(access) {
+  if (access === watching || !access?.addEventListener) return;   // test doubles may have no events
+  watching?.removeEventListener('statechange', onPortChange);
+  watching = access; access.addEventListener('statechange', onPortChange);
+}
+/* the FM-1's input and output come back one after the other, and it may still be starting: try a few times */
+async function reconnect() {
+  if (reconnecting) return;
+  reconnecting = true;
+  try {
+    for (const wait of [300, 1000, 2500]) {
+      await new Promise(r => setTimeout(r, wait));
+      if (connected || !lostAt || busy || installing()) return;
+      await connectUsbQuietly();
+      if (connected) return;
+    }
+    if (!connected) say('device', 'The FM-1 is back but did not answer. Is LSDJ Burrito running? Press Connect to try again.', 'warn');
+  } finally { reconnecting = false; }
 }
 $('connect-btn').onclick = async () => {
   if (busy || installing()) return;
@@ -75,31 +112,6 @@ $('connect-btn').onclick = async () => {
 if (usbMidiUnavailable()) {
   $('connect-btn').disabled = true;
   say('device', usbMidiUnavailable(), 'warn');
-}
-/* Bluetooth: the FM-1 with BLUETOOTH = DEVICE (Settings) shows up as "LSDJ Burrito" */
-if (navigator.bluetooth) $('connect-ble').hidden = false;
-$('connect-ble').onclick = async () => {
-  if (busy || installing()) return;
-  try {
-    ble?.close();
-    ble = await connectBleMidi();
-    ble.ondisconnected(() => { connected = false; mirror?.stop(); link?.close(); stopPoll(); enable(false); say('device', 'Bluetooth disconnected. Connect again when the FM-1 is near.', 'warn'); });
-    await connectTo(ble.input, ble.output, 'Bluetooth');
-  } catch (e) {
-    if (e.name === 'NotFoundError') return say('device', 'No FM-1 chosen. Turn on BLUETOOTH: DEVICE in the FM-1\'s settings (GLO), then try again.', 'warn');
-    say('device', e.message, 'bad');
-  }
-};
-/* The FM-1's Bluetooth, as reported over the link */
-async function showBluetooth(how) {
-  const el = $('bt-status');
-  try {
-    const bt = await link.bluetooth();
-    if (!bt) { el.textContent = 'This firmware has no Bluetooth.'; return; }
-    el.textContent = `Bluetooth: ${bt.state}` + (bt.error ? ` (${bt.error})` : '') +
-      (bt.state === 'connected' ? ` · packets in ${bt.packetsIn}, out ${bt.packetsOut}` : '') +
-      (how === 'Bluetooth' ? ' · Songs move slower over Bluetooth than over USB.' : '');
-  } catch { el.textContent = ''; }
 }
 $('port-pick').onchange = e => {
   const i = +e.target.value, input = ports.ins[i];
@@ -278,6 +290,7 @@ function changedKeys(a, b) {
 }
 async function tick() {
   if (!link || busy || !anyVisible()) return;
+  if (portGone()) return lost(UNPLUGGED);
   try {
     if (++ticks % 8 === 0) await followThemeSetting();
     const l = await link.live();
@@ -291,14 +304,17 @@ async function tick() {
       hot = changedKeys(fx, live);
       fx = live;
     } else if (Date.now() - muteTouched > 1000) fx.freeze = l.freeze;
-    lastLive = l;
+    lastLive = l; missed = 0;
     refresh(hot);
     const bat = l.battery;   // {bars, usb} or null (lsdj/link.js)
     $('live-badges').innerHTML = `<span class="badge">${pagesForFx(live, fwNum)[fm1Page]?.name || ''}</span><span class="badge">${l.bpm} BPM</span>` +
       (live.bypass ? '<span class="badge">ALL FX OFF</span>' : '') +
       (l.freeze ? '<span class="badge on">FROZEN</span>' : '') +
       (bat ? `<span class="badge" title="The FM-1's battery (3 bars: full)">${bat.usb ? 'USB power' : 'Battery ' + '▮'.repeat(bat.bars) + '▯'.repeat(3 - bat.bars)}</span>` : '');
-  } catch (e) { /* a missed poll: try again on the next */ }
+  } catch (e) {   /* a missed poll: try again on the next; LOST_POLLS in a row: the FM-1 is gone */
+    if (portGone()) lost(UNPLUGGED);
+    else if (e.cause === 'timeout' && ++missed >= LOST_POLLS) lost('The FM-1 stopped answering. Check the cable and that LSDJ Burrito is running, then press Connect.');
+  }
 }
 /* The live poll: one after another, timed by a window on screen (the page, or one of its own
    windows while the page is behind: a hidden window's timers are slowed down) */
@@ -316,28 +332,14 @@ const stopPoll = () => { pollGen++; };
 function startMirror(how) {
   const box = $('fm1-screen-box'), note = $('fm1-screen-note'), canvas = $('fm1-screen');
   box.hidden = false; note.hidden = true;
-  mirror = new ScreenMirror(link, canvas, {every: how === 'Bluetooth' ? 400 : 33, clock: visibleWindow,
-    push: how !== 'Bluetooth' && fwNum >= 990,   // FM-1_990: the FM-1 sends each new picture by itself
+  mirror = new ScreenMirror(link, canvas, {every: 33, clock: visibleWindow,
+    push: fwNum >= 990,   // FM-1_990: the FM-1 sends each new picture by itself
     active: () => connected && !busy && !installing() && seen(canvas) && (isOut('screen') || !$('live-sec').hidden),
     onSupport: ok => {
       box.hidden = !ok; note.hidden = ok;
       if (!ok) note.textContent = `The FM-1's screen shows here with FM-1_983 or newer (this FM-1 runs ${fwId}).`;
     }});
   mirror.start();
-  /* how the mirror keeps up, once a second: the pictures the FM-1 put on its own LCD, the ones shown
-     here (only those that changed), the rows behind them */
-  clearInterval(mirrorRate);
-  let last = {...mirror.stats};
-  const m = mirror;
-  mirrorRate = setInterval(() => {
-    if (m !== mirror) return clearInterval(mirrorRate);
-    const s = m.stats, shown = s.shown - last.shown, rows = s.rows - last.rows, lost = s.lost - last.lost;
-    const fm1 = s.fm1Shown != null && last.fm1Shown != null ? (s.fm1Shown - last.fm1Shown) >>> 0 : null;
-    $('fm1-screen-rate').textContent = !m.running || !m.active() ? '' :
-      (fm1 != null ? `FM-1 draws ${fm1}/s · ` : '') + `here ${shown} new picture${shown === 1 ? '' : 's'}/s · ${rows} rows/s` +
-      (lost ? ` · ${lost} band${lost === 1 ? '' : 's'} read again` : '');
-    last = {...s};
-  }, 1000);
 }
 /* ⇱: a panel in its own window (lsdj/popout.js) */
 document.querySelectorAll('#live-sec .panel[data-pop] .pop').forEach(b => {
@@ -372,7 +374,7 @@ async function connectUsbQuietly() {
 }
 export async function readInstalledCartridge(progress, signal) {
   await connectUsbQuietly();
-  if (!link || !connected) throw new LinkError('No FM-1 found over USB. Turn it on and plug it in with a data cable, or connect to the running FM-1 in My FM-1 (Bluetooth, or choose its MIDI port), then try Read from my FM-1 again.');
+  if (!link || !connected) throw new LinkError('No FM-1 found over USB. Turn it on and plug it in with a data cable, or connect to the running FM-1 in My FM-1 (choose its MIDI port), then try Read from my FM-1 again.');
   if (busy || installing() || sendTimer) throw new LinkError('Wait for the current device operation to finish.');
   const active = link;
   busy = true;
@@ -617,7 +619,7 @@ $('restore').onchange = e => {
 setBeforeInstall(async () => {
   if (busy) throw new LinkError('A song or settings operation is running. Wait for it to finish before installing firmware.');
   stopPoll();
-  link?.close(); link = null; ble?.close(); ble = null;
-  connected = false;
+  link?.close(); link = null;
+  connected = false; lostAt = 0;
   enable(false); say('device', 'Disconnected for the install. Connect again when it is done.', 'hint');
 });

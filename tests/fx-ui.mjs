@@ -32,7 +32,7 @@ export async function runFxUiTests() {
     if (op === OP.FX_SET) { bytes = args; writes++; return send(); }
     if (op === OP.SETTINGS_GET) return send(le32(0x5a000000));
     if (op === OP.THEME_GET) return send(Array(16).fill(0));
-    if (op === OP.MIDI_GET || op === OP.BLUETOOTH) return send([], 1);
+    if (op === OP.MIDI_GET) return send([], 1);
     if (op === OP.LIVE) return send([bytes[38], cursor, 120, 0, liveMute, 0, 0, ...bytes, ...(firmware >= 'FM-1_979' ? [0x82] : [])]);
     if (op === OP.FEAT_GET) return firmware >= 'FM-1_979' ? send(le32(featWord)) : send([], 1);
     if (op === OP.FEAT_SET) { featWord = (args[0] | args[1] << 8 | args[2] << 16 | args[3] << 24) >>> 0; featSets++; return send(); }
@@ -118,7 +118,7 @@ export async function runFxUiTests() {
     const legacy = backup(); restore(legacy);
     await until(() => $('settings-status').textContent.includes('Restored fx-test.json'), '11-word backup restore');
     assert(ops.every(op => [OP.INFO, OP.FX_GET, OP.FX_SET, OP.SETTINGS_GET, OP.SETTINGS_SET,
-      OP.THEME_GET, OP.THEME_SET, OP.MIDI_GET, OP.BLUETOOTH, OP.LIVE, OP.STORE, OP.SCREEN_INFO, OP.SCREEN_SYNC].includes(op)), 'Only simulated settings operations');
+      OP.THEME_GET, OP.THEME_SET, OP.MIDI_GET, OP.LIVE, OP.STORE, OP.SCREEN_INFO, OP.SCREEN_SYNC].includes(op)), 'Only simulated settings operations');
     assert(ops.filter(op => op === OP.SCREEN_INFO).length <= 3 && ops.filter(op => op === OP.SCREEN_SYNC).length <= 3, 'older firmware: the screen asked about once per connection');
     bytes = packFx({...read(), v2: true, v3: true, bypass: 0, page: 1}).flatMap(le32);
     firmware = 'FM-1_977';
@@ -236,7 +236,7 @@ export async function runExportUiTests() {
     if (op === OP.SETTINGS_GET) return send(le32(0x5a000000));
     if (op === OP.THEME_GET) return send(Array(16).fill(0));
     if (op === OP.FEAT_GET) return send(le32(0x460001CE));
-    if (op === OP.MIDI_GET || op === OP.BLUETOOTH || op === OP.CART_INFO) return send([], 1);
+    if (op === OP.MIDI_GET || op === OP.CART_INFO) return send([], 1);
     if (op === OP.READ) { const off = args[0] | args[1] << 8 | args[2] << 16; return send(Array.from({length: 128}, (_, i) => (off + i) & 255)); }
     if (op === OP.LIVE) return send([1, 0, 120, 0, 0, 0, 0, ...fxBytes, 0xFF]);
     if (op === OP.FX_SET || op === OP.STORE) return send();

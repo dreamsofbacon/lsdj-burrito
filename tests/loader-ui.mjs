@@ -148,7 +148,7 @@ export async function runLoaderUiTests() {
     assert($('rom').disabled && $('fw-file').disabled, 'Preparation locks conflicting file inputs');
     assert($('emu-selected').disabled, 'Preparation blocks preview of the previous installer selection');
     await preparing;
-    text('rom-info', /Prepared FM-1_5370992 \(LSDJ Burrito FM-1_992\)/);
+    text('rom-info', /Prepared FM-1_5370994 \(LSDJ Burrito FM-1_994\)/);
     text('rom-info', /Cursor-following FX unavailable: FX targets ALL channels/);
     text('rom-next', /Step 4/);
     assert(!$('rom-download').hidden && !$('fw-install').disabled, 'Prepared package available for download and explicit install');
@@ -200,7 +200,7 @@ export async function runUnsupportedMidiUiTests() {
     $('rom-experimental').checked = true;
     $('rom-experimental').onchange();
     await $('rom-build').onclick();
-    text('rom-info', /Prepared FM-1_5370992 \(LSDJ Burrito FM-1_992\)/);
+    text('rom-info', /Prepared FM-1_5370994 \(LSDJ Burrito FM-1_994\)/);
     assert(!$('rom-download').hidden && $('fw-install').disabled && !$('emu-selected').disabled,
       'Unsupported USB still allows preparing, downloading and selecting local previews');
     return 'PASS unsupported Web MIDI: no device access/confirmation, USB disabled, local preparation/download/preview preserved';
@@ -232,7 +232,7 @@ export async function runDeviceUpdateUiTests() {
     if (op === OP.FX_GET) return send(fx);
     if (op === OP.SETTINGS_GET) return send(le32(0x5a000000));
     if (op === OP.THEME_GET) return send(Array(16).fill(0));
-    if (op === OP.MIDI_GET || op === OP.BLUETOOTH) return send([], 1);
+    if (op === OP.MIDI_GET) return send([], 1);
     if (op === OP.LIVE) return send([0, 0, 120, 0, 0, 0, 0, ...fx]);
     if (op === OP.CART_INFO) return mode === 'old' ? send([], 1) :
       send([...le32(slot.length), ...le32(rd32(slot, 252)), ...le32(rd32(slot, 16))]);
@@ -283,7 +283,7 @@ export async function runDeviceUpdateUiTests() {
     noFirmware();
     $('rom-experimental').checked = true; $('rom-experimental').onchange();
     await $('rom-build').onclick();
-    text('rom-info', /Prepared FM-1_5370992 \(LSDJ Burrito FM-1_992\)/);
+    text('rom-info', /Prepared FM-1_5370994 \(LSDJ Burrito FM-1_994\)/);
     assert(!$('rom-download').hidden, 'Device-based package available for explicit download/install');
 
     globalThis.fetch = async (path, options) => {
@@ -301,7 +301,7 @@ export async function runDeviceUpdateUiTests() {
     assert(!$('rom-build').disabled, 'Unticking a kit lets the smaller update be prepared');
     noFirmware();
     assert(ops.every(op => [OP.INFO, OP.FX_GET, OP.SETTINGS_GET, OP.MIDI_GET, OP.THEME_GET,
-      OP.BLUETOOTH, OP.LIVE, OP.CART_INFO, OP.CART_READ, OP.SCREEN_INFO, OP.SCREEN_SYNC].includes(op)), 'Only read-only device requests');
+      OP.LIVE, OP.CART_INFO, OP.CART_READ, OP.SCREEN_INFO, OP.SCREEN_SYNC].includes(op)), 'Only read-only device requests');
     return 'PASS device update UI: connect/bootstrap guidance, cancellation, competing-action locks, corrupt transfer, adjustable kits, explicit preparation, untick to fit, no device writes';
   } finally {
     globalThis.fetch = originalFetch;

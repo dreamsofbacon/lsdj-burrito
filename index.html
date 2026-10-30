@@ -68,13 +68,11 @@ body.connected #connect{padding:10px 16px}
 body.connected #connect .connect-help,body.connected #connect h2{display:none}
 body:not(.connected) .needs-device{display:none}
 body.connected #connect-btn{background:var(--card);color:var(--ink);border-color:var(--line);font-weight:400}
-body.connected #connect-ble{display:none}
 body.connected #rom-step .file-btn{background:var(--card);color:var(--ink);border-color:var(--line);font-weight:400}
 body.connected #rom-device{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
 input[type=range]{accent-color:var(--accent)}
 #emu-status:empty{display:none}
 #device{margin:0}
-#bt-status:empty{display:none}
 /* effects */
 #fx-page-follow.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
 .page-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 10px}
@@ -307,12 +305,9 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <div class="spread">
 <p id="device" role="status"></p>
 <div class="row"><button id="connect-btn" class="primary" type="button">Connect over USB</button>
-<button id="connect-ble" type="button" hidden>Connect over Bluetooth</button>
 <select id="port-pick" hidden></select></div>
 </div>
-<p id="bt-status" class="hint"></p>
-<details class="connect-help"><summary>Bluetooth, and if it doesn't connect</summary>
-<p>Bluetooth needs a Bluetooth build with <b>BLUETOOTH: DEVICE</b> on in the FM-1's settings (GLO). Songs move slower over Bluetooth.</p>
+<details class="connect-help"><summary>If it doesn't connect</summary>
 <p>No FM-1 found? Use a data cable (some charge-only cables don't carry data), check the FM-1 is on and close other music apps that may hold its MIDI port. Installing firmware is done from <a href="#install">Install</a>, not here.</p>
 </details>
 </section>
@@ -334,7 +329,7 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 </div>
 
 <div class="panel" id="pan-screen" data-pop="screen" data-title="FM-1 screen" data-size="720x680">
-<div class="panel-head"><h3>Screen</h3><span id="fm1-screen-rate" class="hint" aria-live="off"></span><button class="pop" type="button" title="Open in its own window">⇱</button></div>
+<div class="panel-head"><h3>Screen</h3><button class="pop" type="button" title="Open in its own window">⇱</button></div>
 <div id="fm1-screen-box" class="fm1-screen" hidden><canvas id="fm1-screen" width="160" height="144" role="img" aria-label="The FM-1's screen, as its display shows it"></canvas></div>
 <p id="fm1-screen-note" class="hint" hidden></p>
 </div>
@@ -445,7 +440,7 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <div class="actions">
 <div class="action"><p><b>Choose my LSDj ROM file</b></p><p class="hint">Your <span class="mono">lsdj.gb</span>. Needed the first time.</p>
 <label class="button-link primary file-btn">Choose .gb file…<input id="rom" type="file" accept=".gb" aria-describedby="rom-info"></label></div>
-<div class="action"><p><b>Use the LSDj already on my FM-1</b></p><p class="hint">For updates. Needs FM-1_974 or newer, plugged in over USB (it connects by itself; for Bluetooth, connect in <a href="#connect">My FM-1</a> first). Takes a few minutes.</p>
+<div class="action"><p><b>Use the LSDj already on my FM-1</b></p><p class="hint">For updates. Needs FM-1_974 or newer, plugged in over USB (it connects by itself). Takes a few minutes.</p>
 <div class="row"><button id="rom-device" type="button">Read from my FM-1</button><button id="rom-cancel" type="button" hidden>Cancel</button></div></div>
 </div>
 <progress id="rom-read-progress" value="0" max="1" hidden></progress>
@@ -469,8 +464,10 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <p id="wiz-backup-status" role="status" hidden></p></div>
 <label class="check"><input id="rom-experimental" type="checkbox" disabled><span>I understand this firmware is experimental and may not start or sound right, and I have backed up my songs.</span></label>
 <div class="row"><button id="rom-build" type="button" class="primary" aria-describedby="rom-next" disabled>Prepare firmware</button><span class="hint">Builds the file on this computer. Nothing is installed yet.</span></div>
-<details><summary>What's in this version (FM-1_992)</summary>
-<p>New in FM-1_992: LSDJ Burrito has its own firmware number, <b>FM-1_5370992</b> (FM-1_537 and the version), so updaters and The Firmware Hub can tell it apart from other FM-1 firmwares; the 9NN numbers were shared with others. Your FM-1 and this page still call it FM-1_992. Nothing else changes.</p>
+<details><summary>What's in this version (FM-1_994)</summary>
+<p>New in FM-1_994: Bluetooth is gone. The Bluetooth build was never part of the normal firmware (it only fitted with a smaller sound buffer, which crackled), so for the firmware you use nothing changes, except that Settings no longer lists BLUETOOTH and MIDI clock in is USB or TRS, clock out USB. My FM-1 connects over USB only. (FM-1_993 was a private test build.)</p>
+<p>Also new on this page: My FM-1 notices when the cable is pulled or the FM-1 is turned off, goes back to Not connected, and connects again by itself when the FM-1 is plugged in again. The pictures-a-second line beside the FM-1's screen is gone.</p>
+<p>From FM-1_992: LSDJ Burrito has its own firmware number, <b>FM-1_5370992</b> (FM-1_537 and the version), so updaters and The Firmware Hub can tell it apart from other FM-1 firmwares; the 9NN numbers were shared with others. Your FM-1 and this page still call it FM-1_992. Nothing else changes.</p>
 <p>From FM-1_991: more sample kits fit. A kit often uses only part of its 16 KiB bank; the rest is empty filler, which is no longer stored, and the FM-1 reads it back as before. A stock LSDj 9.3.9 now fits with all 21 kits (17 before), with room to spare for your own. Songs and save space are unchanged.</p>
 <p>From FM-1_990: the FM-1 sends each new picture of its screen to this page by itself, so the screen here keeps up with the FM-1 at SCREEN RATE 30 (before, the page asked for each picture and waited, and skipped some). USB only.</p>
 <p>From FM-1_989: SCREEN RATE, on the FM-1 under SETTINGS / DISPLAY (under CPU METER) and here in Settings: the FM-1 draws its screen 10, 15, 20 or 30 times a second (10 before), and the screen on this page follows. More pictures take CPU time from the sound: turn on the CPU meter and go back a step if U shows underruns or the sound clicks.</p>
@@ -478,7 +475,7 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <p>From FM-1_988: the FM-1's screen on this page keeps up with the FM-1's own screen. The FM-1 sends the changed rows back to back instead of one at a time, and the line under the screen shows how many pictures a second the FM-1 draws and how many the page shows.</p>
 <p>From FM-1_987: the FM-1's screen on this page no longer shows torn or missing effects panels and menus, and it updates up to 30 times a second over USB. Read from my FM-1 connects over USB by itself. The page now shows the screen a whole picture at a time (no rows sweeping down), with a pictures-a-second line under it.</p>
 <p>From FM-1_986: the effects follow LSDj's cursor on more LSDj versions. LSDj 9.3.9 with custom palettes or kits now counts as LSDj 9.3.9 (everything works). LSDj 9.4.0, 9.2.L, 9.1.C, 8.4.9, 8.4.2 and 4.6.2: the effects follow the cursor and the LFO follows the tempo; SEQ live mode, tempo editing, cues and MIDI sync still need LSDj 9.3.9. Choosing your LSDj says which it is.</p>
-<p>From FM-1_985: the FM-1's screen above Effects updates several times faster over USB. The page asks once and the FM-1 sends back only the rows that changed, packed small, instead of the page asking for each row. Over Bluetooth, and with FM-1_983 or FM-1_984, the screen updates as before.</p>
+<p>From FM-1_985: the FM-1's screen above Effects updates several times faster over USB. The page asks once and the FM-1 sends back only the rows that changed, packed small, instead of the page asking for each row. With FM-1_983 or FM-1_984, the screen updates as before.</p>
 <p>FM-1_984: two effects areas. Turning a knob or SELECT pops up the channel pages (FILTER, DRIVE, LFO, LO-FI) for the channel under LSDj's cursor, for a moment, as before. The FX button opens the master pages (MASTER, ECHO, ECHO MOD; C4-F4 mute there) and keeps them open until you press FX again.</p>
 <p>From FM-1_983: the FM-1's screen shows on this page, above Effects (My FM-1), exactly as its display shows it, effects panels included. It is view only; fold it away to stop it reading. Older firmware says it needs FM-1_983.</p>
 <p>From FM-1_982: the master pages are apart from the channel pages. FX opens the effects panel on FILTER, DRIVE, LFO, LO-FI; FX again shows MASTER, ECHO, ECHO MOD (C4-F4 mute there); FX a third time closes it. SELECT turns the pages of the list shown.</p>

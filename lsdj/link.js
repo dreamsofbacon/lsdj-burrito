@@ -7,11 +7,9 @@
 
 export const OP = {INFO: 0x01, READ: 0x02, BEGIN: 0x03, CHUNK: 0x04, COMMIT: 0x05, ABORT: 0x06,
   SETTINGS_GET: 0x10, SETTINGS_SET: 0x11, FX_GET: 0x12, FX_SET: 0x13, THEME_GET: 0x14, THEME_SET: 0x15,
-  STORE: 0x16, MIDI_GET: 0x17, MIDI_SET: 0x18, FEAT_GET: 0x19, FEAT_SET: 0x1A, LIVE: 0x20, BLUETOOTH: 0x21,
+  STORE: 0x16, MIDI_GET: 0x17, MIDI_SET: 0x18, FEAT_GET: 0x19, FEAT_SET: 0x1A, LIVE: 0x20,
   CART_INFO: 0x22, CART_READ: 0x23, MUTE_SET: 0x24, SCREEN_INFO: 0x25, SCREEN_ROW: 0x26,
   SCREEN_SYNC: 0x27, SCREEN_PIXELS: 0x28, SCREEN_FRAME: 0x29};
-export const BT_STATES = ['off', 'starting', 'ready', 'advertising', 'connected', 'failed'];
-export const BT_ERRORS = ['', 'no radio calibration in flash', 'start timed out', 'no task', 'address refused', 'advertising refused', 'link refused'];
 export const STATUS = ['ok', 'bad request', 'wrong state', 'checksum mismatch', 'flash error'];
 export const CHUNK = 128;
 export const SAVE_SIZE = 131072;
@@ -49,11 +47,9 @@ export function parse(msg) {
 export class LinkError extends Error {}
 
 export class Link {
-  /* input / output: Web MIDI ports (or anything with onmidimessage / send: lsdj/ble-midi.js).
-     slow: Bluetooth (each request waits longer). */
-  constructor(input, output, {slow = false} = {}) {
+  /* input / output: Web MIDI ports (or anything with onmidimessage / send). */
+  constructor(input, output) {
     this.input = input; this.output = output; this.waiting = null; this.queue = Promise.resolve();
-    this.slow = slow;
     this.onPixels = null;   // FM-1_985: rows the FM-1 sends by itself after SCREEN_SYNC (lsdj/screen.js); FM-1_990: and SCREEN_FRAME
     input.onmidimessage = e => {
       const m = e.data;
@@ -77,7 +73,6 @@ export class Link {
      its reply never arrives; a late reply was never seen), so a request that is safe to repeat is
      sent again after a timeout: retries more times. */
   req(op, bytes = [], {timeout = 1500, allow = [0], retries = 0, signal, accept = () => true} = {}) {
-    if (this.slow) timeout *= 3;
     const once = () => new Promise((resolve, reject) => {
       if (this.closed) return reject(new LinkError('Disconnected from the FM-1.'));
       if (signal?.aborted) return reject(new LinkError('Cartridge read cancelled.'));
@@ -186,14 +181,6 @@ export class Link {
   async featGet() { const r = await this.req(OP.FEAT_GET, [], {retries: 2, allow: [0, 1]}); return r.status ? null : rd32(r.data, 0); }
   async featSet(v) { await this.req(OP.FEAT_SET, le32(v), {retries: 2}); }
   async store() { await this.req(OP.STORE, [], {timeout: 10000, retries: 1}); }
-  /* the FM-1's Bluetooth (firmware/lsdj_ble.h), or null in a build without it */
-  async bluetooth() {
-    const r = await this.req(OP.BLUETOOTH, [], {allow: [0, 1], retries: 1});
-    if (r.status) return null;
-    const v = i => rd32(r.data, 4 * i);
-    return {state: BT_STATES[v(0)] || 'state ' + v(0), error: BT_ERRORS[v(1)] || (v(1) ? 'error ' + v(1) : ''),
-            packetsIn: v(2), packetsOut: v(3), sysexIn: v(4), bad: v(5), mtu: v(6), heapHigh: v(7), heapFails: v(8)};
-  }
   /* FM-1_977 and newer: the channel mutes (bit per channel) and the echo freeze; live only, never saved */
   async muteSet(mute, freeze) { await this.req(OP.MUTE_SET, [mute & 15, freeze ? 1 : 0], {retries: 2}); }
   /* FM-1_983 and newer: the screen (lsdj/screen.js). {shown, hashes: 18 bands}, or null before */
@@ -204,7 +191,7 @@ export class Link {
   }
   /* FM-1_985 and newer, USB: the hashes the page holds (null: unknown) -> {shown, hashes, bands (bit per
      band)}; the FM-1 then sends those bands' rows by itself (onPixels), tagged with round (0..127).
-     null: not here (older firmware, or Bluetooth). push (FM-1_990): and each new picture after it, by
+     null: not here (older firmware). push (FM-1_990): and each new picture after it, by
      itself (SCREEN_FRAME, then its rows) for 3 s */
   async screenSync(known, round, push = false) {
     const force = (known.reduce((m, h, b) => h == null ? m | 1 << b : m, 0) | (push ? 1 << 31 : 0)) >>> 0;

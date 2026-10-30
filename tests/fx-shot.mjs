@@ -23,7 +23,6 @@ export async function runFxShot() {
     if (op === OP.THEME_GET) return send(Array(16).fill(0));
     if (op === OP.FEAT_GET) return send(le32(0x460001CE));
     if (op === OP.MIDI_GET) return send(le32(0x4D000809));
-    if (op === OP.BLUETOOTH) return send([], 1);
     if (op === OP.LIVE) return send([1, 1, 140, 0, 2, 0, 0xF, ...b, 0x82]);
     return send();
   }};
