@@ -343,7 +343,9 @@ export const FEATURES = [
   {key: 'battery', bits: [8, 1], name: 'Battery on the FM-1\'s screen', choices: ['Off', 'On'], def: 1},
   {key: 'fxTheme', bits: [9, 7], name: 'FX panel colours', choices: ['Match the LSDj theme', ...THEMES]},
   /* FM-1_981. xor: stored as value XOR xor, so a word from 979 / 980 (no bits) reads as the default */
-  {key: 'autosave', bits: [16, 2], xor: 1, name: 'Autosave', choices: ['Off', 'Every minute at most', 'Every 5 minutes at most', 'Every 15 minutes at most'], def: 1}];
+  {key: 'autosave', bits: [16, 2], xor: 1, name: 'Autosave', choices: ['Off', 'Every minute at most', 'Every 5 minutes at most', 'Every 15 minutes at most'], def: 1},
+  /* FM-1_989: how often the FM-1 draws its screen (and so the mirror here); more costs CPU time next to the sound */
+  {key: 'screenRate', bits: [18, 2], name: 'FM-1 screen: pictures a second (more costs CPU time next to the sound)', choices: ['10', '15', '20', '30']}];
 export const FEATURE_DEFAULTS = Object.fromEntries(FEATURES.map(f => [f.key, f.def || 0]));
 export function unpackFeatures(v) {
   if (v >>> 24 !== 0x46) throw Error('Not a feature switches word from this firmware.');

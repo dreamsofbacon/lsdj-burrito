@@ -13,8 +13,11 @@ import {fxDiagram} from './fx-diagram.js';
 import {zipStore} from './zip.js';
 import {romFromSlot} from './lsdj-rom.js';
 import {ScreenMirror} from './screen.js';
+import {popOut, onPopChange, isOut, docs, seen, anyVisible, visibleWindow} from './popout.js';
 
-const $ = id => document.getElementById(id);
+/* by id or selector, in the page and in the panels' own windows (lsdj/popout.js) */
+const $ = id => { for (const d of docs()) { const el = d.getElementById(id); if (el) return el; } return null; };
+const $$ = sel => docs().flatMap(d => [...d.querySelectorAll(sel)]);
 const say = (id, text, cls = 'hint') => { const el = $(id); el.textContent = text; el.className = cls; };
 const enable = on => {
   ['live-sec', 'songs-sec', 'theme-sec', 'settings-sec'].forEach(id => $(id).setAttribute('aria-disabled', on ? 'false' : 'true'));
@@ -24,7 +27,7 @@ const enable = on => {
 let midi = null;   // the MIDI options (null: firmware without them)
 let features = null;   // the feature switches, SETTINGS / FX+LIGHTS (null: firmware before FM-1_979)
 let fwId = '', fwNum = 0;   // the firmware: "FM-1_979", 979
-let link = null, ports = null, fx = null, settings = null, theme = PRESETS[0].slice(), poll = null, busy = false, touched = 0, ble = null;
+let link = null, ports = null, fx = null, settings = null, theme = PRESETS[0].slice(), busy = false, touched = 0, ble = null;
 let connected = false;
 let mirror = null;   // the FM-1's screen above Effects (lsdj/screen.js)
 let mirrorRate = null;   // its pictures-a-second line
@@ -43,6 +46,7 @@ async function connectTo(input, output, how = 'USB') {
     muteOk = fwNum >= 977;   // MUTE_SET: FM-1_977 and newer
     say('device', `Connected over ${how}: ${info.firmware} running ${info.title || 'a game'}` + (info.liveKnown ? '' : ' (live data needs LSDj 9.3.9)'), 'ok');
     showBluetooth(how);
+    $('stage-dev').textContent = `· ${info.firmware} over ${how}`;
     fx = unpackFx(await link.fxGet());
     settings = unpackSettings(await link.settingsGet());
     { const w = await link.midiGet(); midi = w === null ? null : unpackMidi(w); }
@@ -51,7 +55,7 @@ async function connectTo(input, output, how = 'USB') {
     buildFx(); buildSettings(); buildTheme(); enable(true);
     pageTheme();
     connected = true;
-    clearInterval(poll); poll = setInterval(tick, how === 'Bluetooth' ? 500 : 250);
+    startPoll(how === 'Bluetooth' ? 500 : 250);
     startMirror(how);
   } catch (e) { enable(false); say('device', e.message, 'bad'); }
 }
@@ -79,7 +83,7 @@ $('connect-ble').onclick = async () => {
   try {
     ble?.close();
     ble = await connectBleMidi();
-    ble.ondisconnected(() => { connected = false; mirror?.stop(); link?.close(); clearInterval(poll); enable(false); say('device', 'Bluetooth disconnected. Connect again when the FM-1 is near.', 'warn'); });
+    ble.ondisconnected(() => { connected = false; mirror?.stop(); link?.close(); stopPoll(); enable(false); say('device', 'Bluetooth disconnected. Connect again when the FM-1 is near.', 'warn'); });
     await connectTo(ble.input, ble.output, 'Bluetooth');
   } catch (e) {
     if (e.name === 'NotFoundError') return say('device', 'No FM-1 chosen. Turn on BLUETOOTH: DEVICE in the FM-1\'s settings (GLO), then try again.', 'warn');
@@ -103,35 +107,27 @@ $('port-pick').onchange = e => {
   if (input && output) connectTo(input, output);
 };
 
-/* ---------- live effects ----------
-   One channel at a time (it follows the FM-1's cursor unless a channel is picked),
-   in cards that are the FM-1's effects pages, each control named with the knob that
-   plays it there. Two or three choices: buttons; more: a list; ranges: a slider.
-   A control the FM-1 just changed flashes. */
-let editCh = null, followCursor = true, cursorCh = 0, lastLive = null, bpm = 120, sendTimer = null;
+/* ---------- live effects (Perform) ----------
+   The FM-1's effects pages as cards. A channel page is a row per knob and a column per channel
+   (PU1 PU2 WAV NOI), so all four play at once; a control shared by all channels sits once under
+   the four. Each control is named with the knob that plays it there. Two or three choices:
+   buttons; more: a list; ranges: a slider. A control the FM-1 just changed flashes. */
+let cursorCh = 0, lastLive = null, bpm = 120, sendTimer = null;
 /* The page the FM-1 shows (LIVE; a master page while FX is held there), the channel page it showed
    last, the mutes and whether this firmware takes them from the page (FM-1_977 and newer). */
 let fm1Page = null, lastChPage = null, mute = 0, muteOk = false, muteTouched = 0;
-/* One page at a time (following the FM-1's page unless one is picked here) or all pages as cards;
-   the viewer's choice is remembered in this browser only. */
-let showAll = false, followPage = true, pickPage = 0;
-try { showAll = localStorage.getItem('burrito.fxView') === 'all'; } catch {}
+/* the channel page shown: the FM-1's, unless one is picked here */
+let followPage = true, pickPage = 0;
 const shownPage = () => followPage ? (lastChPage ?? fx.page) : pickPage;
+/* per channel (its own value for each of the four) or one for all */
+const perChannel = key => PARAM[key].where === 'ch' || PARAM[key].where === 'q' || key === 'fxOn';
 /* mutes and freeze: live only, through MUTE_SET */
 function sendMute(freeze = fx.freeze ? 1 : 0) {
   if (!muteOk || busy || installing()) return;
   muteTouched = Date.now();
   link.muteSet(mute, freeze).catch(e => say('fx-status', e.message, 'bad'));
 }
-function setView(all) {
-  showAll = all;
-  try { localStorage.setItem('burrito.fxView', all ? 'all' : 'one'); } catch {}
-  refresh();
-}
-$('fx-view-one').onclick = () => setView(false);
-$('fx-view-all').onclick = () => setView(true);
-const controls = [];   // {key, where, el, set(v)}
-const curCh = () => followCursor ? cursorCh : editCh;
+const controls = [];   // {key, ch, wrap, set(v)}
 function changed() {
   if (busy || installing()) return;
   touched = Date.now();
@@ -141,10 +137,13 @@ function changed() {
     link.fxSet(packFx(fx)).catch(e => say('fx-status', e.message, 'bad'));
   }, 80);
 }
-function control(key) {
-  const p = PARAM[key], wrap = document.createElement('div'), c = () => curCh();
+/* one control for one channel (ch: 0-3; a shared control uses 0) */
+function control(key, ch) {
+  const p = PARAM[key], wrap = document.createElement('div');
   wrap.className = 'fx-ctl'; wrap.dataset.key = key;
+  if (perChannel(key)) { wrap.dataset.ch = ch; wrap.dataset.chn = CHANNELS[ch]; }
   const out = document.createElement('output');
+  const focused = el => el.ownerDocument.activeElement === el;   // the panel may be in its own window
   let input, set;
   if (p.choices && p.choices.length <= 3) {          // a toggle: one button per choice
     input = document.createElement('div'); input.className = 'seg'; input.setAttribute('role', 'radiogroup');
@@ -153,7 +152,7 @@ function control(key) {
       if (p.live && !muteOk) b.disabled = true;      // freeze: set from the page with FM-1_977 and newer
       b.onclick = () => {
         if (p.live) { fx.freeze = i; set(i); sendMute(i); refresh(); return; }
-        paramSet(fx, key, c(), i); set(i); changed(); refresh();
+        paramSet(fx, key, ch, i); set(i); changed(); refresh();
       };
       input.append(b); return b;
     });
@@ -161,19 +160,20 @@ function control(key) {
   } else if (p.choices) {                            // a list
     input = document.createElement('select');
     p.choices.forEach((name, i) => input.append(new Option(name, i)));
-    input.onchange = () => { paramSet(fx, key, c(), +input.value); changed(); refresh(); };
-    set = v => { if (document.activeElement !== input) input.value = v; };
+    input.onchange = () => { paramSet(fx, key, ch, +input.value); changed(); refresh(); };
+    set = v => { if (!focused(input)) input.value = v; };
   } else {                                           // a range
     input = document.createElement('input'); input.type = 'range'; input.min = 0; input.max = 127;
     input.oninput = () => {
-      paramSet(fx, key, c(), +input.value); out.textContent = valueText(fx, key, c(), bpm); changed();
-      controls.forEach(it => { if (it.key === key && it.wrap !== wrap) it.set(+input.value); });   // the same knob on another page (980: echo on MASTER)
+      paramSet(fx, key, ch, +input.value); out.textContent = valueText(fx, key, ch, bpm); changed();
+      /* the same knob elsewhere (980: echo on MASTER), for the same channel */
+      controls.forEach(it => { if (it.key === key && it.ch === ch && it.wrap !== wrap) it.set(+input.value); });
     };
-    set = v => { if (document.activeElement !== input) input.value = v; };
+    set = v => { if (!focused(input)) input.value = v; };
   }
-  input.setAttribute('aria-label', p.name);
+  input.setAttribute('aria-label', perChannel(key) ? `${p.name} ${CHANNELS[ch]}` : p.name);
   wrap.append(input, out);
-  const item = {key, where: p.where, set: v => { set(v); out.textContent = valueText(fx, key, c(), bpm); }, wrap};
+  const item = {key, ch, set: v => { set(v); out.textContent = valueText(fx, key, ch, bpm); }, wrap};
   controls.push(item);
   return wrap;
 }
@@ -181,11 +181,12 @@ function buildFx() {
   controls.length = 0;
   const box = $('fx-pages'); box.replaceChildren();
   const masterBox = $('fx-master-pages'); masterBox.replaceChildren();
-  $('fx-master').hidden = $('fx-ch-head').hidden = !fx.v3;   // FM-1_975 and newer: shared pages apart
+  $('fx-master').hidden = !fx.v3;   // FM-1_975 and newer: shared pages apart
   pagesForFx(fx, fwNum).forEach((pg, i) => {
     if (pg.v2 && !fx.v2) return;                     // the new pages need alpha 66
     const card = document.createElement('div'); card.className = 'fx-card'; card.dataset.page = i;
-    const perCh = pg.knobs.some(slot => slot && (slot[0] === 'ch' || slot[0] === 'q' || slot[1] === 'fxOn'));
+    const perCh = pg.knobs.some(slot => slot && perChannel(slot[1]));
+    if (perCh) card.classList.add('matrix');
     card.innerHTML = `<h3>${pg.name}<span class="fx-who">${perCh ? '' : 'all channels'}</span><span class="fx-onfm1">on the FM-1's knobs</span></h3>`;
     pg.knobs.forEach((slot, k) => {
       if (!slot) return;
@@ -193,11 +194,10 @@ function buildFx() {
       const row = document.createElement('div'); row.className = 'fx-row';
       const p = PARAM[key];
       row.innerHTML = `<span class="knob">K${k + 1}</span><span class="fx-name">${p.name}${(where === 'comp' || where === 'echo') && perCh ? ' <small>(all)</small>' : ''}</span>`;
-      row.append(control(key)); card.append(row);
+      if (perCh && perChannel(key)) CHANNELS.forEach((n, c) => row.append(control(key, c)));
+      else { const w = control(key, 0); if (perCh) w.classList.add('shared'); row.append(w); }
+      card.append(row);
     });
-    $('fx-master-status')?.remove();
-    const masterStatus = document.createElement('p'); masterStatus.id = 'fx-master-status'; masterStatus.className = 'hint';
-    masterStatus.setAttribute('role', 'status'); box.before(masterStatus);
     (isMasterPage(fx, i, fwNum) ? masterBox : box).append(card);
   });
   const mutes = $('fx-mutes'); mutes.replaceChildren();
@@ -217,74 +217,67 @@ function buildFx() {
     b.onclick = () => { followPage = false; pickPage = +card.dataset.page; refresh(); };
     bar.append(b);
   });
-  const tabs = $('fx-channels'); tabs.replaceChildren();
-  const follow = document.createElement('button'); follow.type = 'button'; follow.id = 'fx-follow'; follow.textContent = 'Follow FM-1 cursor';
-  follow.onclick = () => { followCursor = true; refresh(); };
-  tabs.append(follow);
+  /* the column heads: the channel, what is on, under the cursor, playing */
+  const head = $('fx-channels'); head.replaceChildren(document.createElement('div'), document.createElement('div'));
   CHANNELS.forEach((name, c) => {
-    const b = document.createElement('button'); b.type = 'button'; b.className = 'chan'; b.dataset.ch = c;
-    b.innerHTML = `<b>${name}</b><small></small>`;
-    b.onclick = () => { followCursor = false; editCh = c; refresh(); };
-    tabs.append(b);
+    const d = document.createElement('div'); d.className = 'chan'; d.dataset.ch = c;
+    d.innerHTML = `<b>${name}</b><small></small>`;
+    head.append(d);
   });
   refresh();
 }
-/* Everything shown from fx (and the live state): values, the channel, which page is on the FM-1. */
+/* Everything shown from fx (and the live state): values, the page, the cursor, mutes. */
 function refresh(hot = []) {
   if (!fx) return;
-  const c = curCh();
-  controls.forEach(it => it.set(paramGet(fx, it.key, c)));
+  controls.forEach(it => it.set(paramGet(fx, it.key, it.ch)));
   $('fx-master-status').textContent = fx.v3
     ? (fx.bypass ? 'All FX OFF: dry output. Settings are kept; MASTER K1 turns them back on.' : '')
     : 'Older firmware layout: the MASTER page and All FX switch require FM-1_975 or newer.';
-  const cards = [...document.querySelectorAll('#fx-pages .fx-card')];
+  const cards = $$('#fx-pages .fx-card');
   const want = cards.some(card => +card.dataset.page === shownPage()) ? shownPage() : +(cards[0]?.dataset.page ?? 0);
   cards.forEach(card => card.classList.toggle('shown', +card.dataset.page === want));
-  $('fx-pages').classList.toggle('one', !showAll);
-  $('fx-pagebar').hidden = showAll;
-  $('fx-view-one').setAttribute('aria-pressed', String(!showAll));
-  $('fx-view-all').setAttribute('aria-pressed', String(showAll));
   $('fx-page-follow').classList.toggle('on', followPage);
   const onFm1 = fm1Page ?? fx.page;
-  document.querySelectorAll('#fx-pagebar [data-page]').forEach(b => {
+  $$('#fx-pagebar [data-page]').forEach(b => {
     b.classList.toggle('on', +b.dataset.page === want);
     b.classList.toggle('fm1', !!lastLive && +b.dataset.page === onFm1);
   });
-  document.querySelectorAll('#fx-mutes [data-mute]').forEach(b => {
+  $$('#fx-mutes [data-mute]').forEach(b => {
     const playing = !((mute >> +b.dataset.mute) & 1);
     b.classList.toggle('on', playing); b.setAttribute('aria-pressed', String(playing));
   });
-  document.querySelectorAll('#fx-channels .chan').forEach(b => {
-    const n = +b.dataset.ch;
-    b.classList.toggle('on', n === c); b.classList.toggle('cursor', n === cursorCh);
-    const tags = [];
+  $$('#fx-channels .chan').forEach(d => {
+    const n = +d.dataset.ch, tags = [];
     if ((mute >> n) & 1) tags.push('muted');
     if (lastLive && (lastLive.playing >> n) & 1) tags.push('▶');
-    b.querySelector('small').textContent = [channelSummary(fx, n), ...tags].join(' · ');
+    d.querySelector('small').textContent = [channelSummary(fx, n), ...tags].join(' · ');
   });
-  $('fx-follow').classList.toggle('on', followCursor);
-  /* the channel shown is muted: its controls grey (still adjustable) and why it is silent, as the FM-1 does */
-  const silent = (mute >> c) & 1;
-  $('fx-pages').classList.toggle('muted', !!silent);
-  $('fx-muted').hidden = !silent;
-  if (silent) $('fx-muted').textContent = `${CHANNELS[c]} is muted: changes are kept, but you won't hear them until it plays again ` +
-    `(Master above${muteOk ? '' : ' needs FM-1_977'}, or ${['C4', 'D4', 'E4', 'F4'][c]} on the FM-1's MASTER page).`;
+  /* the column under the FM-1's cursor marked; a muted channel's column grey (still adjustable), as the FM-1 does */
+  $$('#pan-chans [data-ch]').forEach(el => {
+    const n = +el.dataset.ch;
+    el.classList.toggle('cursor', !!lastLive && n === cursorCh);
+    el.classList.toggle('muted', !!((mute >> n) & 1));
+  });
+  const silent = CHANNELS.filter((n, c) => (mute >> c) & 1);
+  $('fx-muted').hidden = !silent.length;
+  if (silent.length) $('fx-muted').textContent = `${silent.join(', ')} muted: changes are kept, but you won't hear them until ${silent.length > 1 ? 'they play' : 'it plays'} again ` +
+    `(Master${muteOk ? '' : ' needs FM-1_977'}, or C4-F4 on the FM-1's MASTER page).`;
   $('fx-diagram').innerHTML = fxDiagram(fx, {mute});
-  $('fx-editing').innerHTML = `Editing <b>${CHANNELS[c]}</b>` + (followCursor ? ' <span class="hint">(under the FM-1\'s cursor)</span>' : ' <span class="hint">(picked here)</span>');
-  document.querySelectorAll('#live-sec .fx-card').forEach(card => card.classList.toggle('fm1', !!lastLive && +card.dataset.page === onFm1));
+  $$('#live-sec .fx-card, .pop-body .fx-card').forEach(card => card.classList.toggle('fm1', !!lastLive && +card.dataset.page === onFm1));
   hot.forEach(key => {
-    document.querySelectorAll(`#live-sec .fx-ctl[data-key="${key}"]`).forEach(el => {
+    $$(`.fx-ctl[data-key="${key}"]`).forEach(el => {
       const row = el.closest('.fx-row'); row.classList.remove('hot'); void row.offsetWidth; row.classList.add('hot');
     });
   });
 }
-/* what changed between two setups, for the channel shown (and the shared effects) */
-function changedKeys(a, b, c) {
+/* what changed between two setups (every channel, and the shared effects) */
+function changedKeys(a, b) {
   if (!a || !b) return [];
-  return Object.keys(PARAM).filter(k => k !== 'freeze' && (PARAM[k].where !== 'q' || b.v2) && paramGet(a, k, c) !== paramGet(b, k, c));
+  return Object.keys(PARAM).filter(k => k !== 'freeze' && (PARAM[k].where !== 'q' || b.v2) &&
+    [0, 1, 2, 3].some(c => paramGet(a, k, c) !== paramGet(b, k, c)));
 }
 async function tick() {
-  if (!link || busy || document.hidden) return;
+  if (!link || busy || !anyVisible()) return;
   try {
     if (++ticks % 8 === 0) await followThemeSetting();
     const l = await link.live();
@@ -295,7 +288,7 @@ async function tick() {
     if (Date.now() - muteTouched > 1000) mute = l.mute & 15;
     let hot = [];
     if (Date.now() - touched > 1000) {   /* not while the user is moving a control */
-      hot = changedKeys(fx, live, curCh());
+      hot = changedKeys(fx, live);
       fx = live;
     } else if (Date.now() - muteTouched > 1000) fx.freeze = l.freeze;
     lastLive = l;
@@ -307,14 +300,24 @@ async function tick() {
       (bat ? `<span class="badge" title="The FM-1's battery (3 bars: full)">${bat.usb ? 'USB power' : 'Battery ' + '▮'.repeat(bat.bars) + '▯'.repeat(3 - bat.bars)}</span>` : '');
   } catch (e) { /* a missed poll: try again on the next */ }
 }
+/* The live poll: one after another, timed by a window on screen (the page, or one of its own
+   windows while the page is behind: a hidden window's timers are slowed down) */
+let pollGen = 0;
+function startPoll(ms) {
+  const gen = ++pollGen;
+  const next = () => { if (gen === pollGen) visibleWindow().setTimeout(step, ms); };
+  const step = () => { if (gen === pollGen) tick().finally(next); };
+  next();
+}
+const stopPoll = () => { pollGen++; };
 /* ---------- the FM-1's screen (FM-1_983 and newer) ----------
-   Read only while it can be seen (Effects shown, the fold-out open, the page in front) and no
-   other device operation runs; it shares the link with the live poll above. */
+   Read only while it can be seen (Perform shown, or the screen in its own window, on screen) and
+   no other device operation runs; it shares the link with the live poll above. */
 function startMirror(how) {
-  const box = $('fm1-screen-box'), note = $('fm1-screen-note');
+  const box = $('fm1-screen-box'), note = $('fm1-screen-note'), canvas = $('fm1-screen');
   box.hidden = false; note.hidden = true;
-  mirror = new ScreenMirror(link, $('fm1-screen'), {every: how === 'Bluetooth' ? 400 : 33,
-    active: () => connected && !busy && !installing() && !document.hidden && !$('live-sec').hidden && $('fx-screen').open,
+  mirror = new ScreenMirror(link, canvas, {every: how === 'Bluetooth' ? 400 : 33, clock: visibleWindow,
+    active: () => connected && !busy && !installing() && seen(canvas) && (isOut('screen') || !$('live-sec').hidden),
     onSupport: ok => {
       box.hidden = !ok; note.hidden = ok;
       if (!ok) note.textContent = `The FM-1's screen shows here with FM-1_983 or newer (this FM-1 runs ${fwId}).`;
@@ -335,13 +338,24 @@ function startMirror(how) {
     last = {...s};
   }, 1000);
 }
+/* ⇱: a panel in its own window (lsdj/popout.js) */
+document.querySelectorAll('#live-sec .panel[data-pop] .pop').forEach(b => {
+  const panel = b.closest('.panel');
+  b.onclick = () => {
+    const [w, h] = (panel.dataset.size || '800x500').split('x').map(Number);
+    if (!popOut(panel.dataset.pop, panel, {title: panel.dataset.title, width: w, height: h}))
+      say('fx-status', 'The browser blocked the new window: allow pop-ups for this page.', 'warn');
+  };
+});
+onPopChange(() => { if (fx) refresh(); });
+$('fx-help-btn').onclick = () => $('fx-help').showModal();
 $('fx-keep').onclick = () => run('fx-status', async () => { await link.fxSet(packFx(fx)); await link.store(); say('fx-status', 'Kept on the FM-1.', 'ok'); });
 
 /* ---------- songs ---------- */
 async function run(statusId, fn) {
   if (installing()) return say(statusId, 'Wait for the firmware installation to finish.', 'warn');
   if (busy) return; busy = true;
-  const buttons = [...document.querySelectorAll('section:not(#rom-step):not(#install-sec):not(#emulator-sec) button')];
+  const buttons = $$('section:not(#rom-step):not(#install-sec):not(#emulator-sec) button, .pop-body button');
   const disabled = buttons.map(b => b.disabled);
   buttons.forEach(b => b.disabled = true);
   try { await fn(); } catch (e) { say(statusId, e.message, 'bad'); }
@@ -362,7 +376,7 @@ export async function readInstalledCartridge(progress, signal) {
   const active = link;
   busy = true;
   // Lock all physical controls while leaving the cartridge Cancel button available.
-  const controls = [...document.querySelectorAll('section:not(#rom-step):not(#install-sec):not(#emulator-sec) button, section:not(#rom-step):not(#install-sec):not(#emulator-sec) input, section:not(#rom-step):not(#install-sec):not(#emulator-sec) select')];
+  const controls = $$('section:not(#rom-step):not(#install-sec):not(#emulator-sec) button, section:not(#rom-step):not(#install-sec):not(#emulator-sec) input, section:not(#rom-step):not(#install-sec):not(#emulator-sec) select, .pop-body button, .pop-body input, .pop-body select');
   const disabled = controls.map(el => el.disabled);
   controls.forEach(el => el.disabled = true);
   try {
@@ -532,13 +546,18 @@ function buildSettings() {
       selects(as, FEATURES.filter(f => f.key === 'autosave'), features);
       box.prepend(...as.children);
     }
+    if (fwNum >= 989) {   // SCREEN RATE under CPU meter, as on the FM-1 (SETTINGS / DISPLAY)
+      const sr = document.createElement('div'), meter = box.querySelector('select[data-key="meter"]')?.parentElement;
+      selects(sr, FEATURES.filter(f => f.key === 'screenRate'), features);
+      if (meter) meter.after(...sr.children); else box.append(...sr.children);
+    }
   }
   const mbox = $('midi-form'); mbox.replaceChildren();
   $('midi-sec').hidden = !midi;
   if (midi) selects(mbox, MIDI_SETTINGS, midi);
   const fbox = $('feat-form'); fbox.replaceChildren();
   $('feat-sec').hidden = !features;
-  if (features) selects(fbox, FEATURES.filter(f => f.key !== 'fxTheme' && f.key !== 'autosave'), features);
+  if (features) selects(fbox, FEATURES.filter(f => f.key !== 'fxTheme' && f.key !== 'autosave' && f.key !== 'screenRate'), features);
 }
 /* The CC map: per channel, then the shared ones */
 {
@@ -596,7 +615,7 @@ $('restore').onchange = e => {
 /* Installing firmware restarts the FM-1: the page lets go of it first */
 setBeforeInstall(async () => {
   if (busy) throw new LinkError('A song or settings operation is running. Wait for it to finish before installing firmware.');
-  clearInterval(poll); poll = null;
+  stopPoll();
   link?.close(); link = null; ble?.close(); ble = null;
   connected = false;
   enable(false); say('device', 'Disconnected for the install. Connect again when it is done.', 'hint');

@@ -75,17 +75,26 @@ export async function runFxUiTests() {
     assert(document.querySelector('[data-page="1"] .fx-row .fx-name').textContent === 'Channel FX', 'FILTER K1');
     assert(document.querySelectorAll('[data-page="2"] .fx-row').length === 3, 'Unused K4 omitted');
     const original = read();
-    for (let c = 0; c < 4; c++) {
-      document.querySelector(`#fx-channels [data-ch="${c}"]`).click();
-      const before = writes; radio('allFxOn', 0).click();
+    { const before = writes; radio('allFxOn', 0).click();
       await until(() => writes > before, 'All FX write');
       assert(JSON.stringify(read()) === JSON.stringify({...original, bypass: 1}), 'Only global bypass changes');
       assert($('fx-master-status').textContent.includes('OFF: dry output'), 'Immediate bypass status');
       const onBefore = writes; radio('allFxOn', 1).click();
       await until(() => writes > onBefore, 'All FX restore write');
-      assert(JSON.stringify(read()) === JSON.stringify(original), 'All FX settings restored');
+      assert(JSON.stringify(read()) === JSON.stringify(original), 'All FX settings restored'); }
+    /* Perform: a column per channel; a slider in one column changes that channel only */
+    assert(document.querySelectorAll('#fx-channels .chan').length === 4, 'four channel columns');
+    assert(document.querySelectorAll('#fx-pages [data-page="1"] .fx-ctl[data-key="cutoff"]').length === 4, 'FILTER: a cutoff for each channel');
+    for (let c = 0; c < 4; c++) {
+      const was = read(), w = writes, r = document.querySelector(`#fx-pages .fx-ctl[data-key="cutoff"][data-ch="${c}"] input`);
+      r.value = String(20 + c); r.oninput();
+      await until(() => writes > w, `cutoff ${c} sent`);
+      const now = read();
+      assert(now.ch[c].cutoff === 20 + c && [0, 1, 2, 3].every(k => k === c || now.ch[k].cutoff === was.ch[k].cutoff), `cutoff: only channel ${c} changes`);
     }
-    $('fx-follow').click(); cursor = 2; bytes[38] = 6; bytes[39] = 1;
+    cursor = 2; bytes[38] = 6; bytes[39] = 1;
+    await until(() => document.querySelector('#fx-channels [data-ch="2"]').classList.contains('cursor'), 'the column under the cursor marked');
+    assert(!document.querySelector('#fx-channels [data-ch="0"]').classList.contains('cursor'), 'one cursor column');
     await until(() => radio('allFxOn', 0).getAttribute('aria-checked') === 'true', 'LIVE master switch reflection');
     assert($('live-badges').textContent.includes('ALL FX OFF'), 'LIVE bypass badge');
     assert(document.querySelector('[data-page="6"]').classList.contains('fm1'), 'ECHO MOD active-page badge');
@@ -134,9 +143,11 @@ export async function runFxUiTests() {
       assert(names[names.indexOf('theme') + 1] === 'fxTheme', `FX panel colours right under Theme: ${names}`);
       assert(fxt.value === '0' && fxt.options.length > 90, 'FX panel colours: Match by default'); }
     assert($('fx-diagram').querySelector('svg.fxd') && $('fx-diagram').querySelectorAll('g.row').length === 4, 'Wiring drawn');
-    liveMute = 1; cursor = 0; $('fx-follow').click();
-    await until(() => !$('fx-muted').hidden, 'Muted notice');
-    assert($('fx-muted').textContent.startsWith('PU1 is muted') && $('fx-pages').classList.contains('muted'), 'PU1 muted: notice and grey');
+    liveMute = 1; cursor = 0;
+    await until(() => !$('fx-muted').hidden && $('fx-muted').textContent.startsWith('PU1 muted'), 'Muted notice: PU1');
+    assert($('fx-muted').textContent.startsWith('PU1 muted'), `PU1 muted: notice (${$('fx-muted').textContent})`);
+    assert([...document.querySelectorAll('#fx-pages .fx-ctl[data-ch="0"]')].every(e => e.classList.contains('muted')) &&
+      !document.querySelector('#fx-pages .fx-ctl[data-ch="1"]').classList.contains('muted'), 'PU1 muted: its column grey, the others not');
     assert($('fx-diagram').querySelector('g.row.muted[data-ch="0"]'), 'Wiring: PU1 muted');
     assert($('live-badges').textContent.includes('USB power'), 'Battery badge');
     liveMute = 0;
@@ -179,8 +190,8 @@ export async function runFxUiTests() {
     const px = () => $('fm1-screen').getContext('2d').getImageData(80, 140, 1, 1).data;
     await until(() => px()[0] === 255 && px()[1] === 0 && px()[3] === 255, `983: the screen drawn (${px().join()})`);
     assert(!$('fm1-screen-box').hidden && $('fm1-screen-note').hidden, '983: the screen shown, no note');
-    { const n = ops.filter(o => o === OP.SCREEN_ROW).length; $('fx-screen').open = false; await sleep(400); const m = ops.filter(o => o === OP.SCREEN_INFO).length;
-      await sleep(400); assert(ops.filter(o => o === OP.SCREEN_INFO).length === m && n >= 144, `folded away: no more reads (${n} rows)`); $('fx-screen').open = true; }
+    { const n = ops.filter(o => o === OP.SCREEN_ROW).length; location.hash = '#songs-sec'; await sleep(400); const m = ops.filter(o => o === OP.SCREEN_INFO).length;
+      await sleep(400); assert(ops.filter(o => o === OP.SCREEN_INFO).length === m && n >= 144, `out of sight (Songs): no more reads (${n} rows)`); location.hash = '#live-sec'; await sleep(100); }
     /* FM-1_985: one SCREEN_SYNC, the rows come by themselves (no SCREEN_ROW requests) */
     firmware = 'FM-1_985';
     { const rowsBefore = ops.filter(o => o === OP.SCREEN_ROW).length;
@@ -190,8 +201,18 @@ export async function runFxUiTests() {
       const syncs = ops.filter(o => o === OP.SCREEN_SYNC).length; await sleep(300);
       const more = ops.filter(o => o === OP.SCREEN_SYNC).length - syncs;
       assert(more >= 4 && more <= 12, `987: nothing changed: a look every 33 ms or so, 30 a second (${more} in 300 ms)`); }
+    assert(!$('settings-form').querySelector('select[data-key="screenRate"]'), '985: no screen rate');
+    /* FM-1_989: SCREEN RATE right under the CPU meter, 10 a second by default; 30 sets bits 18-19 */
+    firmware = 'FM-1_989';
+    await $('connect-btn').onclick();
+    { const sel = $('settings-form').querySelector('select[data-key="screenRate"]');
+      assert(sel && sel.value === '0' && sel.parentElement.previousElementSibling?.querySelector('select[data-key="meter"]'), '989: screen rate under the CPU meter');
+      assert(![...$('feat-form').querySelectorAll('select')].some(s => s.dataset.key === 'screenRate'), '989: not with FX and lights');
+      const sets = featSets; sel.value = '3'; sel.onchange(); $('settings-apply').onclick();
+      await until(() => featSets > sets, 'screen rate sent');
+      assert((featWord >>> 18 & 3) === 3, `989: 30 a second: ${featWord.toString(16)}`); }
     firmware = 'FM-1_975';
-    return 'PASS FX browser: matching pages (975-978, 979, 980 echo on MASTER, 981 echo in Master), FM-1 screen (983, 985 sync, note before), autosave, one master switch across four selected channels, LIVE state, 17/11-word backups, old firmware gating, FX and lights, FX colours, wiring, muted notice, battery';
+    return 'PASS FX browser: matching pages (975-978, 979, 980 echo on MASTER, 981 echo in Master), FM-1 screen (983, 985 sync, note before), autosave, screen rate (989), one master switch, four channel columns (a slider changes its own channel), the cursor column, LIVE state, 17/11-word backups, old firmware gating, FX and lights, FX colours, wiring, muted column, battery';
   } finally {
     if (descriptor) Object.defineProperty(navigator, 'requestMIDIAccess', descriptor);
     else delete navigator.requestMIDIAccess;

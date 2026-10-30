@@ -68,7 +68,11 @@ for (const f of FEATURES) for (let v = 0; v < f.choices.length; v++) {
 }
 assert.equal(FEATURES.find(f => f.key === 'fxTheme').choices.length, THEMES.length + 1);
 assert.throws(() => unpackFeatures(0x4D0001CE), /Not a feature/);
-assert.throws(() => unpackFeatures(0x460001CE | 1 << 18), /Unknown/);
+assert.throws(() => unpackFeatures(0x460001CE | 1 << 20), /Unknown/);
+// FM-1_989 SCREEN RATE: bits 18-19, 0 = 10 a second (older words read as before)
+assert.equal(FEATURE_DEFAULTS.screenRate, 0);
+assert.equal(unpackFeatures(0x460001CE | 3 << 18).screenRate, 3);
+assert.equal(packFeatures({...FEATURE_DEFAULTS, screenRate: 2}), (0x460001CE | 2 << 18) >>> 0);
 /* FM-1_981 AUTOSAVE: default every minute, also for a 979 / 980 word; Off sets bit 16 (stored XOR 1) */
 assert.equal(FEATURE_DEFAULTS.autosave, 1);
 assert.equal(unpackFeatures(0x460001CE).autosave, 1);

@@ -19,7 +19,21 @@ function route() {
   document.querySelectorAll('.page-nav a').forEach(a => a.classList.toggle('on', a.dataset.view === view));
   TABS.forEach(t => { $(t).hidden = t !== tab; });
   document.querySelectorAll('.tabs a').forEach(a => a.classList.toggle('on', a.dataset.tab === tab));
+  /* Perform: the live controls as one 16:9 screen, the site's header folded away */
+  document.body.classList.toggle('perform', view === 'device' && tab === 'live-sec' && connected);
   if (id !== 'connect' || !connected) window.scrollTo({top: 0});
+}
+/* Full screen (for the stage); Esc or the button again leaves it */
+const fullBtn = $('stage-full');
+if (fullBtn) {
+  fullBtn.onclick = () => {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else document.documentElement.requestFullscreen?.().catch(() => {});
+  };
+  document.addEventListener('fullscreenchange', () => {
+    fullBtn.setAttribute('aria-pressed', String(!!document.fullscreenElement));
+    fullBtn.textContent = document.fullscreenElement ? 'Exit full screen' : 'Full screen';
+  });
 }
 window.addEventListener('hashchange', route);
 const go = hash => { if (location.hash === hash) route(); else location.hash = hash; };

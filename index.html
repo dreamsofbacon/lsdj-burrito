@@ -76,22 +76,11 @@ input[type=range]{accent-color:var(--accent)}
 #device{margin:0}
 #bt-status:empty{display:none}
 /* effects */
-.seg-pick{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden}
-.seg-pick button{border:0;border-radius:0;padding:6px 12px;font-size:13px}
-.seg-pick button+button{border-left:1px solid var(--line)}
-.seg-pick button[aria-pressed=true]{background:var(--ink);color:var(--bg);font-weight:600}
-.chan-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0 6px}
-.chan-tabs button{display:flex;flex-direction:column;align-items:flex-start;text-align:left;min-width:110px;flex:1}
-.chan-tabs button small{color:var(--muted);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
-.chan-tabs button.on{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent) inset}
-.chan-tabs button.cursor b::after{content:" ◀ cursor";font-weight:400;font-size:11px;color:var(--warn)}
-#fx-follow{flex:0 0 auto;min-width:0;align-self:stretch;justify-content:center}
-#fx-follow.on,#fx-page-follow.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+#fx-page-follow.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
 .page-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 10px}
 .page-tabs button{padding:6px 10px;font-size:13px}
 .page-tabs button.on{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent) inset;font-weight:600}
 .page-tabs button.fm1::after{content:" ●";color:var(--hi)}
-.fx-editing{font-size:17px;margin:4px 0 10px}
 .fx-pages{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(250px,100%),1fr));gap:10px}
 .fx-pages.one{grid-template-columns:minmax(0,1fr)}
 .fx-pages.one .fx-card{padding:14px 16px}
@@ -154,6 +143,87 @@ table.fx th,table.fx td{padding:3px 6px;border-bottom:1px solid var(--line);text
 .fxd .why{font-weight:700;fill:var(--warn)}
 .fxd.bypass .chain .blk{opacity:.35}
 .fxd .alloff{fill:var(--warn);font-size:12px}
+/* perform: the live controls as one 16:9 stage (lsdj/ui.js sets body.perform), panels that can
+   go to their own window (lsdj/popout.js); stacked on narrow or upright screens */
+.panel{border:1px solid var(--line);border-radius:10px;background:var(--card2);padding:8px 10px;margin:0 0 10px;min-width:0;min-height:0}
+.panel-head{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;margin:0 0 6px}
+.panel-head h3{margin:0;font-size:14px;letter-spacing:.04em}
+.panel-head .page-tabs,.panel-head .mute-row{margin:0}
+.panel-head .pop{margin-left:auto;padding:2px 8px;font-size:15px;line-height:1.2}
+.panel .fx-master{border:0;padding:0;margin:0}
+.stage-head{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;margin:0 0 10px}
+.stage-head h2{margin:0}
+.stage-gap{flex:1}
+.stage-head #fx-status:empty{display:none}
+.pop-body .pop,body:not(.perform) #stage-full{display:none}
+/* the channel effects: a row per knob, a column per channel */
+.fx-matrix,.fx-card.matrix .fx-row{display:grid;grid-template-columns:2.2em minmax(5em,8em) repeat(4,minmax(0,1fr));gap:4px 8px;align-items:center}
+.fx-card.matrix .fx-row .fx-ctl{grid-column:auto}
+.fx-card.matrix .fx-row .fx-ctl.shared{grid-column:3/-1}
+.chan-head{margin:0 0 4px}
+.chan-head>div{padding:3px 6px;border-radius:7px;min-width:0;border:1px solid transparent}
+.chan-head b{display:block;font-size:14px}
+.chan-head small{display:block;color:var(--muted);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chan-head .cursor{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
+.chan-head .cursor b::after{content:" ◀";color:var(--accent)}
+.fx-matrix .muted,.fx-card.matrix .fx-ctl.muted{filter:grayscale(1);opacity:.45}
+.fx-card.matrix .fx-ctl.cursor{background:color-mix(in srgb,var(--accent) 9%,transparent);border-radius:6px}
+.fx-card.matrix .fx-ctl output{min-width:3.2em}
+.fx-pages.one .fx-card.matrix{padding:6px 8px}
+#fx-help{max-width:min(720px,92vw);border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--ink)}
+#fx-help::backdrop{background:rgb(0 0 0/.45)}
+#fx-help p{font-size:14px}
+/* in its own window */
+body.popped{margin:0;height:100vh;display:flex;flex-direction:column;overflow:auto}
+.pop-bar{display:flex;gap:8px;align-items:center;padding:6px 10px;background:var(--top);color:var(--top-ink)}
+.pop-gap{flex:1}
+.pop-bar button{padding:3px 10px;font-size:13px}
+.pop-body{flex:1;min-height:0;padding:8px;display:flex}
+.pop-body>.panel{flex:1;margin:0;display:flex;flex-direction:column}
+body:not(.connected) .pop-body{opacity:.5;pointer-events:none}
+.pop-body #fm1-screen-box,.pop-body #fx-diagram{flex:1;min-height:0;max-width:none}
+.pop-body .fm1-screen canvas,.pop-body .fxd{width:100%;height:100%;min-width:0;aspect-ratio:auto;object-fit:contain}
+.pop-body .fxd-wrap{overflow:hidden}
+@media (min-width:900px) and (min-height:440px) and (orientation:landscape){
+  body.perform{overflow:hidden}
+  body.perform .top,body.perform #connect,body.perform .tabs{display:none}
+  body.perform main{max-width:none;padding:0}
+  body.perform #live-sec{--sh:min(100vh,calc(100vw*9/16));--g:clamp(4px,.8vmin,12px);
+    position:fixed;inset:0;margin:auto;width:calc(var(--sh)*16/9);height:var(--sh);border:0;border-radius:0;
+    padding:var(--g);display:grid;gap:var(--g);overflow:hidden;font-size:clamp(11px,1.55vmin,20px);
+    grid-template-columns:calc(var(--sh)*.6) minmax(0,1fr);grid-template-rows:auto auto minmax(0,1fr) auto;
+    grid-template-areas:"head head" "screen master" "screen chans" "wire chans"}
+  body.perform .stage-head{grid-area:head;margin:0}
+  body.perform #pan-screen{grid-area:screen}
+  body.perform #pan-wire{grid-area:wire}
+  body.perform #pan-master{grid-area:master}
+  body.perform #pan-chans{grid-area:chans;overflow:auto;display:flex;flex-direction:column}
+  body.perform #pan-chans #fx-pages{flex:1;min-height:0;align-content:start}
+  body.perform #pan-chans .fx-card.shown{max-height:100%}
+  body.perform #pan-chans .fx-card.shown h3{margin-bottom:0}
+  body.perform .panel{margin:0;overflow:hidden}
+  body.perform .fm1-screen{max-width:none;padding:0;border:0;background:none}
+  body.perform .fxd-wrap{overflow:hidden;margin:0}
+  body.perform .fxd{min-width:0}
+  body.perform #fx-master-pages{grid-template-columns:repeat(auto-fit,minmax(0,1fr))}
+  body.perform .fx-row{padding:2px}
+  body.perform button,body.perform select{padding:5px 10px}
+  body.perform .fx-card.matrix .fx-row{padding:clamp(3px,1.5vmin,18px) 2px}
+  /* panels in their own windows: the others take the room */
+  body.perform.pop-screen #live-sec{grid-template-areas:"head head" "wire master" "wire chans" "wire chans"}
+  body.perform.pop-wire #live-sec{grid-template-areas:"head head" "screen master" "screen chans" "screen chans"}
+  body.perform.pop-screen.pop-wire #live-sec,body.perform.pop-master.pop-chans #live-sec{grid-template-columns:minmax(0,1fr)}
+  body.perform.pop-screen.pop-wire #live-sec{grid-template-areas:"head" "master" "chans" "chans"}
+  body.perform.pop-master.pop-chans #live-sec{grid-template-areas:"head" "screen" "screen" "wire"}
+  body.perform.pop-master #live-sec{grid-template-areas:"head head" "screen chans" "screen chans" "wire chans"}
+  body.perform.pop-chans #live-sec{grid-template-areas:"head head" "screen master" "screen master" "wire master"}
+  body.perform.pop-master.pop-chans #pan-screen canvas{height:calc(var(--sh)*.62);width:auto;margin:auto}
+}
+@media (max-width:640px){.fx-matrix,.fx-card.matrix .fx-row{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .fx-card.matrix .fx-row .knob,.chan-head>div:nth-child(-n+2){display:none}
+  .fx-card.matrix .fx-row .fx-name,.fx-card.matrix .fx-row .fx-ctl.shared{grid-column:1/-1}
+  .fx-card.matrix .fx-ctl[data-chn]::before{content:attr(data-chn);font:600 11px ui-monospace,monospace;color:var(--muted)}
+  .panel-head .pop,#stage-full{display:none}}
 /* songs */
 .actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(230px,100%),1fr));gap:10px;margin:10px 0}
 .action{border:1px solid var(--line);border-radius:10px;padding:12px;background:var(--card2);display:flex;flex-direction:column;gap:8px;align-items:flex-start}
@@ -248,42 +318,62 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 </section>
 
 <nav class="tabs needs-device" aria-label="FM-1">
-<a href="#live-sec" data-tab="live-sec">Effects</a><a href="#songs-sec" data-tab="songs-sec">Songs</a><a href="#theme-sec" data-tab="theme-sec">Colours</a><a href="#settings-sec" data-tab="settings-sec">Settings</a>
+<a href="#live-sec" data-tab="live-sec">Perform</a><a href="#songs-sec" data-tab="songs-sec">Songs</a><a href="#theme-sec" data-tab="theme-sec">Colours</a><a href="#settings-sec" data-tab="settings-sec">Settings</a>
 </nav>
 
-<section id="live-sec" class="tab-panel needs-device" aria-disabled="true">
-<div class="spread"><h2 style="margin:0">Effects <span id="live-badges"></span></h2>
-<div class="seg-pick" role="group" aria-label="Show"><button id="fx-view-one" type="button" aria-pressed="true">One page</button><button id="fx-view-all" type="button" aria-pressed="false">All pages</button></div></div>
-<details open id="fx-screen"><summary>The FM-1's screen</summary>
+<section id="live-sec" class="tab-panel needs-device stage" aria-disabled="true">
+<div class="stage-head">
+<h2>Perform <span id="stage-dev" class="hint"></span></h2>
+<span id="live-badges"></span>
+<span class="stage-gap"></span>
+<span id="fx-status" class="hint" role="status"></span>
+<button id="fx-keep" type="button" title="Store the effects on the FM-1, as its SAVE button does">Keep on FM-1</button>
+<button id="fx-help-btn" type="button" aria-haspopup="dialog" title="How the effects work">?</button>
+<a class="button-link" href="#songs-sec" title="Songs, colours and settings">Setup</a>
+<button id="stage-full" type="button" aria-pressed="false">Full screen</button>
+</div>
+
+<div class="panel" id="pan-screen" data-pop="screen" data-title="FM-1 screen" data-size="720x680">
+<div class="panel-head"><h3>Screen</h3><span id="fm1-screen-rate" class="hint" aria-live="off"></span><button class="pop" type="button" title="Open in its own window">⇱</button></div>
 <div id="fm1-screen-box" class="fm1-screen" hidden><canvas id="fm1-screen" width="160" height="144" role="img" aria-label="The FM-1's screen, as its display shows it"></canvas></div>
-<p id="fm1-screen-rate" class="hint" aria-live="off"></p>
 <p id="fm1-screen-note" class="hint" hidden></p>
-</details>
+</div>
+
+<div class="panel" id="pan-wire" data-pop="wire" data-title="Wiring" data-size="900x420">
+<div class="panel-head"><h3>Wiring</h3><button class="pop" type="button" title="Open in its own window">⇱</button></div>
+<div class="fxd-wrap" id="fx-diagram"></div>
+</div>
+
+<div class="panel" id="pan-master" data-pop="master" data-title="Master" data-size="1000x360">
 <div id="fx-master" class="fx-master" hidden>
-<div class="spread"><h3 class="fx-sub">Master <span class="hint">· on the FM-1: the FX button</span></h3>
-<div id="fx-mutes" class="mute-row" role="group" aria-label="Channels: lit = playing"></div></div>
+<div class="panel-head"><h3>Master <span class="hint">· FX button</span></h3>
+<div id="fx-mutes" class="mute-row" role="group" aria-label="Channels: lit = playing"></div><button class="pop" type="button" title="Open in its own window">⇱</button></div>
 <div id="fx-master-pages" class="fx-pages master"></div>
 </div>
-<h3 class="fx-sub" id="fx-ch-head" hidden>Channel effects <span class="hint">· on the FM-1: turn a knob or SELECT</span></h3>
-<div id="fx-channels" class="chan-tabs"></div>
-<div id="fx-pagebar" class="page-tabs" aria-label="Effects page"></div>
-<p id="fx-editing" class="fx-editing"></p>
-<p id="fx-muted" class="callout" role="status" hidden></p>
+<p id="fx-master-status" class="hint" role="status"></p>
+</div>
+
+<div class="panel" id="pan-chans" data-pop="chans" data-title="Channel effects" data-size="1100x520">
+<div class="panel-head"><h3 id="fx-ch-head">Channels <span class="hint">· knobs, SELECT</span></h3>
+<div id="fx-pagebar" class="page-tabs" aria-label="Effects page"></div><button class="pop" type="button" title="Open in its own window">⇱</button></div>
+<div id="fx-channels" class="fx-matrix chan-head"></div>
 <div id="fx-pages" class="fx-pages one"></div>
-<div class="row" style="margin-top:12px"><button id="fx-keep" type="button">Keep on FM-1</button><span id="fx-status" class="hint"></span></div>
-<details open id="fx-wiring"><summary>Wiring: what each channel goes through</summary>
-<div class="fxd-wrap" id="fx-diagram"></div>
-<p class="hint">Each channel: drive, filter, lo-fi, then the LFO (volume or pan; to the cutoff it moves the filter, dashed). Its echo send is taken after that into the one shared echo. Lit = doing something. Grey: muted, dry (Channel FX off) or All FX off.</p>
-</details>
-<details><summary>How the effects work</summary>
+<p id="fx-muted" class="hint" role="status" hidden></p>
+</div>
+
+<dialog id="fx-help">
+<h2>How the effects work</h2>
 <p>Changes go to the FM-1 straight away. <b>Keep on FM-1</b> stores them, as the SAVE button does. K1-K4 are the knobs that play each control on the FM-1; turn SELECT there to change pages (it stops at the first and last page: Settings › FX and lights can make it go round). A control the FM-1 changes lights up here.</p>
-<p>By default this follows the FM-1: the channel under its cursor and the page it shows. Pick a channel or page to edit something else.</p>
+<p>Channels shows all four channels side by side for one effects page: the page the FM-1 shows, unless you pick one. The channel under the FM-1's cursor is marked ◀. Controls shared by all channels sit once, under the four.</p>
 <p>On the FM-1 (FM-1_984 and newer) the effects are two areas. Turning a knob or SELECT pops up the channel pages FILTER, DRIVE, LFO, LO-FI for the channel under LSDj's cursor, for a moment (Settings › POPUP TIME); LSDj keeps working meanwhile. The FX button opens the master pages MASTER, ECHO, ECHO MOD and keeps them open until you press FX again; there the channel strip shows PU1 PU2 WAV NOI and keys C4-F4 mute them. SELECT turns the pages of the area shown. (FM-1_982: FX went channel pages, master pages, closed; FM-1_977-980: hold FX for MASTER.)</p>
-<p><b>Master</b> is MASTER (All FX, compressor, and from FM-1_980 the echo mix and time, K3 and K4), the shared echo (from FM-1_981) and the channel mutes. The PU1-NOI buttons here are the same mutes: lit means playing.</p>
+<p><b>Master</b> is MASTER (All FX, compressor, and from FM-1_980 the echo mix and time, K3 and K4), the shared echo (from FM-1_981) and the channel mutes. The PU1-NOI buttons are the same mutes: lit means playing.</p>
 <p>The echo is one echo shared by all channels: each channel sets how much it sends to it (FILTER K2: Echo send, next to Channel FX; LO-FI K3 before FM-1_979), and ECHO / ECHO MOD set its time, feedback, mix and character.</p>
-<p>A muted channel's effects can still be changed: on the FM-1 its panel goes grey and the top line says who muted it (the keys, this page or MIDI CC 81). Every effect has a MIDI CC too: see Settings › MIDI.</p>
+<p>A muted channel's effects can still be changed: its column goes grey, as its panel does on the FM-1. Every effect has a MIDI CC too: see Settings › MIDI.</p>
 <p><b>MASTER K1: All FX</b> bypasses every effect without losing settings; <b>FILTER K1: Channel FX</b> bypasses one channel. Mutes and freeze are not saved. Muting and freeze from this page need FM-1_977 or newer; firmware before FM-1_975 shows its older layout.</p>
-</details>
+<p><b>Wiring:</b> each channel goes through drive, filter, lo-fi, then the LFO (volume or pan; to the cutoff it moves the filter, dashed). Its echo send is taken after that into the one shared echo. Lit = doing something. Grey: muted, dry (Channel FX off) or All FX off.</p>
+<p><b>Own windows:</b> ⇱ opens a panel in its own window, for a second screen or a projector. Close that window (or Bring back) to put it back here. Full screen hides everything but the controls; Esc leaves it.</p>
+<form method="dialog"><button class="primary">Close</button></form>
+</dialog>
 </section>
 
 <section id="songs-sec" class="tab-panel needs-device" aria-disabled="true">
@@ -379,8 +469,10 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <p id="wiz-backup-status" role="status" hidden></p></div>
 <label class="check"><input id="rom-experimental" type="checkbox" disabled><span>I understand this firmware is experimental and may not start or sound right, and I have backed up my songs.</span></label>
 <div class="row"><button id="rom-build" type="button" class="primary" aria-describedby="rom-next" disabled>Prepare firmware</button><span class="hint">Builds the file on this computer. Nothing is installed yet.</span></div>
-<details><summary>What's in this version (FM-1_988)</summary>
-<p>New in FM-1_988: the FM-1's screen on this page keeps up with the FM-1's own screen. The FM-1 sends the changed rows back to back instead of one at a time, and the line under the screen shows how many pictures a second the FM-1 draws and how many the page shows.</p>
+<details><summary>What's in this version (FM-1_989)</summary>
+<p>New in FM-1_989: SCREEN RATE, on the FM-1 under SETTINGS / DISPLAY (under CPU METER) and here in Settings: the FM-1 draws its screen 10, 15, 20 or 30 times a second (10 before), and the screen on this page follows. More pictures take CPU time from the sound: turn on the CPU meter and go back a step if U shows underruns or the sound clicks.</p>
+<p>Also new on this page: <b>My FM-1 › Perform</b> puts the live controls on one 16:9 screen without scrolling: the FM-1's screen, the wiring, Master with the mutes, and the channel effects with PU1, PU2, WAV and NOI side by side. ⇱ opens a panel in its own window (a second monitor or a projector); closing that window puts it back. Full screen hides the rest.</p>
+<p>From FM-1_988: the FM-1's screen on this page keeps up with the FM-1's own screen. The FM-1 sends the changed rows back to back instead of one at a time, and the line under the screen shows how many pictures a second the FM-1 draws and how many the page shows.</p>
 <p>From FM-1_987: the FM-1's screen on this page no longer shows torn or missing effects panels and menus, and it updates up to 30 times a second over USB. Read from my FM-1 connects over USB by itself. The page now shows the screen a whole picture at a time (no rows sweeping down), with a pictures-a-second line under it.</p>
 <p>From FM-1_986: the effects follow LSDj's cursor on more LSDj versions. LSDj 9.3.9 with custom palettes or kits now counts as LSDj 9.3.9 (everything works). LSDj 9.4.0, 9.2.L, 9.1.C, 8.4.9, 8.4.2 and 4.6.2: the effects follow the cursor and the LFO follows the tempo; SEQ live mode, tempo editing, cues and MIDI sync still need LSDj 9.3.9. Choosing your LSDj says which it is.</p>
 <p>From FM-1_985: the FM-1's screen above Effects updates several times faster over USB. The page asks once and the FM-1 sends back only the rows that changed, packed small, instead of the page asking for each row. Over Bluetooth, and with FM-1_983 or FM-1_984, the screen updates as before.</p>
@@ -457,7 +549,7 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 </section>
 </div>
 
-<p class="hint foot">The firmware is free software (GPL-3.0), based on <a href="https://github.com/ChanceTheMaker/gamedude-fm1-smk" target="_blank" rel="noopener">GameDude</a>. Source: <a href="https://github.com/dreamsofbacon/lsdj-burrito-src" target="_blank" rel="noopener">lsdj-burrito-src</a>; <a href="lsdj/fm1-lsdj-template-source.zip" download>matching FM-1_988 template source</a>. Not affiliated with M-VAVE or <a href="https://www.littlesounddj.com/" target="_blank" rel="noopener">LSDj's author, Johan Kotlinski</a>.</p>
+<p class="hint foot">The firmware is free software (GPL-3.0), based on <a href="https://github.com/ChanceTheMaker/gamedude-fm1-smk" target="_blank" rel="noopener">GameDude</a>. Source: <a href="https://github.com/dreamsofbacon/lsdj-burrito-src" target="_blank" rel="noopener">lsdj-burrito-src</a>; <a href="lsdj/fm1-lsdj-template-source.zip" download>matching FM-1_989 template source</a>. Not affiliated with M-VAVE or <a href="https://www.littlesounddj.com/" target="_blank" rel="noopener">LSDj's author, Johan Kotlinski</a>.</p>
 </main>
 <script type="module" src="lsdj/ui.js"></script>
 <script type="module" src="lsdj/lsdj-app.js"></script>

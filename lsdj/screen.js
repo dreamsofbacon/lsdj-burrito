@@ -61,9 +61,11 @@ export const changedBands = (known, hashes) => hashes.map((h, b) => b).filter(b 
 export class ScreenMirror {
   /* link: lsdj/link.js Link. canvas: 160x144. active(): poll now? (tab shown, nothing else busy).
      onSupport(ok): told once whether the firmware has the screen (false: before FM-1_983).
-     every: ms between rounds when nothing changed (and between row-by-row rounds). */
-  constructor(link, canvas, {active = () => true, onSupport = () => {}, every = 100} = {}) {
-    Object.assign(this, {link, canvas, active, onSupport, every});
+     every: ms between rounds when nothing changed (and between row-by-row rounds).
+     clock(): the window whose timers to use, one on screen (a hidden window's timers are slowed;
+     the canvas may be in a pop-out window while the page is behind, lsdj/popout.js). */
+  constructor(link, canvas, {active = () => true, onSupport = () => {}, every = 100, clock = () => globalThis} = {}) {
+    Object.assign(this, {link, canvas, active, onSupport, every, clock});
     this.known = new Array(BANDS).fill(null);
     this.ctx = canvas.getContext('2d');
     this.img = this.ctx.createImageData(W, H);
@@ -74,9 +76,14 @@ export class ScreenMirror {
     this.sync = !link.slow && typeof link.screenSync === 'function';   // try SCREEN_SYNC (USB); false once the FM-1 says no
     this.round = 0;
   }
+  /* a timer on the clock's window; the returned function cancels it */
+  after(ms, f) {
+    const w = this.clock() || globalThis, id = w.setTimeout(f, ms);
+    return () => w.clearTimeout(id);
+  }
   start() { if (this.running) return; this.running = true; this.loop(++this.gen); }
   stop() {
-    this.running = false; this.gen++; clearTimeout(this.timer); this.present();
+    this.running = false; this.gen++; this.cancel?.(); this.present();
     if (this.link.onPixels === this.onPixels) this.link.onPixels = null;
     this.wake?.();
   }
@@ -91,7 +98,7 @@ export class ScreenMirror {
         } catch { /* a missed reply: next round */ }
       }
       if (gen !== this.gen) return;
-      await new Promise(r => { this.timer = setTimeout(r, wait); });
+      await new Promise(r => { this.cancel = this.after(wait, r); });
     }
     if (gen === this.gen) this.running = false;
   }
@@ -108,9 +115,9 @@ export class ScreenMirror {
   async stepSync() {
     const gen = this.gen, round = this.round = (this.round + 1) & 127;
     const got = new Set(), arrived = new Map();   // rows with pixels; every row that came (null: skipped)
-    let expect = null, lastRow = -1, done, timer;
+    let expect = null, lastRow = -1, done, cancelGap = () => {};
     const finished = new Promise(r => { done = r; });
-    const gap = () => { clearTimeout(timer); timer = setTimeout(done, ROW_GAP_MS); };
+    const gap = () => { cancelGap(); cancelGap = this.after(ROW_GAP_MS, done); };
     this.wake = done;
     this.onPixels = m => {
       const p = decodePixels(m);
@@ -148,7 +155,7 @@ export class ScreenMirror {
       this.unshown = true; this.present();   // a round done: on the canvas at once (whole bands only)
       return 'more';
     } finally {
-      clearTimeout(timer);
+      cancelGap();
       if (this.link.onPixels === this.onPixels) this.link.onPixels = null;
     }
   }
