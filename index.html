@@ -356,6 +356,9 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 #emu-view{min-height:220px;margin:12px 0;background:radial-gradient(ellipse at center,#424653,#161820);border-radius:10px;overflow:hidden}
 #emu-view canvas{display:block;width:100%;height:auto;border:0;border-radius:0;touch-action:none;image-rendering:auto}
 #emu-view canvas:focus-visible{outline:3px solid var(--hi);outline-offset:-4px}
+#emu-lcd{width:min(480px,100%);height:auto;image-rendering:pixelated;display:block;margin-top:10px}
+#emu-lcd[hidden]{display:none}
+@media (max-width:700px){#emulator-sec .row,#emulator-sec .emu-settings{gap:8px}#emulator-sec .emu-settings label input[type=range]{max-width:110px}#emu-view{margin:8px -8px;border-radius:8px}}
 .emu-settings{display:flex;flex-wrap:wrap;gap:12px;margin-top:10px;align-items:center}
 .emu-settings label{display:flex;gap:6px;align-items:center}
 .foot{margin-top:28px}
@@ -634,11 +637,19 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <label>Volume <input id="emu-volume" type="range" min="0" max="100" value="25"></label>
 <button id="emu-front" type="button" aria-pressed="true">Angled view</button>
 <button id="emu-zoom" type="button" aria-expanded="false" aria-controls="emu-lcd">Enlarge screen</button>
+<label><input id="emu-lsdj" type="checkbox" checked> Show LSDj buttons</label>
 </div>
-<canvas id="emu-lcd" width="240" height="240" style="width:480px" aria-label="Enlarged virtual FM-1 display" hidden></canvas>
+<div class="emu-settings">
+<label class="button-link file-btn">Load songs (.sav)…<input id="emu-sav-file" type="file" accept=".sav,application/octet-stream"></label>
+<button id="emu-sav-export" type="button" disabled>Save songs (.sav)</button>
+<button id="emu-midi" type="button" hidden>Use a MIDI keyboard</button>
+<span id="emu-midi-status" class="hint" role="status"></span>
+</div>
+<canvas id="emu-lcd" width="240" height="240" aria-label="Enlarged virtual FM-1 display" hidden></canvas>
 <p id="emu-stats" class="hint" role="status"></p>
 <details><summary>Controls</summary>
-<p>Click the instrument's keys; drag knobs up and down or scroll over them. With the instrument focused: arrows = directions, Z/X = B/A, Shift/Enter = Select/Start. Switching tabs pauses it.</p>
+<p>Click or tap the keys and buttons; drag knobs up and down or scroll over them. The yellow tags (Show LSDj buttons) mark LSDj's Game Boy buttons in button mode: the arrows, SELECT, START, B and A on the keys, START and SELECT on PLAY and REC; HOME switches the keys between buttons and notes. With the instrument focused: arrows = directions, Z/X = B/A, Shift/Enter = Select/Start. Use a MIDI keyboard feeds it MIDI like the FM-1's MIDI socket: notes play LSDj when GLO › MIDI › NOTE IN is on, and clock and CCs work as on the FM-1. Switching tabs pauses it.</p>
+<p>Songs: Load songs (.sav) starts the virtual FM-1 with an LSDj save of yours (a running one restarts). Save songs (.sav) downloads what the virtual FM-1 last saved: press SAVE on it first. On a phone held upright the FM-1 is laid out for the screen; turn the phone for its real layout.</p>
 </details>
 <details><summary>View and speed options</summary>
 <div class="emu-settings">
@@ -648,7 +659,7 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 </div>
 </details>
 <details><summary>Limits</summary>
-<p>Stop, restart or reload throws away virtual songs and settings, even ones saved inside the virtual FM-1. My FM-1 controls the real device, not this one. Emulating LSDj inside the FM-1 is heavy and may run below real-time, so sound and timing may be off. Regular Chrome or Edge works best; one VS Code browser tab crashed in testing.</p>
+<p>Stop, restart or reload throws away virtual songs and settings, even ones saved inside the virtual FM-1: use Save songs (.sav) first to keep them. My FM-1 controls the real device, not this one. Emulating LSDj inside the FM-1 is heavy and may run below real-time, so sound and timing may be off. Regular Chrome or Edge works best; one VS Code browser tab crashed in testing.</p>
 </details>
 </section>
 </div>

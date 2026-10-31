@@ -117,6 +117,13 @@ class Fm1 extends AudioWorkletProcessor {
     if (x.fm1_boot_fwsc(pkg, m.package.byteLength, 0, 0, m.mhz) !== 0) {
       throw new Error("not an FM-1 update package (or a DX7 bank it cannot use)");
     }
+    // LSDJ Burrito (local change): bytes written into the flash before the first instruction runs
+    // (the LSDj save store, emulator/save-flash.js)
+    if (m.flashPatch) {
+      const { offset, bytes } = m.flashPatch, len = x.fm1_flash_len();
+      if (!(offset >= 0 && offset + bytes.byteLength <= len)) throw new Error("flash patch out of range");
+      new Uint8Array(x.memory.buffer, x.fm1_flash() + offset, bytes.byteLength).set(new Uint8Array(bytes));
+    }
     if (m.sectors?.byteLength && x.fm1_flash_restore(copy(m.sectors), m.sectors.byteLength) !== 0) {
       throw new Error("invalid saved flash sectors");
     }

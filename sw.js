@@ -15,7 +15,8 @@ const FILES = [
   'lsdj/save-file.js', 'lsdj/screen.js', 'lsdj/ui.js', 'lsdj/zip.js',
   'lsdj/template.json', 'lsdj/versions.json', 'lsdj/fm1-lsdj-template.fwsc', 'lsdj/fm1-lsdj-template-source.zip',
   'vendor/fm1ota.js', 'vendor/fm1pkg.js',
-  'emulator/app.js', 'emulator/core.js', 'emulator/panel.js', 'emulator/upstream.json',
+  'emulator/app.js', 'emulator/core.js', 'emulator/panel.js', 'emulator/face.js', 'emulator/save-flash.js', 'emulator/upstream.json',
+  'emulator/vendor/fonts/DotGothic16-subset.woff', 'emulator/vendor/fonts/OFL.txt',
   'emulator/vendor/LICENSE-fm1-emu.txt', 'emulator/vendor/LICENSE-three.txt', 'emulator/vendor/fm1_web.wasm',
   'emulator/vendor/jit.js', 'emulator/vendor/three.core.min.js', 'emulator/vendor/three.module.min.js', 'emulator/vendor/worklet.js',
 ];
