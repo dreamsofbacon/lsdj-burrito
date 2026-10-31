@@ -34,3 +34,22 @@ assert.match(fxDiagram(fx), /class="send idle"/);               // a send into a
 fx.bypass = 1;
 assert.match(fxDiagram(fx), /^<svg class="fxd bypass"[\s\S]*ALL FX OFF/);
 console.log('PASS FX wiring: rows, lit blocks, mutes, dry channels, sends, LFO to the cutoff, echo, compressor, All FX off');
+
+/* both directions, the phone's narrower one, and every block naming its page */
+import {pageFor} from '../lsdj/fx-diagram.js';
+fx = unpackFx(words()); fx.ch[3].drive = 5; fx.echo.mix = 10;
+const v = fxDiagram(fx), h = fxDiagram(fx, {layout: 'h'}), vc = fxDiagram(fx, {compact: true});
+assert.match(v, /data-layout="v" viewBox="0 0 600 /); assert.match(h, /data-layout="h" viewBox="0 0 720 /); assert.match(vc, /data-layout="vc" viewBox="0 0 420 /);
+for (const svg of [v, h, vc]) {
+  assert.equal(count(svg, /data-go="(drive|filter|lofi|lfo)" data-ch="[0-3]"/g), 16);   // four per channel
+  assert.equal(count(svg, /data-go="echo"/g), 1); assert.equal(count(svg, /data-go="comp"/g), 1);
+  assert.equal(count(svg, /role="button" tabindex="0"/g), 18);
+  assert.match(svg, /aria-label="Drive NOI: SOFT 5\. Open its page"/);
+  assert.equal(count(svg, /<g class="row/g), 4);
+}
+assert.match(vc, />MIX 10</); assert.match(vc, />FB 0</);           // the phone's echo: a line each
+assert.match(h, /MIX 10 FB 0/);
+assert.deepEqual(['drive', 'filter', 'lofi', 'lfo', 'echo', 'comp'].map(g => pageFor(g)), ['DRIVE', 'FILTER', 'LO-FI', 'LFO', 'ECHO', 'MASTER']);
+assert.deepEqual(['drive', 'comp'].map(g => pageFor(g, true)), ['TONE', 'TONE']);
+assert.ok(!/<text[^>]*>[^<]*["<>&][^<]*<\/text>/.test(v));             // text escaped
+console.log('PASS FX wiring directions: upright, across, phone; every block opens its page (data-go), keyboard reachable');

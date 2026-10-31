@@ -8,7 +8,7 @@ import {setBeforeInstall, installing, usbMidiUnavailable} from './install-ui.js'
 import {CHANNELS, pagesForFx, PARAM, paramGet, paramSet, valueText, channelSummary, unpackFx, packFx, PRESETS, THEMES, COLOR_NAMES, toHex, fromHex,
         SETTINGS, unpackSettings, packSettings, MIDI_SETTINGS, MIDI_CC_MAP, unpackMidi, packMidi, CUSTOM_THEME, isMasterPage,
         firmwareNumber, FEATURES, unpackFeatures, packFeatures} from './fx-model.js';
-import {fxDiagram} from './fx-diagram.js';
+import {fxDiagram, pageFor} from './fx-diagram.js';
 import {zipStore} from './zip.js';
 import {romFromSlot} from './lsdj-rom.js';
 import {ScreenMirror} from './screen.js';
@@ -274,7 +274,7 @@ function refresh(hot = []) {
   $('fx-muted').hidden = !silent.length;
   if (silent.length) $('fx-muted').textContent = `${silent.join(', ')} muted: changes are kept, but you won't hear them until ${silent.length > 1 ? 'they play' : 'it plays'} again ` +
     `(Master${muteOk ? '' : ' needs FM-1_977'}, or C4-F4 on the FM-1's MASTER page).`;
-  $('fx-diagram').innerHTML = fxDiagram(fx, {mute});
+  drawWiring();
   $$('#live-sec .fx-card, .pop-body .fx-card').forEach(card => card.classList.toggle('fm1', !!lastLive && +card.dataset.page === onFm1));
   hot.forEach(key => {
     $$(`.fx-ctl[data-key="${key}"]`).forEach(el => {
@@ -282,6 +282,57 @@ function refresh(hot = []) {
     });
   });
 }
+/* ---------- the wiring (lsdj/fx-diagram.js) ----------
+   Upright (a column per channel) or across (a row per channel), the choice kept in this browser;
+   narrower on a phone. A block opens the effects page it is on, with its channel marked. */
+const PHONE = '(max-width:700px), (max-height:480px) and (pointer:coarse)';
+let wireDir = 'v', lastWiring = '';
+try { if (localStorage.getItem('wiring-direction') === 'h') wireDir = 'h'; } catch { /* storage blocked: upright */ }
+function drawWiring() {
+  if (!fx) return;
+  const box = $('fx-diagram');
+  const svg = fxDiagram(fx, {mute, layout: wireDir, compact: wireDir === 'v' && !isOut('wire') && matchMedia(PHONE).matches});
+  if (svg !== lastWiring || !box.firstChild) { box.innerHTML = svg; lastWiring = svg; }   // the same: keep keyboard focus
+  $$('#wire-dir [data-dir]').forEach(b => { const on = b.dataset.dir === wireDir; b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); });
+  $('pan-wire').dataset.size = wireDir === 'h' ? '900x420' : '700x620';   // its own window: shaped to fit
+}
+matchMedia(PHONE).addEventListener?.('change', drawWiring);
+$$('#wire-dir [data-dir]').forEach(b => {
+  b.onclick = () => {
+    wireDir = b.dataset.dir;
+    try { localStorage.setItem('wiring-direction', wireDir); } catch { /* not kept: fine */ }
+    drawWiring();
+  };
+});
+/* a block: its page, shown and brought into view (the channel's controls flash) */
+function openFromWiring(blk) {
+  if (!fx || !blk?.dataset.go) return;
+  const ch = blk.dataset.ch === undefined ? null : +blk.dataset.ch;
+  const name = pageFor(blk.dataset.go, !fx.v3);
+  const i = pagesForFx(fx, fwNum).findIndex(pg => pg.name === name);
+  if (i < 0) return;
+  const master = isMasterPage(fx, i, fwNum);
+  if (!master) { followPage = false; pickPage = i; refresh(); }
+  const card = $(master ? 'fx-master-pages' : 'fx-pages')?.querySelector(`.fx-card[data-page="${i}"]`);
+  if (!card) return;
+  const panel = card.closest('.panel') || card;
+  if (panel.ownerDocument !== document) panel.ownerDocument.defaultView.focus();   // in its own window
+  else if (!(document.body.classList.contains('perform') && matchMedia('(min-width:900px) and (min-height:440px) and (orientation:landscape)').matches))
+    panel.scrollIntoView({behavior: 'smooth', block: 'start'});   // the stage shows every panel already
+  const flash = el => { el.classList.remove('picked'); void el.offsetWidth; el.classList.add('picked'); };
+  const ctls = ch == null ? [] : [...card.querySelectorAll(`.fx-ctl[data-ch="${ch}"]`)];
+  (ctls.length ? ctls : [card]).forEach(flash);
+  const first = ctls[0]?.querySelector('input, select, button') || card.querySelector('input, select, button');
+  first?.focus({preventScroll: true});
+}
+$('fx-diagram').addEventListener('click', e => openFromWiring(e.target.closest?.('[data-go]')));
+$('fx-diagram').addEventListener('keydown', e => {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  const blk = e.target.closest?.('[data-go]'); if (!blk) return;
+  e.preventDefault(); openFromWiring(blk);
+});
+/* the phone's quick links: one panel each */
+$$('#stage-nav [data-to]').forEach(b => { b.onclick = () => $(b.dataset.to)?.scrollIntoView({behavior: 'smooth', block: 'start'}); });
 /* what changed between two setups (every channel, and the shared effects) */
 function changedKeys(a, b) {
   if (!a || !b) return [];

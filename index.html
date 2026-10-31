@@ -127,6 +127,18 @@ table.fx th,table.fx td{padding:3px 6px;border-bottom:1px solid var(--line);text
 .fm1-screen canvas{display:block;width:100%;height:auto;aspect-ratio:160/144;image-rendering:pixelated;border-radius:4px}
 .fxd-wrap{overflow-x:auto;margin:8px 0 0;border:1px solid var(--line);border-radius:10px;background:var(--card2);padding:6px}
 .fxd{display:block;width:100%;min-width:420px;max-width:640px;margin:0 auto;height:auto}
+.fxd[data-layout=h]{min-width:560px;max-width:none}
+.fxd[data-layout=vc]{min-width:0;max-width:520px}
+.fxd[data-layout=vc] text{font-size:12px}.fxd[data-layout=vc] text.ch{font-size:14px}
+.fxd .blk[data-go]{cursor:pointer}
+.fxd .blk[data-go]:hover .box{stroke:var(--accent)}
+.fxd .blk[data-go]:focus{outline:none}.fxd .blk[data-go]:focus-visible .box{stroke:var(--hi);stroke-width:3}
+.wire-dir{flex:none;margin-left:auto}.wire-dir button{padding:3px 9px;font-size:12px;white-space:nowrap}
+#pan-wire .panel-head .pop{margin-left:0}
+.wire-tip{font-size:12px}
+@keyframes picked{from{background:color-mix(in srgb,var(--accent) 35%,transparent);box-shadow:0 0 0 2px var(--accent)}to{background:transparent;box-shadow:0 0 0 0 transparent}}
+.picked{animation:picked 1.8s ease-out;border-radius:6px}
+.stage-nav{display:none}
 .fxd text{font:600 11px ui-monospace,monospace;fill:var(--ink)}
 .fxd text.sub{font-weight:400;fill:var(--muted)}
 .fxd text.ch{font-size:13px}
@@ -217,11 +229,39 @@ body:not(.connected) .pop-body{opacity:.5;pointer-events:none}
   body.perform.pop-chans #live-sec{grid-template-areas:"head head" "screen master" "screen master" "wire master"}
   body.perform.pop-master.pop-chans #pan-screen canvas{height:calc(var(--sh)*.62);width:auto;margin:auto}
 }
-@media (max-width:640px){.fx-matrix,.fx-card.matrix .fx-row{grid-template-columns:repeat(2,minmax(0,1fr))}
+@media (max-width:640px), (max-height:480px) and (pointer:coarse){.fx-matrix,.fx-card.matrix .fx-row{grid-template-columns:repeat(2,minmax(0,1fr))}
   .fx-card.matrix .fx-row .knob,.chan-head>div:nth-child(-n+2){display:none}
   .fx-card.matrix .fx-row .fx-name,.fx-card.matrix .fx-row .fx-ctl.shared{grid-column:1/-1}
   .fx-card.matrix .fx-ctl[data-chn]::before{content:attr(data-chn);font:600 11px ui-monospace,monospace;color:var(--muted)}
   .panel-head .pop,#stage-full{display:none}}
+/* perform on a phone: the panels one under another, full width, a sticky head, big targets, and
+   quick links along the bottom (the wiring opens the effects pages: app.js openFromWiring) */
+@media (max-width:700px), (max-height:480px) and (pointer:coarse){
+  body.perform .top,body.perform #connect,body.perform .tabs{display:none}
+  body.perform main{max-width:none;padding:0 0 calc(64px + env(safe-area-inset-bottom))}
+  body.perform #live-sec{border:0;border-radius:0;background:none;padding:0 10px;margin:0}
+  body.perform .stage-head{position:sticky;top:0;z-index:6;background:var(--bg);margin:0 -10px 8px;padding:8px 10px;border-bottom:1px solid var(--line);gap:6px}
+  body.perform .stage-head h2{font-size:17px;flex:1 1 100%}
+  body.perform .stage-head .stage-gap{display:none}
+  body.perform .stage-head button,body.perform .stage-head .button-link{padding:6px 12px;font-size:14px}
+  body.perform .panel{scroll-margin-top:96px;padding:8px;margin:0 0 10px}
+  body.perform .fm1-screen{max-width:min(100%,calc(38vh*160/144));margin:0 auto}
+  body.perform .fxd-wrap{padding:4px}
+  body.perform .fxd{max-height:calc(100vh - 110px)}
+  body.perform .wire-tip{display:none}
+  body.perform .wire-dir button{padding:7px 10px;font-size:13px}
+  body.perform .page-tabs{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;max-width:100%}
+  body.perform .page-tabs button{padding:8px 12px;white-space:nowrap;flex:none}
+  body.perform .mute-row button{padding:9px 14px;font-size:15px}
+  body.perform .seg button{padding:9px 8px;font-size:14px}
+  body.perform .fx-ctl{min-height:40px}
+  body.perform .fx-ctl input[type=range]{height:32px}
+  body.perform .fx-ctl select{min-height:38px;font-size:15px}
+  body.perform .stage-nav{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:7;gap:4px;padding:6px 8px calc(6px + env(safe-area-inset-bottom));
+    background:var(--top);border-top:1px solid var(--line)}
+  body.perform .stage-nav button{flex:1;padding:10px 4px;font-size:14px;background:transparent;color:var(--top-ink);border:1px solid color-mix(in srgb,var(--top-ink) 25%,transparent)}
+  body.perform.pop-screen [data-to=pan-screen],body.perform.pop-wire [data-to=pan-wire],body.perform.pop-master [data-to=pan-master],body.perform.pop-chans [data-to=pan-chans]{display:none}
+}
 /* songs */
 .actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(230px,100%),1fr));gap:10px;margin:10px 0}
 .action{border:1px solid var(--line);border-radius:10px;padding:12px;background:var(--card2);display:flex;flex-direction:column;gap:8px;align-items:flex-start}
@@ -335,7 +375,7 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 </div>
 
 <div class="panel" id="pan-wire" data-pop="wire" data-title="Wiring" data-size="700x620">
-<div class="panel-head"><h3>Wiring</h3><button class="pop" type="button" title="Open in its own window">⇱</button></div>
+<div class="panel-head"><h3>Wiring</h3><span class="hint wire-tip">tap a block for its page</span><div id="wire-dir" class="seg wire-dir" role="radiogroup" aria-label="Wiring direction"><button type="button" role="radio" data-dir="v" title="A column per channel, as LSDj's song screen">&#8595; Columns</button><button type="button" role="radio" data-dir="h" title="A row per channel">&#8594; Rows</button></div><button class="pop" type="button" title="Open in its own window">⇱</button></div>
 <div class="fxd-wrap" id="fx-diagram"></div>
 </div>
 
@@ -355,6 +395,8 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <div id="fx-pages" class="fx-pages one"></div>
 <p id="fx-muted" class="hint" role="status" hidden></p>
 </div>
+
+<nav id="stage-nav" class="stage-nav" aria-label="Perform panels"><button type="button" data-to="pan-screen">Screen</button><button type="button" data-to="pan-wire">Wiring</button><button type="button" data-to="pan-master">Master</button><button type="button" data-to="pan-chans">Channels</button></nav>
 
 <dialog id="fx-help">
 <h2>How the effects work</h2>
@@ -549,7 +591,7 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 </section>
 </div>
 
-<p class="hint foot">The firmware is free software (GPL-3.0), based on <a href="https://github.com/ChanceTheMaker/gamedude-fm1-smk" target="_blank" rel="noopener">GameDude</a>. Source: <a href="https://github.com/dreamsofbacon/lsdj-burrito-src" target="_blank" rel="noopener">lsdj-burrito-src</a>; <a href="lsdj/fm1-lsdj-template-source.zip" download>matching FM-1_992 template source</a>. Not affiliated with M-VAVE or <a href="https://www.littlesounddj.com/" target="_blank" rel="noopener">LSDj's author, Johan Kotlinski</a>.</p>
+<p class="hint foot">The firmware is free software (GPL-3.0), based on <a href="https://github.com/ChanceTheMaker/gamedude-fm1-smk" target="_blank" rel="noopener">GameDude</a>. Source: <a href="https://github.com/dreamsofbacon/lsdj-burrito-src" target="_blank" rel="noopener">lsdj-burrito-src</a>; <a href="lsdj/fm1-lsdj-template-source.zip" download>matching FM-1_994 template source</a>. Not affiliated with M-VAVE or <a href="https://www.littlesounddj.com/" target="_blank" rel="noopener">LSDj's author, Johan Kotlinski</a>.</p>
 </main>
 <script type="module" src="lsdj/ui.js"></script>
 <script type="module" src="lsdj/lsdj-app.js"></script>
