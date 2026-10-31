@@ -6,7 +6,7 @@ import {firmwareForEmulator, loadRuntime, KEY_IDS} from '../emulator/core.js';
 import {jitImports} from '../emulator/vendor/jit.js';
 import {prepareLsdjFirmware} from '../lsdj/lsdj-firmware.js';
 import {listKits, planRom, BANK, SLOT_HEADER} from '../lsdj/lsdj-rom.js';
-import {scanControls, LAYOUTS, hitTest, LSDJ_KEYS, BUTTONS} from '../emulator/face.js';
+import {scanControls, LAYOUTS, hitTest, LSDJ_KEYS, LSDJ_BUTTONS, LSDJ_KNOBS, FX_MUTES, PAGE_LIGHTS, ledLevel, BUTTONS} from '../emulator/face.js';
 import {readSave, writeSave, FTL_LO, FTL_N, SECTOR} from '../emulator/save-flash.js';
 
 const base = new URL('../emulator/', import.meta.url);
@@ -45,6 +45,18 @@ assert.equal(KEY_IDS.KeyX, 40); assert.equal(KEY_IDS.ArrowLeft, 14);
   // LSDj's buttons on the keys: the keyboard shortcuts press keys that carry the same tag.
   const tagOf = {ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down', KeyZ: 'B', KeyX: 'A', Enter: 'START', ShiftLeft: 'SELECT'};
   for (const [code, label] of Object.entries(tagOf)) assert.equal(LSDJ_KEYS[KEY_IDS[code] - 14], label, code);
+  // Every button and knob says what it does; SEL, ENV and LFO are the only unused ones.
+  assert.deepEqual(Object.keys(LSDJ_BUTTONS).map(Number), [...BUTTONS.keys()]);
+  assert.deepEqual(Object.entries(LSDJ_BUTTONS).filter(([, t]) => !t).map(([i]) => BUTTONS[i]), ['SEL', 'ENV', 'LFO']);
+  assert.equal(LSDJ_BUTTONS[12], 'START'); assert.equal(LSDJ_BUTTONS[13], 'SELECT');
+  assert.equal(Object.keys(LSDJ_KNOBS).length, 8);
+  // FX mutes on the white keys C4..F4, page lights on black keys
+  const black = k => [1, 3, 5, 8, 10].includes(k % 12);
+  assert.deepEqual(Object.keys(FX_MUTES).map(Number).map(black), [false, false, false, false]);
+  assert.ok(Object.keys(PAGE_LIGHTS).map(Number).every(black));
+  // Lights: the emulator's scanned levels (full about 0.09, soft about 0.014) look full and soft.
+  assert.equal(ledLevel(0.09), 1); assert.equal(ledLevel(0), 0); assert.equal(ledLevel(0.002), 0);
+  const soft = ledLevel(0.014); assert.ok(soft > 0.3 && soft < 0.6, `soft light ${soft}`);
 }
 // Songs in the save store: written as the firmware's store, read back; the settings records stay.
 {

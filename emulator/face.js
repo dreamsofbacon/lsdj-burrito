@@ -76,8 +76,8 @@ export const LAYOUTS = {
     W: 420, H: 812, R: 34,
     trays: [[14, 450, 392, 128, 16], [10, 590, 400, 212, 20, 'bed']],
     bezel: [76, 20, 268, 268], lcd: [90, 34, 240, 240],
-    knobs: {7: knob(60, 340, 44), 0: knob(160, 340, 44), 1: knob(260, 340, 44), 2: knob(360, 340, 44),
-      3: knob(60, 412, 40), 4: knob(160, 412, 40), 5: knob(260, 412, 40), 6: knob(360, 412, 40)},
+    knobs: {7: knob(60, 336, 44), 0: knob(160, 336, 44), 1: knob(260, 336, 44), 2: knob(360, 336, 44),
+      3: knob(60, 414, 40), 4: knob(160, 414, 40), 5: knob(260, 414, 40), 6: knob(360, 414, 40)},
     ctl: {...buttonRows([[...TOP, 0], [...BOTTOM, 1]], 25, 462, 46, 54, 58),
       ...keybed(16, 598, 388, 23, 104, 22, 88, 6)},
   },
@@ -95,13 +95,30 @@ export function hitTest(L, x, y) {
 // ---- LSDj's Game Boy buttons on the FM-1 (button mode; src/gb_port.c gp_input_keys, F3 = key 0)
 export const LSDJ_KEYS = {0: 'left', 2: 'left', 3: 'up', 5: 'up', 4: 'down', 6: 'right', 7: 'right',
   11: 'SELECT', 12: 'START', 24: 'B', 26: 'A'};
-export const LSDJ_BUTTONS = {12: 'START', 13: 'SELECT', 8: 'NOTES'};   // PLAY, REC; HOME switches note mode
-const SHORT = {SELECT: 'SL', START: 'ST'};   // on the phone layout's narrow keys
+// What every other control does with LSDj (handoff/docs/GUIDE.md, quick actions). '' = not used.
+export const LSDJ_BUTTONS = {0: 'OCTAVE -', 1: 'OCTAVE +', 2: 'MASTER FX', 3: '', 4: '', 5: '', 6: 'TEMPO',
+  7: 'SETTINGS', 8: 'NOTE MODE', 9: 'SAVE SONGS', 10: 'CUE ROW', 11: 'LIVE/SONG', 12: 'START', 13: 'SELECT'};
+export const LSDJ_KNOBS = {0: 'FX PAGE', 1: 'UP/DOWN', 2: 'LEFT/RIGHT', 3: 'EFFECT 1', 4: 'EFFECT 2',
+  5: 'EFFECT 3', 6: 'EFFECT 4', 7: 'VOLUME'};
+export const FX_MUTES = {7: 'PU1', 9: 'PU2', 11: 'WAV', 12: 'NOI'};   // C4..F4 with FX open
+export const PAGE_LIGHTS = {8: 'SONG', 10: 'CHAIN', 13: 'PHRASE', 15: 'INSTR', 17: 'TABLE', 20: 'GROOVE'};
+const SHORT = {SELECT: 'SL', START: 'ST', SONG: 'SNG', CHAIN: 'CHN', PHRASE: 'PHR', INSTR: 'INS',
+  TABLE: 'TBL', GROOVE: 'GRV'};   // on the phone layout's narrow keys
+
+/* How bright a light looks, 0..1. The FM-1 scans its lights across 11 columns, so the emulator's
+   levels are on-time averages: a fully lit key reads about 0.09 and a soft one (page lights) about
+   0.014. Scaled so full is full and soft stays clearly visible. */
+export const LED_FULL = 0.088;
+export function ledLevel(v) {
+  const b = Math.min(1, Math.max(0, v || 0) / LED_FULL);
+  return b < 0.03 ? 0 : b ** 0.45;
+}
 
 // ---- the picture
 const C = {body: '#5c5f64', bodyLo: '#4b4e53', edge: '#6d7075', tray: '#36383c', bed: '#2b2d30',
   cap: '#46484c', capTop: '#55585c', key: '#3f4145', keyTop: '#4d5054', silk: '#d9dadc',
-  slit: '#7d8085', lit: '#ffffff', play: '#59e36f', tag: '#f2b84b', tagInk: '#1b1b1b'};
+  slit: '#7d8085', lit: '#ffffff', play: '#59e36f', tag: '#f2b84b', tagInk: '#1b1b1b',
+  mute: '#7cc8ff', unused: '#8a8d92'};
 export const FONT = '"DotGothic16", ui-monospace, monospace';
 
 function rrect(g, x, y, w, h, r) {
@@ -113,10 +130,10 @@ function arrow(g, cx, cy, s, dir) {
   g.beginPath(); g.moveTo(s, 0); g.lineTo(-s * 0.7, -s * 0.8); g.lineTo(-s * 0.7, s * 0.8); g.closePath(); g.fill();
   g.restore();
 }
-function tag(g, text, cx, cy, size) {
+function tag(g, text, cx, cy, size, colour = C.tag) {
   g.font = `${size}px ${FONT}`;
   const w = text.length > 1 ? g.measureText(text).width + size * 0.6 : size * 1.25, h = size * 1.25;
-  g.fillStyle = C.tag; rrect(g, cx - w / 2, cy - h / 2, w, h, size * 0.3); g.fill();
+  g.fillStyle = colour; rrect(g, cx - w / 2, cy - h / 2, w, h, size * 0.3); g.fill();
   g.fillStyle = C.tagInk;
   if (['up', 'down', 'left', 'right'].includes(text)) arrow(g, cx, cy, size * 0.42, text);
   else { g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(text, cx, cy + size * 0.06); }
@@ -149,10 +166,12 @@ export function drawFace(g, L, S, s) {
     g.fillStyle = 'rgba(0,0,0,.28)'; g.beginPath(); g.arc(k.cx, k.cy + 2, k.d / 2 + 5, 0, Math.PI * 2); g.fill();
     g.fillStyle = C.silk; g.font = `${L.W > 600 ? 15 : 11}px ${FONT}`;
     g.fillText(KNOBS[i], k.cx, k.cy - k.d / 2 - (L.W > 600 ? 12 : 8));
+    if (s.lsdj) tag(g, LSDJ_KNOBS[i], k.cx, k.cy + k.d / 2 + (L.W > 600 ? 15 : 9), L.W > 600 ? 12 : 8);
+    g.textAlign = 'center'; g.textBaseline = 'alphabetic';
   }
   const leds = s.leds || new Float32Array(41), small = L.W < 600;
   for (const [idText, [x, y, w, h]] of Object.entries(L.ctl)) {
-    const id = Number(idText), down = s.pressed?.has(id), led = Math.max(0, Math.min(1, leds[id] || 0));
+    const id = Number(idText), down = s.pressed?.has(id), led = ledLevel(leds[id]);
     const sink = down ? 2 : 0;
     if (id >= KEY0) {               // a silicone key: a pill with its light slit
       const k = id - KEY0;
@@ -167,11 +186,16 @@ export function drawFace(g, L, S, s) {
         g.fillStyle = `rgba(255,255,255,${0.35 + 0.65 * led})`; rrect(g, x + (w - sw) / 2, sy, sw, sh, sw / 2); g.fill();
         g.restore();
       } else { g.fillStyle = C.slit; rrect(g, x + (w - sw) / 2, sy, sw, sh, sw / 2); g.fill(); }
-      const silk = UPPER_SILK[BLACKS.indexOf(k)];
-      if (!small && silk) {
-        g.fillStyle = 'rgba(217,218,220,.55)'; g.font = `10px ${FONT}`; g.textBaseline = 'alphabetic';
+      const silk = UPPER_SILK[BLACKS.indexOf(k)], page = s.lsdj && PAGE_LIGHTS[k];
+      g.textAlign = 'center'; g.textBaseline = 'alphabetic';
+      if (page) {                   // the LSDj screen this black key's light shows
+        g.fillStyle = 'rgba(255,255,255,.85)'; g.font = `${small ? 8 : 11}px ${FONT}`;
+        g.fillText(small ? SHORT[page] : page, x + w / 2, y + h - (small ? 4 : 6) + sink);
+      } else if (!small && silk) {
+        g.fillStyle = 'rgba(217,218,220,.55)'; g.font = `10px ${FONT}`;
         g.fillText(silk, x + w / 2, y + h - 6 + sink);
       }
+      if (s.lsdj && FX_MUTES[k]) tag(g, FX_MUTES[k], x + w / 2, y + h - (small ? 10 : 17) + sink, small ? 8 : 12, C.mute);
       if (s.lsdj && LSDJ_KEYS[k]) tag(g, small ? SHORT[LSDJ_KEYS[k]] || LSDJ_KEYS[k] : LSDJ_KEYS[k], x + w / 2, y + (small ? 11 : 16) + sink, small ? 9 : 13);
     } else {                        // a button: its label lights up
       g.fillStyle = 'rgba(0,0,0,.45)'; rrect(g, x, y + 3, w, h, 9); g.fill();
@@ -187,7 +211,8 @@ export function drawFace(g, L, S, s) {
       g.textAlign = 'center'; g.textBaseline = 'middle';
       g.fillText(BUTTONS[id], x + w / 2, y + h / 2 + sink + 1);
       g.restore();
-      if (s.lsdj && LSDJ_BUTTONS[id]) tag(g, LSDJ_BUTTONS[id], x + w / 2, y + h + (small ? 7 : 9), small ? 7 : 9);
+      if (s.lsdj) tag(g, LSDJ_BUTTONS[id] || 'NOT USED', x + w / 2, y + h + (small ? 7 : 9), small ? 7.5 : 10.5,
+        LSDJ_BUTTONS[id] ? C.tag : C.unused);
     }
   }
 }
@@ -195,6 +220,6 @@ export function drawFace(g, L, S, s) {
 /* What a frame changes in the front's picture (lit levels in 16 steps, pressed controls). */
 export function faceKey(leds, pressed, lsdj) {
   let k = lsdj ? 'L' : '';
-  for (let i = 0; i < 41; i++) k += ((Math.max(0, Math.min(1, leds?.[i] || 0)) * 15) | 0).toString(16);
+  for (let i = 0; i < 41; i++) k += ((ledLevel(leds?.[i]) * 15) | 0).toString(16);
   return k + [...pressed].sort((a, b) => a - b).join(',');
 }

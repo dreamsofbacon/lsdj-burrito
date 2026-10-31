@@ -637,7 +637,7 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <label>Volume <input id="emu-volume" type="range" min="0" max="100" value="25"></label>
 <button id="emu-front" type="button" aria-pressed="true">Angled view</button>
 <button id="emu-zoom" type="button" aria-expanded="false" aria-controls="emu-lcd">Enlarge screen</button>
-<label><input id="emu-lsdj" type="checkbox" checked> Show LSDj buttons</label>
+<label><input id="emu-lsdj" type="checkbox" checked> Show what each control does</label>
 </div>
 <div class="emu-settings">
 <label class="button-link file-btn">Load songs (.sav)…<input id="emu-sav-file" type="file" accept=".sav,application/octet-stream"></label>
@@ -648,7 +648,10 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <canvas id="emu-lcd" width="240" height="240" aria-label="Enlarged virtual FM-1 display" hidden></canvas>
 <p id="emu-stats" class="hint" role="status"></p>
 <details><summary>Controls</summary>
-<p>Click or tap the keys and buttons; drag knobs up and down or scroll over them. The yellow tags (Show LSDj buttons) mark LSDj's Game Boy buttons in button mode: the arrows, SELECT, START, B and A on the keys, START and SELECT on PLAY and REC; HOME switches the keys between buttons and notes. With the instrument focused: arrows = directions, Z/X = B/A, Shift/Enter = Select/Start. Use a MIDI keyboard feeds it MIDI like the FM-1's MIDI socket: notes play LSDj when GLO › MIDI › NOTE IN is on, and clock and CCs work as on the FM-1. Switching tabs pauses it.</p>
+<p>Click or tap the keys and buttons; drag knobs up and down or scroll over them. With Show what each control does on, every control carries a tag saying what it does in LSDj:</p>
+<p><b>Yellow on the keys:</b> LSDj's Game Boy buttons in button mode (the arrows, SELECT, START, B, A). HOME switches the keys to note mode, where they play notes instead and OCT- / OCT+ shift the octave. <b>Blue (C4 to F4):</b> with FX open, these mute and unmute PU1, PU2, WAV and NOI. <b>White names on black keys:</b> the soft light on that key shows which LSDj screen you're on (SONG, CHAIN, PHRASE, INSTR, TABLE, GROOVE).</p>
+<p><b>Buttons:</b> PLAY = START, REC = SELECT, FX opens the master effects, GLO the settings, SAVE saves your songs, SEQ switches live / song mode, hold ARP and turn KNOB1 to cue a song row, hold EDIT and turn KNOB1 to set the tempo (or tap EDIT in time). SEL, ENV and LFO aren't used. <b>Knobs:</b> PRESETS = up / down, ALGORITHM = left / right, SELECT turns the effects pages, KNOB1-4 play that page's four effects, MASTER is the volume.</p>
+<p>With the instrument focused: arrows = directions, Z/X = B/A, Shift/Enter = Select/Start. Use a MIDI keyboard feeds it MIDI like the FM-1's MIDI socket: notes play LSDj when GLO › MIDI › NOTE IN is on, and clock and CCs work as on the FM-1. Switching tabs pauses it.</p>
 <p>Songs: Load songs (.sav) starts the virtual FM-1 with an LSDj save of yours (a running one restarts). Save songs (.sav) downloads what the virtual FM-1 last saved: press SAVE on it first. On a phone held upright the FM-1 is laid out for the screen; turn the phone for its real layout.</p>
 </details>
 <details><summary>View and speed options</summary>
