@@ -5,6 +5,10 @@
 <link rel="manifest" href="manifest.webmanifest"><meta name="theme-color" content="#181c18">
 <link rel="icon" href="favicon.ico" sizes="16x16 32x32 48x48"><link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png"><link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <title>Dreamy_bacon's LSDJ Burrito</title>
+<script>/* the dev page (dreamsofbacon.github.io/lsdj-burrito-dev/, the site's dev branch): a banner, DEV in the
+   title and its own app name; the same code is harmless on the live page */
+if (location.pathname.startsWith('/lsdj-burrito-dev/')) { document.documentElement.classList.add('devpage');
+  document.querySelector('link[rel=manifest]').href = 'manifest-dev.webmanifest'; document.title = 'DEV · ' + document.title; }</script>
 <script>/* the last connected FM-1's colours (lsdj/page-theme.js), before the page draws */
 try { const v = JSON.parse(localStorage.getItem('burrito.pageColours'));
   if (v && localStorage.getItem('burrito.pageTheme') !== 'off') for (const k in v) document.documentElement.style.setProperty(k, v[k]); } catch {}</script>
@@ -15,6 +19,10 @@ try { const v = JSON.parse(localStorage.getItem('burrito.pageColours'));
 body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,sans-serif}
 [hidden]{display:none!important}
 a{color:var(--accent)}
+/* the dev page's banner (html.devpage: the script in the head) */
+.dev-banner{display:none;background:#ffd23f;color:#1a1a1a;font:600 13px/1.4 system-ui,sans-serif;padding:6px 16px;text-align:center}
+.dev-banner a{color:#1a1a1a}
+html.devpage .dev-banner{display:block}
 /* top bar */
 .top{position:sticky;top:0;z-index:5;background:var(--top);color:var(--top-ink)}
 .top-in{max-width:880px;margin:0 auto;padding:8px 16px;display:flex;gap:6px 14px;align-items:center;flex-wrap:wrap}
@@ -354,6 +362,7 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 </style>
 </head>
 <body>
+<div class="dev-banner" role="note">TEST BUILD: the LSDJ Burrito dev page. Firmware and features here are being tested and may not work. The finished version is on <a href="https://dreamsofbacon.github.io/lsdj-burrito/">the LSDJ Burrito page</a>.</div>
 <header class="top"><div class="top-in">
 <a class="brand" href="#home">LSDJ Burrito<small>by Dreamy_bacon</small></a>
 <nav class="page-nav" aria-label="Main">
