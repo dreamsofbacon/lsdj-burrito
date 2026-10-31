@@ -2,6 +2,8 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="manifest" href="manifest.webmanifest"><meta name="theme-color" content="#181c18">
+<link rel="icon" href="favicon.ico" sizes="16x16 32x32 48x48"><link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png"><link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <title>Dreamy_bacon's LSDJ Burrito</title>
 <script>/* the last connected FM-1's colours (lsdj/page-theme.js), before the page draws */
 try { const v = JSON.parse(localStorage.getItem('burrito.pageColours'));
@@ -25,6 +27,7 @@ a{color:var(--accent)}
 .chip{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--top-ink);text-decoration:none;border:1px solid color-mix(in srgb,var(--top-ink) 25%,transparent);border-radius:999px;padding:3px 10px;white-space:nowrap}
 .chip::before{content:"";width:8px;height:8px;border-radius:50%;background:#8a887f}
 .chip.on::before{background:#5fd38d}
+.install-chip{background:transparent;cursor:pointer;line-height:1.5}.install-chip::before{display:none}
 main{max-width:880px;margin:0 auto;padding:20px 16px 64px}
 h1{font-size:28px;margin:8px 0 4px;line-height:1.2}h2{font-size:18px;margin:0 0 8px}h3{font-size:14px;margin:12px 0 6px}
 .sub{color:var(--muted);margin:0 0 20px;font-size:16px}
@@ -194,7 +197,7 @@ body:not(.connected) .pop-body{opacity:.5;pointer-events:none}
 .pop-body #fm1-screen-box,.pop-body #fx-diagram{flex:1;min-height:0;max-width:none}
 .pop-body .fm1-screen canvas,.pop-body .fxd{width:100%;height:100%;min-width:0;aspect-ratio:auto;object-fit:contain}
 .pop-body .fxd-wrap{overflow:hidden}
-@media (min-width:900px) and (min-height:440px) and (orientation:landscape){
+@media (min-width:961px) and (min-height:440px) and (orientation:landscape){
   body.perform{overflow:hidden}
   body.perform .top,body.perform #connect,body.perform .tabs{display:none}
   body.perform main{max-width:none;padding:0}
@@ -229,21 +232,36 @@ body:not(.connected) .pop-body{opacity:.5;pointer-events:none}
   body.perform.pop-chans #live-sec{grid-template-areas:"head head" "screen master" "screen master" "wire master"}
   body.perform.pop-master.pop-chans #pan-screen canvas{height:calc(var(--sh)*.62);width:auto;margin:auto}
 }
-@media (max-width:640px), (max-height:480px) and (pointer:coarse){.fx-matrix,.fx-card.matrix .fx-row{grid-template-columns:repeat(2,minmax(0,1fr))}
+@media (max-width:640px), (max-width:960px) and (max-height:500px) and (orientation:landscape){.fx-matrix,.fx-card.matrix .fx-row{grid-template-columns:repeat(2,minmax(0,1fr))}
   .fx-card.matrix .fx-row .knob,.chan-head>div:nth-child(-n+2){display:none}
   .fx-card.matrix .fx-row .fx-name,.fx-card.matrix .fx-row .fx-ctl.shared{grid-column:1/-1}
   .fx-card.matrix .fx-ctl[data-chn]::before{content:attr(data-chn);font:600 11px ui-monospace,monospace;color:var(--muted)}
   .panel-head .pop,#stage-full{display:none}}
-/* perform on a phone: the panels one under another, full width, a sticky head, big targets, and
-   quick links along the bottom (the wiring opens the effects pages: app.js openFromWiring) */
-@media (max-width:700px), (max-height:480px) and (pointer:coarse){
+/* perform on a phone (by size, not touch, so a phone asking for the desktop site gets the desktop
+   page): no site bar, a sticky head of fixed height (messages float under it, so nothing below
+   moves), big targets; upright: panels one under another with quick links along the bottom;
+   on its side: the screen held on the left, the controls scrolling on the right */
+@media (max-width:700px), (max-width:960px) and (max-height:500px) and (orientation:landscape){
   body.perform .top,body.perform #connect,body.perform .tabs{display:none}
+  body.perform .stage-head{position:sticky;top:0;z-index:6;background:var(--bg);border-bottom:1px solid var(--line)}
+  body.perform .stage-head h2{font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+  body.perform #live-badges{white-space:nowrap;overflow-x:auto;scrollbar-width:none;min-width:0}
+  body.perform #live-badges::-webkit-scrollbar{display:none}
+  body.perform #live-badges .badge:first-child{margin-left:0}
+  body.perform .stage-head .stage-gap,body.perform #stage-full{display:none}
+  body.perform .stage-head #fx-status{position:absolute;left:10px;right:10px;top:calc(100% + 4px);margin:0;padding:6px 10px;
+    background:var(--card);border:1px solid var(--line);border-radius:8px;box-shadow:0 4px 14px rgb(0 0 0/.25)}
+  body.perform .stage-head button,body.perform .stage-head .button-link{padding:6px 12px;font-size:14px;white-space:nowrap}
+  body.perform .chan-head b{white-space:nowrap}
+}
+@media (max-width:700px){
   body.perform main{max-width:none;padding:0 0 calc(64px + env(safe-area-inset-bottom))}
   body.perform #live-sec{border:0;border-radius:0;background:none;padding:0 10px;margin:0}
-  body.perform .stage-head{position:sticky;top:0;z-index:6;background:var(--bg);margin:0 -10px 8px;padding:8px 10px;border-bottom:1px solid var(--line);gap:6px}
-  body.perform .stage-head h2{font-size:17px;flex:1 1 100%}
-  body.perform .stage-head .stage-gap{display:none}
-  body.perform .stage-head button,body.perform .stage-head .button-link{padding:6px 12px;font-size:14px}
+  body.perform .stage-head{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;grid-template-areas:"t k h s" "b b b b";
+    gap:6px;margin:0 -10px 8px;padding:8px 10px}
+  body.perform .stage-head h2{grid-area:t}
+  body.perform #live-badges{grid-area:b;height:22px}
+  body.perform #fx-keep{grid-area:k}body.perform #fx-help-btn{grid-area:h}body.perform .stage-head .button-link{grid-area:s}
   body.perform .panel{scroll-margin-top:96px;padding:8px;margin:0 0 10px}
   body.perform .fm1-screen{max-width:min(100%,calc(38vh*160/144));margin:0 auto}
   body.perform .fxd-wrap{padding:4px}
@@ -257,10 +275,33 @@ body:not(.connected) .pop-body{opacity:.5;pointer-events:none}
   body.perform .fx-ctl{min-height:40px}
   body.perform .fx-ctl input[type=range]{height:32px}
   body.perform .fx-ctl select{min-height:38px;font-size:15px}
-  body.perform .stage-nav{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:7;gap:4px;padding:6px 8px calc(6px + env(safe-area-inset-bottom));
-    background:var(--top);border-top:1px solid var(--line)}
-  body.perform .stage-nav button{flex:1;padding:10px 4px;font-size:14px;background:transparent;color:var(--top-ink);border:1px solid color-mix(in srgb,var(--top-ink) 25%,transparent)}
+  body.perform .stage-nav{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:7;gap:2px;padding:4px 8px calc(4px + env(safe-area-inset-bottom));
+    background:color-mix(in srgb,var(--bg) 94%,transparent);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border-top:1px solid var(--line)}
+  body.perform .stage-nav button{flex:1;padding:10px 4px;font-size:14px;font-weight:600;background:transparent;color:var(--muted);border:0;border-radius:8px}
+  body.perform .stage-nav button.on{color:var(--ink);background:color-mix(in srgb,var(--ink) 7%,transparent)}
   body.perform.pop-screen [data-to=pan-screen],body.perform.pop-wire [data-to=pan-wire],body.perform.pop-master [data-to=pan-master],body.perform.pop-chans [data-to=pan-chans]{display:none}
+}
+@media (max-width:960px) and (max-height:500px) and (orientation:landscape){
+  body.perform main{max-width:none;padding:0 0 env(safe-area-inset-bottom)}
+  body.perform #live-sec{border:0;border-radius:0;background:none;margin:0;padding:0 max(8px,env(safe-area-inset-right)) 8px max(8px,env(safe-area-inset-left));
+    display:grid;grid-template-columns:auto minmax(0,1fr);gap:0 10px;align-items:start;
+    grid-template-areas:"head head" "screen master" "screen chans" "screen wire"}
+  body.perform .stage-head{grid-area:head;display:flex;flex-wrap:nowrap;gap:8px;margin:0 0 8px;padding:6px 0;height:48px}
+  body.perform .stage-head h2{flex:none;max-width:40%}
+  body.perform #live-badges{flex:1}
+  body.perform .stage-head #fx-status{left:0;right:auto;max-width:70%}
+  body.perform #pan-screen{grid-area:screen;position:sticky;top:56px;align-self:start;padding:4px;
+    width:min(46vw,calc((100vh - 72px)*160/144));width:min(46vw,calc((100dvh - 72px)*160/144))}
+  body.perform #pan-screen .panel-head{display:none}
+  body.perform .fm1-screen{max-width:none;padding:0;border:0;background:none}
+  body.perform #pan-master{grid-area:master}
+  body.perform #pan-chans{grid-area:chans}
+  body.perform #pan-wire{grid-area:wire}
+  body.perform .panel{scroll-margin-top:56px;padding:6px 8px;margin:0 0 8px}
+  body.perform .fxd{max-height:calc(100vh - 110px)}
+  body.perform .wire-tip{display:none}
+  body.perform .page-tabs{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;max-width:100%}
+  body.perform .page-tabs button{white-space:nowrap;flex:none}
 }
 /* songs */
 .actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(230px,100%),1fr));gap:10px;margin:10px 0}
@@ -311,6 +352,7 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <nav class="page-nav" aria-label="Main">
 <a href="#home" data-view="home">Home</a><a href="#connect" data-view="device">My FM-1</a><a href="#install" data-view="install">Install</a><a href="#emulator-sec" data-view="try">Try it</a>
 </nav>
+<button id="install-app" class="chip install-chip" type="button" title="Install LSDJ Burrito as an app: it opens in its own window and works offline" hidden>Install app</button>
 <a id="conn-chip" class="chip" href="#connect">Not connected</a>
 </div></header>
 <main>
@@ -456,7 +498,7 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <h3 class="subhead">FX and lights</h3>
 <div class="grid2" id="feat-form"></div>
 <details><summary>What these do</summary>
-<p><b>SELECT goes round:</b> off, turning SELECT past the last effects page stops there, so turning back always reaches FILTER (Channel FX). <b>FX knobs: Channels:</b> SELECT picks one effect and K1-K4 set it for PU1, PU2, WAV and NOI. <b>Black keys show the page:</b> a soft light on C#4 D#4 F#4 G#4 A#4 C#5 for effects pages 1-6, or LSDj's SONG, CHAIN, PHRASE, INSTR, TABLE and GROOVE screens (LSDj 9.3.9). <b>FX knobs send their MIDI CC:</b> on the CC to effects channels (channel 1 if that is off). The same switches are on the FM-1: GLO › FX+LIGHTS.</p>
+<p><b>SELECT goes round:</b> off, turning SELECT past the last effects page stops there, so turning back always reaches FILTER (Channel FX). <b>FX knobs: Channels:</b> SELECT picks one effect and K1-K4 set it for PU1, PU2, WAV and NOI. <b>Black keys show the page:</b> in the effects panel, a soft light on the channel page's key: C#4 FILTER, D#4 DRIVE, F#4 LFO, G#4 LO-FI (the master pages light none, as C4-F4 show the mutes there); otherwise C#4 D#4 F#4 G#4 A#4 C#5 for LSDj's SONG, CHAIN, PHRASE, INSTR, TABLE and GROOVE screens (LSDj 9.3.9). <b>FX knobs send their MIDI CC:</b> on the CC to effects channels (channel 1 if that is off). The same switches are on the FM-1: GLO › FX+LIGHTS.</p>
 </details>
 </div>
 <div class="row" style="margin-top:14px"><button id="settings-apply" class="primary" type="button">Apply and keep</button><span id="settings-status" class="hint" role="status"></span></div>
@@ -598,5 +640,6 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <script type="module" src="lsdj/app.js"></script>
 <script type="module" src="lsdj/install-ui.js"></script>
 <script type="module" src="emulator/app.js"></script>
+<script type="module" src="lsdj/pwa.js"></script>
 </body>
 </html>

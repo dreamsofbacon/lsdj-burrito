@@ -333,6 +333,15 @@ $('fx-diagram').addEventListener('keydown', e => {
 });
 /* the phone's quick links: one panel each */
 $$('#stage-nav [data-to]').forEach(b => { b.onclick = () => $(b.dataset.to)?.scrollIntoView({behavior: 'smooth', block: 'start'}); });
+/* the quick link of the panel at the top of the screen is marked */
+function markStageNav() {
+  const nav = $('stage-nav'); if (!nav || getComputedStyle(nav).display === 'none') return;
+  let cur = null;
+  for (const b of nav.querySelectorAll('[data-to]')) { const p = $(b.dataset.to);
+    if (p?.offsetParent && (!cur || p.getBoundingClientRect().top < innerHeight * .4)) cur = b; }
+  nav.querySelectorAll('[data-to]').forEach(b => b.classList.toggle('on', b === cur));
+}
+addEventListener('scroll', markStageNav, {passive: true}); addEventListener('resize', markStageNav);
 /* what changed between two setups (every channel, and the shared effects) */
 function changedKeys(a, b) {
   if (!a || !b) return [];

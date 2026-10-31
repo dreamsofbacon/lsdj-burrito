@@ -1,0 +1,16 @@
+{
+  "name": "LSDJ Burrito",
+  "short_name": "Burrito",
+  "description": "My FM-1: perform with LSDJ Burrito's effects, manage songs and colours, install the firmware, or try the Virtual FM-1. Works offline once installed.",
+  "id": "./",
+  "start_url": "./#connect",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#181c18",
+  "theme_color": "#181c18",
+  "icons": [
+    {"src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png"},
+    {"src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png"},
+    {"src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+  ]
+}

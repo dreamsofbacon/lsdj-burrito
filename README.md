@@ -26,12 +26,12 @@ WebAssembly and audio requirements below.
 
 ## Master and channel effects (FM-1_977 and newer)
 
-Effects shows a **Master** box first: the MASTER page (on the FM-1 it opens while FX
-is held) and PU1-NOI mute buttons (lit = playing; the same mutes as hold FX + C4-F4
-and MIDI CC 81, sent with link op 0x24 MUTE_SET, live only). Freeze is settable from
-the page too. **Channel effects and echo** follow below with FILTER, DRIVE, LFO,
+Effects shows a **Master** box first: the MASTER page (on the FM-1, tapping FX opens
+the effects panel on it, until FX again) and PU1-NOI mute buttons (lit = playing; the
+same mutes as C4-F4 on the FM-1's master pages and MIDI CC 81, sent with link op 0x24
+MUTE_SET, live only). Freeze is settable from the page too. **Channel effects and echo** follow below with FILTER, DRIVE, LFO,
 LO-FI, ECHO and ECHO MOD (977 had the echo pages in Master; 978 moved them back). The FM-1 page indicator follows
-the live page, including the master pages while FX is held, without changing the
+the live page, including the master pages while the FX panel shows them, without changing the
 saved channel page. Older firmware shows the mutes but cannot be set from here.
 
 ## FX organization (FM-1_975 and newer)
@@ -46,16 +46,18 @@ The remaining pages match the device knobs:
 
 | Page | K1 | K2 | K3 | K4 |
 | --- | --- | --- | --- | --- |
-| 2 FILTER | Channel FX | Filter type | Cutoff | Resonance |
+| 1 MASTER | All FX | Compressor | Echo mix | Echo time |
+| 2 FILTER | Channel FX | Echo send | Cutoff | Resonance |
 | 3 DRIVE | Drive | Distortion | Warmth | - |
 | 4 LFO | Rate | Depth | Shape | Destination |
-| 5 LO-FI | Crush | Decimate | Echo send | - |
+| 5 LO-FI | Crush | Decimate | Filter type | - |
 | 6 ECHO | Time | Feedback | Mix | Tone |
 | 7 ECHO MOD | Wobble | Sync | Mode | Freeze |
 
-SELECT changes the device page. Unused knobs do nothing. ECHO and ECHO MOD
-are shared; FILTER/DRIVE/LFO/LO-FI edit the chosen channel. Freeze remains
-read-only on the webpage (hold FX + D5 on the FM-1).
+This is FM-1_980 and newer (MASTER K3/K4 since 980; echo send on FILTER K2 and
+filter type on LO-FI K3 since 979). SELECT changes the device page. Unused knobs do
+nothing. ECHO and ECHO MOD are shared; FILTER/DRIVE/LFO/LO-FI edit the chosen
+channel. Freeze is ECHO MOD K4 on the FM-1, and settable from the page (977 and newer).
 Older connected firmware retains its original page/knob layout, with an
 explanation that All FX needs 975 or newer. New-layout backups cannot be
 restored to older firmware. Both 11-word and 17-word legacy backups remain
