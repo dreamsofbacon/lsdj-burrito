@@ -333,6 +333,11 @@ $('fx-diagram').addEventListener('keydown', e => {
 });
 /* the phone's quick links: one panel each */
 $$('#stage-nav [data-to]').forEach(b => { b.onclick = () => $(b.dataset.to)?.scrollIntoView({behavior: 'smooth', block: 'start'}); });
+/* First thing after connecting (FM-1_995): note mode and LSDj's SYNC = KEYBD, until dismissed. */
+{ const tip = $('tip-keybd'); let seen = false;
+  try { seen = localStorage.getItem('burrito.tipKeybd') === '1'; } catch {}
+  if (tip) { tip.hidden = seen;
+    $('tip-keybd-ok').onclick = () => { tip.hidden = true; try { localStorage.setItem('burrito.tipKeybd', '1'); } catch {} }; } }
 /* the quick link of the panel at the top of the screen is marked */
 function markStageNav() {
   const nav = $('stage-nav'); if (!nav || getComputedStyle(nav).display === 'none') return;

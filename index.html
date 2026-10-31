@@ -303,6 +303,13 @@ body:not(.connected) .pop-body{opacity:.5;pointer-events:none}
   body.perform .page-tabs{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;max-width:100%}
   body.perform .page-tabs button{white-space:nowrap;flex:none}
 }
+/* the first-thing card after connecting (app.js; gone once dismissed) */
+.tip-card{position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom));max-width:560px;margin:0 auto;z-index:8;
+  display:flex;gap:10px;align-items:flex-end;background:var(--card);color:var(--ink);border:1px solid var(--accent);border-radius:12px;
+  padding:10px 12px;box-shadow:0 8px 24px rgb(0 0 0/.3);font-size:14px}
+.tip-card p{margin:0;flex:1}
+body:not(.connected) .tip-card{display:none}
+@media (max-width:700px){body.perform .tip-card{bottom:calc(64px + env(safe-area-inset-bottom))}}
 /* songs */
 .actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(230px,100%),1fr));gap:10px;margin:10px 0}
 .action{border:1px solid var(--line);border-radius:10px;padding:12px;background:var(--card2);display:flex;flex-direction:column;gap:8px;align-items:flex-start}
@@ -372,6 +379,7 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <li>Install LSDJ Burrito with your own LSDj ROM file.</li>
 <li>Connect the FM-1 with a USB data cable.</li>
 <li>Shape the sound live, back up songs, pick colours.</li>
+<li>Play notes: press HOME on the FM-1 for note mode. LSDj needs PROJECT › SYNC = KEYBD; FM-1_995 sets it for you (LSDj 9.3.9, SYNC OFF).</li>
 </ol>
 <p class="hint" style="margin-top:12px">Use Chrome or Edge on a computer. This is experimental, unofficial firmware: back up your songs before installing.</p>
 </div>
@@ -438,6 +446,7 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <p id="fx-muted" class="hint" role="status" hidden></p>
 </div>
 
+<aside id="tip-keybd" class="tip-card" role="note" hidden><p><b>First thing:</b> press HOME on the FM-1 for note mode to play LSDj from the keys. LSDj needs PROJECT › SYNC = KEYBD: FM-1_995 sets it for you when SYNC is OFF (LSDj 9.3.9). Otherwise, set it on LSDj's PROJECT screen.</p><button id="tip-keybd-ok" type="button">Got it</button></aside>
 <nav id="stage-nav" class="stage-nav" aria-label="Perform panels"><button type="button" data-to="pan-screen">Screen</button><button type="button" data-to="pan-wire">Wiring</button><button type="button" data-to="pan-master">Master</button><button type="button" data-to="pan-chans">Channels</button></nav>
 
 <dialog id="fx-help">
@@ -548,8 +557,9 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <p id="wiz-backup-status" role="status" hidden></p></div>
 <label class="check"><input id="rom-experimental" type="checkbox" disabled><span>I understand this firmware is experimental and may not start or sound right, and I have backed up my songs.</span></label>
 <div class="row"><button id="rom-build" type="button" class="primary" aria-describedby="rom-next" disabled>Prepare firmware</button><span class="hint">Builds the file on this computer. Nothing is installed yet.</span></div>
-<details><summary>What's in this version (FM-1_994)</summary>
-<p>New in FM-1_994: Bluetooth is gone. The Bluetooth build was never part of the normal firmware (it only fitted with a smaller sound buffer, which crackled), so for the firmware you use nothing changes, except that Settings no longer lists BLUETOOTH and MIDI clock in is USB or TRS, clock out USB. My FM-1 connects over USB only. (FM-1_993 was a private test build.)</p>
+<details><summary>What's in this version (FM-1_995)</summary>
+<p>New in FM-1_995: note mode just works. The FM-1's keys (press HOME for note mode) and MIDI notes reach LSDj only when LSDj's PROJECT › SYNC is KEYBD. With LSDj 9.3.9 and SYNC OFF, the FM-1 now switches it to KEYBD by itself the first time you use note mode, and says LSDJ SYNC SET / TO KEYBD FOR NOTES. It leaves SYNC alone when it is MIDI or LSDJ (MIDI clock in and out need those) and tells you to set KEYBD yourself, as with other LSDj versions. The setting is part of the song: SAVE keeps it.</p>
+<p>From FM-1_994: Bluetooth is gone. The Bluetooth build was never part of the normal firmware (it only fitted with a smaller sound buffer, which crackled), so for the firmware you use nothing changes, except that Settings no longer lists BLUETOOTH and MIDI clock in is USB or TRS, clock out USB. My FM-1 connects over USB only. (FM-1_993 was a private test build.)</p>
 <p>Also new on this page: My FM-1 notices when the cable is pulled or the FM-1 is turned off, goes back to Not connected, and connects again by itself when the FM-1 is plugged in again. The pictures-a-second line beside the FM-1's screen is gone.</p>
 <p>From FM-1_992: LSDJ Burrito has its own firmware number, <b>FM-1_5370992</b> (FM-1_537 and the version), so updaters and The Firmware Hub can tell it apart from other FM-1 firmwares; the 9NN numbers were shared with others. Your FM-1 and this page still call it FM-1_992. Nothing else changes.</p>
 <p>From FM-1_991: more sample kits fit. A kit often uses only part of its 16 KiB bank; the rest is empty filler, which is no longer stored, and the FM-1 reads it back as before. A stock LSDj 9.3.9 now fits with all 21 kits (17 before), with room to spare for your own. Songs and save space are unchanged.</p>
@@ -633,7 +643,7 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 </section>
 </div>
 
-<p class="hint foot">The firmware is free software (GPL-3.0), based on <a href="https://github.com/ChanceTheMaker/gamedude-fm1-smk" target="_blank" rel="noopener">GameDude</a>. Source: <a href="https://github.com/dreamsofbacon/lsdj-burrito-src" target="_blank" rel="noopener">lsdj-burrito-src</a>; <a href="lsdj/fm1-lsdj-template-source.zip" download>matching FM-1_994 template source</a>. Not affiliated with M-VAVE or <a href="https://www.littlesounddj.com/" target="_blank" rel="noopener">LSDj's author, Johan Kotlinski</a>.</p>
+<p class="hint foot">The firmware is free software (GPL-3.0), based on <a href="https://github.com/ChanceTheMaker/gamedude-fm1-smk" target="_blank" rel="noopener">GameDude</a>. Source: <a href="https://github.com/dreamsofbacon/lsdj-burrito-src" target="_blank" rel="noopener">lsdj-burrito-src</a>; <a href="lsdj/fm1-lsdj-template-source.zip" download>matching FM-1_995 template source</a>. Not affiliated with M-VAVE or <a href="https://www.littlesounddj.com/" target="_blank" rel="noopener">LSDj's author, Johan Kotlinski</a>.</p>
 </main>
 <script type="module" src="lsdj/ui.js"></script>
 <script type="module" src="lsdj/lsdj-app.js"></script>
