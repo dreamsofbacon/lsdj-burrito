@@ -28,10 +28,13 @@ export function checkPackage(bytes) {
     throw new InstallError('This FM-1 firmware has an unknown layout. Nothing was installed.');
   if (p.entries.filter(e => e.type === 100 && e.name === 'ota.bin').length !== 1)
     throw new InstallError('The firmware must include exactly one checked update loader.');
-  /* LSDJ Burrito: FM-1_955..FM-1_991, then FM-1_537 + a 4-digit version (FM-1_5370992 = version 992) */
-  const ours = /^FM-1_537(\d{4})$/.exec(product), number = +product.slice(5);
-  const version = ours ? +ours[1] : number;
-  return {product, version, burrito: !!ours || (number >= 955 && number <= 999), image: logicalImage(bytes)};
+  /* LSDJ Burrito: FM-1_955..FM-1_991, then FM-1_537 + a 4-digit version (FM-1_5370992 = 992), and from 0.9.96
+     FM-1_537 + MAJOR MINOR PATCH, two digits each (FM-1_537000996 = 0.9.96 = 996). Compare versions, never the
+     identities as text: "FM-1_537000996" sorts before "FM-1_5370995". */
+  const old = /^FM-1_537(\d{4})$/.exec(product), rel = /^FM-1_537(\d\d)(\d\d)(\d\d)$/.exec(product), number = +product.slice(5);
+  const version = rel ? +rel[1] * 10000 + +rel[2] * 100 + +rel[3] : old ? +old[1] : number;
+  const release = rel ? `${+rel[1]}.${+rel[2]}.${+rel[3]}` : null;
+  return {product, version, release, burrito: !!(old || rel) || (number >= 955 && number <= 999), image: logicalImage(bytes)};
 }
 
 /* Install (or finish an interrupted install of) pkg. onStep(phase, detail): 'found', 'stage', 'loader',
