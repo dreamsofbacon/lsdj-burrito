@@ -5,7 +5,7 @@ import {Link, midiPorts, LinkError, SAVE_SIZE} from './link.js';
 import {confirmSaveImport} from './save-file.js';
 import {showDeviceTheme, setMatching, matching} from './page-theme.js';
 import {setBeforeInstall, installing, usbMidiUnavailable} from './install-ui.js';
-import {CHANNELS, pagesForFx, PARAM, paramGet, paramSet, valueText, channelSummary, unpackFx, packFx, PRESETS, THEMES, COLOR_NAMES, toHex, fromHex,
+import {CHANNELS, pagesForFx, PARAM, paramGet, paramSet, valueText, channelSummary, unpackFx, packFx, unpackReverb, packReverb, PRESETS, THEMES, COLOR_NAMES, toHex, fromHex,
         SETTINGS, unpackSettings, packSettings, MIDI_SETTINGS, MIDI_CC_MAP, unpackMidi, packMidi, CUSTOM_THEME, isMasterPage,
         firmwareNumber, FEATURES, unpackFeatures, packFeatures} from './fx-model.js';
 import {fxDiagram, pageFor} from './fx-diagram.js';
@@ -44,6 +44,7 @@ async function connectTo(input, output, how = 'USB') {
     say('device', `Connected over ${how}: ${info.firmware} running ${info.title || 'a game'}` + (info.liveKnown ? '' : ' (live data needs LSDj 9.3.9)'), 'ok');
     $('stage-dev').textContent = `· ${info.firmware} over ${how}`;
     fx = unpackFx(await link.fxGet());
+    fx.reverb = await readReverb();
     settings = unpackSettings(await link.settingsGet());
     { const w = await link.midiGet(); midi = w === null ? null : unpackMidi(w); }
     { const w = fwNum >= 979 ? await link.featGet() : null; features = w === null ? null : unpackFeatures(w); }
@@ -139,6 +140,12 @@ function sendMute(freeze = fx.freeze ? 1 : 0) {
   muteTouched = Date.now();
   link.muteSet(mute, freeze).catch(e => say('fx-status', e.message, 'bad'));
 }
+/* 0.9.97 and newer: the reverb (its own word), or null */
+async function readReverb() {
+  if (fwNum < 997) return null;
+  const w = await link.reverbGet();
+  return w === null ? null : unpackReverb(w);
+}
 const controls = [];   // {key, ch, wrap, set(v)}
 function changed() {
   if (busy || installing()) return;
@@ -147,6 +154,7 @@ function changed() {
   sendTimer = setTimeout(() => {
     sendTimer = null;
     link.fxSet(packFx(fx)).catch(e => say('fx-status', e.message, 'bad'));
+    if (fx.reverb) link.reverbSet(packReverb(fx.reverb)).catch(e => say('fx-status', e.message, 'bad'));
   }, 80);
 }
 /* one control for one channel (ch: 0-3; a shared control uses 0) */
@@ -196,6 +204,7 @@ function buildFx() {
   $('fx-master').hidden = !fx.v3;   // FM-1_975 and newer: shared pages apart
   pagesForFx(fx, fwNum).forEach((pg, i) => {
     if (pg.v2 && !fx.v2) return;                     // the new pages need alpha 66
+    if (pg.rv && !fx.reverb) return;                 // REVERB: 0.9.97 and newer
     const card = document.createElement('div'); card.className = 'fx-card'; card.dataset.page = i;
     const perCh = pg.knobs.some(slot => slot && perChannel(slot[1]));
     if (perCh) card.classList.add('matrix');
@@ -350,7 +359,7 @@ addEventListener('scroll', markStageNav, {passive: true}); addEventListener('res
 /* what changed between two setups (every channel, and the shared effects) */
 function changedKeys(a, b) {
   if (!a || !b) return [];
-  return Object.keys(PARAM).filter(k => k !== 'freeze' && (PARAM[k].where !== 'q' || b.v2) &&
+  return Object.keys(PARAM).filter(k => k !== 'freeze' && (PARAM[k].where !== 'q' || b.v2) && (PARAM[k].where !== 'rv' || (a.reverb && b.reverb)) &&
     [0, 1, 2, 3].some(c => paramGet(a, k, c) !== paramGet(b, k, c)));
 }
 async function tick() {
@@ -360,6 +369,7 @@ async function tick() {
     if (++ticks % 8 === 0) await followThemeSetting();
     const l = await link.live();
     const live = unpackFx(l.fx);
+    live.reverb = fx.reverb && ticks % 2 === 0 ? await readReverb() : fx.reverb && {...fx.reverb};   /* every other poll */
     live.freeze = l.freeze; cursorCh = l.cursor < 4 ? l.cursor : cursorCh; bpm = l.bpm;
     fm1Page = l.page < pagesForFx(live, fwNum).length ? l.page : live.page;
     if (!isMasterPage(live, fm1Page, fwNum)) lastChPage = fm1Page;
@@ -417,7 +427,7 @@ document.querySelectorAll('#live-sec .panel[data-pop] .pop').forEach(b => {
 });
 onPopChange(() => { if (fx) refresh(); });
 $('fx-help-btn').onclick = () => $('fx-help').showModal();
-$('fx-keep').onclick = () => run('fx-status', async () => { await link.fxSet(packFx(fx)); await link.store(); say('fx-status', 'Kept on the FM-1.', 'ok'); });
+$('fx-keep').onclick = () => run('fx-status', async () => { await link.fxSet(packFx(fx)); if (fx.reverb) await link.reverbSet(packReverb(fx.reverb)); await link.store(); say('fx-status', 'Kept on the FM-1.', 'ok'); });
 
 /* ---------- songs ---------- */
 async function run(statusId, fn) {
@@ -477,6 +487,7 @@ async function romFile() {
 }
 async function fxFile() {
   const data = {format: 'lsdj-burrito-fx', version: 1, firmware: fwId, fx: await link.fxGet()};
+  { const w = fwNum >= 997 ? await link.reverbGet() : null; if (w !== null) data.reverb = w; }   /* 0.9.97 and newer */
   return {name: 'lsdj-burrito-effects.json', bytes: new TextEncoder().encode(JSON.stringify(data, null, 1))};
 }
 $('export').onclick = () => run('save-status', async () => {
@@ -508,8 +519,11 @@ $('import-fx').onchange = e => {
     if (!Array.isArray(words) || ![11, 17].includes(words.length)) throw new LinkError('This is not an LSDJ Burrito effects file.');
     const loaded = unpackFx(words);
     if (loaded.v3 && !fx.v3) throw new LinkError('These effects need FM-1_975 or newer firmware.');
-    await link.fxSet(words); await link.store();
-    fx = unpackFx(await link.fxGet()); buildFx();
+    if (d.reverb !== undefined) unpackReverb(d.reverb);   /* checks */
+    await link.fxSet(words);
+    if (d.reverb !== undefined && fx.reverb) await link.reverbSet(d.reverb);
+    await link.store();
+    fx = unpackFx(await link.fxGet()); fx.reverb = await readReverb(); buildFx();
     say('save-status', `Loaded the effects from ${file.name} and kept them on the FM-1.`, 'ok');
   });
 };
@@ -650,6 +664,7 @@ $('backup').onclick = () => run('settings-status', async () => {
   const data = {format: 'lsdj-burrito-backup', version: 1, settings: await link.settingsGet(), fx: await link.fxGet(), theme: await link.themeGet()};
   const m = await link.midiGet(); if (m !== null) data.midi = m;
   if (features) data.features = await link.featGet();
+  { const w = fwNum >= 997 ? await link.reverbGet() : null; if (w !== null) data.reverb = w; }
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 1)], {type: 'application/json'})); a.download = 'lsdj-burrito-backup.json'; a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 10000);
@@ -667,11 +682,13 @@ $('restore').onchange = e => {
     if (restoredFx.v3 && !fx.v3) throw new LinkError('This effects backup requires FM-1_975 or newer firmware.');
     if (d.midi !== undefined) unpackMidi(d.midi);   /* checks */
     if (d.features !== undefined) unpackFeatures(d.features);
+    if (d.reverb !== undefined) unpackReverb(d.reverb);
     await link.themeSet(d.theme); await link.settingsSet(d.settings); await link.fxSet(d.fx);
+    if (d.reverb !== undefined && fx.reverb) await link.reverbSet(d.reverb);
     if (d.midi !== undefined && midi) await link.midiSet(d.midi);
     if (d.features !== undefined && features) await link.featSet(d.features);
     await link.store();
-    settings = unpackSettings(d.settings); fx = unpackFx(await link.fxGet()); theme = d.theme;
+    settings = unpackSettings(d.settings); fx = unpackFx(await link.fxGet()); fx.reverb = await readReverb(); theme = d.theme;
     if (d.midi !== undefined && midi) midi = unpackMidi(d.midi);
     if (d.features !== undefined && features) features = unpackFeatures(d.features);
     buildSettings(); buildFx(); drawColors();

@@ -53,6 +53,21 @@ export const PAGES_997 = PAGES.map((pg, i) =>
   i === 5 ? {name: 'ECHO', knobs: [['ch', 'send'], ['echo', 'time'], ['echo', 'feedback'], ['echo', 'mix']]} :
   i === 6 ? {name: 'ECHO MOD', knobs: [['echo', 'wobble'], ['echo', 'sync'], ['echo', 'mode'], ['echo', 'tone']]} : pg);
 /* fw: the firmware's number (979 for FM-1_979; leave it out for the newest) */
+/* 0.9.97: the master reverb, the firmware's 8th page (its own word over the link: REVERB_GET / REVERB_SET).
+   Shown only when the FM-1 has it (fx.reverb). */
+PAGES_997.push({name: 'REVERB', knobs: [['rv', 'rvMix'], ['rv', 'rvSize'], ['rv', 'rvTone'], ['rv', 'rvInput']], rv: true});
+export const REVERB_PARAMS = [{key: 'rvMix', name: 'Reverb mix'}, {key: 'rvSize', name: 'Size'}, {key: 'rvTone', name: 'Tone'},
+  {key: 'rvInput', name: 'Input', choices: ['All', 'Send']}];
+/* the reverb word: mix, size, tone, input (0 all, 1 send), a byte each, low first (firmware lsdj_fx_rv_word) */
+export function unpackReverb(w) {
+  if (!Number.isInteger(w) || w < 0 || w > 0xFFFFFFFF) throw Error('Invalid reverb setup.');
+  const r = {rvMix: w & 255, rvSize: (w >>> 8) & 255, rvTone: (w >>> 16) & 255, rvInput: w >>> 24};
+  if (r.rvMix > 127 || r.rvSize > 127 || r.rvTone > 127 || r.rvInput > 1) throw Error('Invalid reverb setup.');
+  return r;
+}
+export const packReverb = r => ((r.rvMix & 127) | (r.rvSize & 127) << 8 | (r.rvTone & 127) << 16 | (r.rvInput ? 1 : 0) << 24) >>> 0;
+/* about how long the tail takes to fade 60 dB (firmware lsdj_fx_update: decay per pass, lines 27-39 ms) */
+export const reverbSeconds = v => -3 * (3288 - 354) / 4 / 22050 / Math.log10((9270 + Math.floor(v * (15775 - 9270) / 127)) / 16384);
 export const firmwareNumber = id => +(/^FM-1_(9\d\d)$/.exec(id || '')?.[1] ?? 0);
 export const pagesForFx = (fx, fw = Infinity) => !fx.v3 ? LEGACY_PAGES : fw >= 997 ? PAGES_997 : fw >= 980 ? PAGES : fw >= 979 ? PAGES_979 : PAGES_978;
 /* FM-1_977 and newer: MASTER opens with FX held on the FM-1; tapping FX shows the others
@@ -60,13 +75,14 @@ export const pagesForFx = (fx, fw = Infinity) => !fx.v3 ? LEGACY_PAGES : fw >= 9
 export const MASTER_PAGES = [0];
 /* FM-1_981: FX opens the panel until FX again; SELECT goes FILTER .. LO-FI, then MASTER, ECHO, ECHO MOD
    (the shared echo with the master pages). fw: the firmware's number (leave it out for the newest). */
-export const MASTER_PAGES_981 = [0, 5, 6];
+export const MASTER_PAGES_981 = [0, 5, 6, 7];   // (7: REVERB, 0.9.97)
 export const isMasterPage = (fx, i, fw = Infinity) => !!fx.v3 && (fw >= 981 ? MASTER_PAGES_981 : MASTER_PAGES).includes(i);
 export const PAGES_OLD = [0, 3, 4, 5];   // the old firmware's page numbers -> these pages
 export const PARAM = Object.fromEntries([
   ...CH_PARAMS.map(p => [p.key, {...p, where: 'ch'}]), ...Q_PARAMS.map(p => [p.key, {...p, where: 'q'}]),
   ...ECHO_PARAMS.map(p => [p.key, {...p, where: 'echo'}]),
   ['comp', {key: 'comp', name: 'Compressor', where: 'comp'}],
+  ...REVERB_PARAMS.map(p => [p.key, {...p, where: 'rv'}]),
   ['allFxOn', {key: 'allFxOn', name: 'All FX', where: 'master', choices: ['Off', 'On']}],
   ['fxOn', {key: 'fxOn', name: 'Channel FX', where: 'flags', choices: ['Off', 'On']}],
   ['freeze', {key: 'freeze', name: 'Freeze', where: 'flags', choices: ['Off', 'On'], live: true}]]);
@@ -123,6 +139,7 @@ export function valueText(fx, key, c, bpm) {
   if (key === 'lfoRate') return lfoRateText(v);
   if (key === 'time') return echoTimeText(fx, bpm);
   if (key === 'tone') return v === 64 ? 'flat' : v < 64 ? `darker ${64 - v}` : `thinner ${v - 64}`;
+  if (key === 'rvSize') return reverbSeconds(v).toFixed(1) + ' s';
   return String(v);
 }
 export function paramGet(fx, key, c) {
@@ -132,6 +149,7 @@ export function paramGet(fx, key, c) {
   case 'q': return fx.q[c][key];
   case 'echo': return fx.echo[key];
   case 'comp': return fx.comp;
+  case 'rv': return fx.reverb ? fx.reverb[key] : 0;
   case 'master': return fx.bypass ? 0 : 1;
   default: return key === 'fxOn' ? ((fx.fxOff >> c) & 1 ? 0 : 1) : (fx.freeze ? 1 : 0);
   }
@@ -143,6 +161,9 @@ export function paramSet(fx, key, c, v) {
   case 'q': fx.q[c][key] = v; if ((key === 'warm' || (key === 'lfoDepth' && fx.q[c].lfoDest === 0)) && v && !fx.ch[c].type) fx.ch[c].type = 1; break;
   case 'echo': fx.echo[key] = v; break;
   case 'comp': fx.comp = v; break;
+  case 'rv':
+    if (!fx.reverb) throw Error('The reverb needs 0.9.97 or newer firmware.');
+    fx.reverb[key] = v; break;
   case 'master':
     if (!fx.v3) throw Error('All FX requires FM-1_975 or newer firmware.');
     fx.bypass = v ? 0 : 1; break;
@@ -312,7 +333,9 @@ export const MIDI_CC_MAP = [
   [80, 'Channel FX (64-127 on)', 'channel'], [81, 'Mute (64-127 muted)', 'channel'],
   [12, 'Echo time (synced: 12 note values)', 'shared'], [13, 'Echo feedback', 'shared'], [14, 'Echo mix', 'shared'],
   [15, 'Echo tone (64 flat)', 'shared'], [16, 'Echo wobble', 'shared'], [17, 'Echo sync (64-127 tempo)', 'shared'],
-  [18, 'Echo mode (64-127 ping-pong)', 'shared'], [19, 'Freeze (64-127 on)', 'shared'], [20, 'Compressor', 'shared']];
+  [18, 'Echo mode (64-127 ping-pong)', 'shared'], [19, 'Freeze (64-127 on)', 'shared'], [20, 'Compressor', 'shared'],
+  [21, 'Reverb mix (0.9.97)', 'shared'], [22, 'Reverb size', 'shared'], [23, 'Reverb tone', 'shared'],
+  [24, 'Reverb input (64-127 send)', 'shared']];
 export function unpackMidi(v) {
   if (v >>> 24 !== 0x4D) throw Error('Not a MIDI options word from this firmware.');
   return Object.fromEntries(MIDI_SETTINGS.map(s => [s.key, (v >>> s.bits[0]) & ((1 << s.bits[1]) - 1)]));

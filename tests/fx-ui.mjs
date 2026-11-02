@@ -14,6 +14,7 @@ export async function runFxUiTests() {
   const descriptor = Object.getOwnPropertyDescriptor(navigator, 'requestMIDIAccess');
   const input = {name: 'FM-1 test'}, ops = [];
   let bytes = Array(68).fill(0), writes = 0, cursor = 0, firmware = 'FM-1_975', muteSent = null, liveMute = 0, featWord = 0x460001CE, featSets = 0;
+  let rvWord = 0x00404000, rvSets = 0;   /* 0.9.97: the reverb word */
   bytes[36] = 5; bytes[37] = 2; bytes[42] = 0xf2; bytes[43] = 70;
   bytes[2] = 40; bytes[30] = 80; bytes[35] = 4;
   const output = {name: 'FM-1 test', send(message) {
@@ -37,6 +38,8 @@ export async function runFxUiTests() {
     if (op === OP.FEAT_GET) return firmware >= 'FM-1_979' ? send(le32(featWord)) : send([], 1);
     if (op === OP.FEAT_SET) { featWord = (args[0] | args[1] << 8 | args[2] << 16 | args[3] << 24) >>> 0; featSets++; return send(); }
     if (op === OP.MUTE_SET) { muteSent = args; return send(); }
+    if (op === OP.REVERB_GET) return firmware >= 'FM-1_997' ? send(le32(rvWord)) : send([], 1);
+    if (op === OP.REVERB_SET) { rvWord = (args[0] | args[1] << 8 | args[2] << 16 | args[3] << 24) >>> 0; rvSets++; return send(); }
     if ([OP.STORE, OP.THEME_SET, OP.SETTINGS_SET].includes(op)) return send();
     /* the screen (FM-1_983+): every row one colour, red (RGB565 0xF800) */
     if (op === OP.SCREEN_INFO) return firmware >= 'FM-1_983' ? send([...le32(1), ...Array(36).fill(7)]) : send([], 1);
@@ -211,8 +214,25 @@ export async function runFxUiTests() {
       const sets = featSets; sel.value = '3'; sel.onchange(); $('settings-apply').onclick();
       await until(() => featSets > sets, 'screen rate sent');
       assert((featWord >>> 18 & 3) === 3, `989: 30 a second: ${featWord.toString(16)}`); }
+    assert(!ops.includes(OP.REVERB_GET), 'before 0.9.97: the reverb never asked');
+    /* 0.9.97 (FM-1_997): ECHO = send (per channel), time, feedback, mix; REVERB the 4th master card, sent on its own */
+    firmware = 'FM-1_997';
+    await $('connect-btn').onclick();
+    assert([...document.querySelectorAll('#fx-master-pages .fx-card')].map(c => c.dataset.page).join() === '0,5,6,7', `997: MASTER, ECHO, ECHO MOD, REVERB`);
+    { const echoCard = document.querySelector('#fx-master-pages .fx-card[data-page="5"]');
+      assert(echoCard.classList.contains('matrix') && echoCard.querySelectorAll('.fx-ctl[data-key="send"]').length === 4, '997: ECHO sends per channel');
+      const names = [...document.querySelectorAll('#fx-master-pages .fx-card[data-page="7"] .fx-name')].map(n => n.textContent).join();
+      assert(names === 'Reverb mix,Size,Tone,Input', `997: the REVERB card: ${names}`);
+      const mix = document.querySelector('.fx-ctl[data-key="rvMix"] input[type="range"]'), sets = rvSets, fxWrites = writes;
+      mix.value = '90'; mix.oninput();
+      await until(() => rvSets > sets, '997: the reverb sent');
+      assert((rvWord & 255) === 90 && (rvWord >>> 8 & 255) === 64, `997: reverb mix 90 sent, size kept: ${rvWord.toString(16)}`);
+      assert(writes > fxWrites, '997: the 17 effects words sent as before');
+      rvWord = 0x01204070;   /* moved on the FM-1: the panel follows */
+      await until(() => document.querySelector('.fx-ctl[data-key="rvSize"] input[type="range"]').value === '64' &&
+                        document.querySelector('.fx-ctl[data-key="rvMix"] input[type="range"]').value === '112', '997: the panel follows the FM-1\'s reverb', 120); }
     firmware = 'FM-1_975';
-    return 'PASS FX browser: matching pages (975-978, 979, 980 echo on MASTER, 981 echo in Master), FM-1 screen (983, 985 sync, note before), autosave, screen rate (989), one master switch, four channel columns (a slider changes its own channel), the cursor column, LIVE state, 17/11-word backups, old firmware gating, FX and lights, FX colours, wiring, muted column, battery';
+    return 'PASS FX browser: matching pages (975-978, 979, 980 echo on MASTER, 981 echo in Master, 997 echo send on ECHO and REVERB), FM-1 screen (983, 985 sync, note before), autosave, screen rate (989), one master switch, four channel columns (a slider changes its own channel), the cursor column, LIVE state, 17/11-word backups, old firmware gating, FX and lights, FX colours, wiring, muted column, battery';
   } finally {
     if (descriptor) Object.defineProperty(navigator, 'requestMIDIAccess', descriptor);
     else delete navigator.requestMIDIAccess;

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 import assert from 'node:assert/strict';
-import {PAGES, PAGES_997, PAGES_979, PAGES_978, LEGACY_PAGES, pagesForFx, firmwareNumber, unpackFx, packFx, paramGet, paramSet, channelSummary,
+import {unpackReverb, packReverb, reverbSeconds, REVERB_PARAMS, valueText, PAGES, PAGES_997, PAGES_979, PAGES_978, LEGACY_PAGES, pagesForFx, firmwareNumber, unpackFx, packFx, paramGet, paramSet, channelSummary,
         FEATURES, FEATURE_DEFAULTS, packFeatures, unpackFeatures, MIDI_CC_MAP, THEMES, isMasterPage} from '../lsdj/fx-model.js';
 
 const setup = (layout, page, n = 17) => {
@@ -28,9 +28,11 @@ assert.deepEqual(PAGES.slice(1), PAGES_979.slice(1));
 assert.deepEqual(PAGES_997.map(p => p.knobs.map(k => k?.[1] ?? null)), [
   ['allFxOn', 'comp', 'mix', 'freeze'], ['fxOn', 'send', 'cutoff', 'reso'],
   ['drive', 'dist', 'warm', null], ['lfoRate', 'lfoDepth', 'lfoShape', 'lfoDest'],
-  ['crush', 'decim', 'type', null], ['send', 'time', 'feedback', 'mix'], ['wobble', 'sync', 'mode', 'tone']
+  ['crush', 'decim', 'type', null], ['send', 'time', 'feedback', 'mix'], ['wobble', 'sync', 'mode', 'tone'],
+  ['rvMix', 'rvSize', 'rvTone', 'rvInput']
 ]);
-{ const keys = PAGES_997.flatMap(p => p.knobs.filter(Boolean).map(k => k[1]));   /* every key; mix and send twice */
+assert.ok(PAGES_997[7].rv && isMasterPage(unpackFx(setup(2, 0)), 7));
+{ const keys = PAGES_997.filter(p => !p.rv).flatMap(p => p.knobs.filter(Boolean).map(k => k[1]));   /* every key; mix and send twice */
   assert.deepEqual([...new Set(keys)].sort(), [...new Set(PAGES.flatMap(p => p.knobs.filter(Boolean).map(k => k[1])))].sort());
   assert.equal(keys.length - new Set(keys).size, 2); }
 assert.equal(firmwareNumber('FM-1_979'), 979); assert.equal(firmwareNumber('FM-1_978'), 978); assert.equal(firmwareNumber('GameDude'), 0);
@@ -38,6 +40,16 @@ assert.equal(firmwareNumber('FM-1_979'), 979); assert.equal(firmwareNumber('FM-1
   assert.equal(pagesForFx(v3, 979), PAGES_979); assert.equal(pagesForFx(v3, 980), PAGES); assert.equal(pagesForFx(v3, 978), PAGES_978);
   assert.equal(pagesForFx(v3, 975), PAGES_978); assert.equal(pagesForFx(v3, 996), PAGES); assert.equal(pagesForFx(v3, 997), PAGES_997);
   assert.equal(pagesForFx(v3), PAGES_997); }
+/* 0.9.97 reverb word: mix, size, tone, input a byte each */
+{ const r = unpackReverb(0x011E5A64);
+  assert.deepEqual(r, {rvMix: 100, rvSize: 90, rvTone: 30, rvInput: 1}); assert.equal(packReverb(r), 0x011E5A64);
+  for (const bad of [0x80, 0x8000, 0x800000, 0x02000000, -1, 1.5]) assert.throws(() => unpackReverb(bad));
+  assert.deepEqual(REVERB_PARAMS.map(p => p.key), ['rvMix', 'rvSize', 'rvTone', 'rvInput']);
+  assert.ok(Math.abs(reverbSeconds(0) - 0.4) < 0.15 && Math.abs(reverbSeconds(127) - 6) < 1.5, `${reverbSeconds(0)} .. ${reverbSeconds(127)}`);
+  const fx = unpackFx(setup(2, 1)); fx.reverb = r;
+  assert.equal(paramGet(fx, 'rvSize', 0), 90); paramSet(fx, 'rvMix', 0, 5); assert.equal(fx.reverb.rvMix, 5);
+  assert.equal(valueText(fx, 'rvInput', 0), 'Send'); assert.match(valueText(fx, 'rvSize', 0), / s$/);
+  delete fx.reverb; assert.equal(paramGet(fx, 'rvMix', 0), 0); assert.throws(() => paramSet(fx, 'rvMix', 0, 1)); }
 for (let page = 0; page < 7; page++) {
   const fx = unpackFx(setup(2, page));
   assert.equal(pagesForFx(fx), PAGES_997);
@@ -97,6 +109,6 @@ assert.equal(unpackFeatures(0x460001CE | 3 << 16).autosave, 2);
 assert.throws(() => unpackFeatures(0x460001CE | (THEMES.length + 1) << 9), /Unknown/);
 /* The CC map: every CC the firmware takes (firmware/lsdj_midi.h lsdj_midi_cc_num), once */
 assert.deepEqual(MIDI_CC_MAP.map(m => m[0]).sort((a, b) => a - b),
-  [70, 71, 74, 75, 76, 77, 91, 80, 81, 12, 13, 14, 15, 16, 17, 18, 19, 72, 73, 78, 79, 82, 83, 20].sort((a, b) => a - b));
+  [70, 71, 74, 75, 76, 77, 91, 80, 81, 12, 13, 14, 15, 16, 17, 18, 19, 72, 73, 78, 79, 82, 83, 20, 21, 22, 23, 24].sort((a, b) => a - b));
 assert.ok(MIDI_CC_MAP.every(m => m[2] === 'channel' || m[2] === 'shared'));
 console.log('PASS FX model: seven-page mapping (979 and 975-978), global bypass/settings roundtrip, 11/17-word legacy layouts, invalid data, feature switches, CC map');
