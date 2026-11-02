@@ -569,7 +569,8 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <p id="wiz-backup-status" role="status" hidden></p></div>
 <label class="check"><input id="rom-experimental" type="checkbox" disabled><span>I understand this firmware is experimental and may not start or sound right, and I have backed up my songs.</span></label>
 <div class="row"><button id="rom-build" type="button" class="primary" aria-describedby="rom-next" disabled>Prepare firmware</button><span class="hint">Builds the file on this computer. Nothing is installed yet.</span></div>
-<details><summary>What's in this version (0.9.97-dev.1)</summary>
+<details><summary>What's in this version (0.9.97-dev.2)</summary>
+<p>New in 0.9.97-dev.2 (a test build): the echo send and the echo time are on one page. ECHO is now K1 SEND (the channel under LSDj's cursor), K2 TIME, K3 FEEDBACK, K4 MIX; the echo TONE moved to ECHO MOD K4 and FREEZE to MASTER K4. FILTER K2 is still the send too.</p>
 <p>New in 0.9.97-dev.1 (a test build): a reverb. Press FX for the master pages; REVERB is the fourth (SELECT). K1 MIX (0 is off), K2 SIZE (a small room to a long hall), K3 TONE (dark to bright), K4 INPUT: ALL (the whole mix, echo repeats included) or SEND (only what the channels send to the echo, FILTER K2). It comes after the echo and before the compressor, and it is saved with the other effects. The effects panel on this page does not show it yet; setting effects from this page leaves the reverb as it is.</p>
 <p>New in 0.9.96: LSDJ Burrito has a normal version number, 0.9.96, and is published as a GitHub release for The Firmware Hub (its firmware number is now FM-1_537000996; your FM-1 and this page still call it FM-1_996, the one after 995). An FM-1 with LSDJ Burrito but no LSDj in it now shows how to add your LSDj with this page, instead of a blank screen, and stays ready for updates. The splash shows the version.</p>
 <p>From FM-1_995: note mode just works. The FM-1's keys (press HOME for note mode) and MIDI notes reach LSDj only when LSDj's PROJECT › SYNC is KEYBD. With LSDj 9.3.9 and SYNC OFF, the FM-1 now switches it to KEYBD by itself the first time you use note mode, and says LSDJ SYNC SET / TO KEYBD FOR NOTES. It leaves SYNC alone when it is MIDI or LSDJ (MIDI clock in and out need those) and tells you to set KEYBD yourself, as with other LSDj versions. The setting is part of the song: SAVE keeps it.</p>
@@ -668,7 +669,7 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 </section>
 </div>
 
-<p class="hint foot">The firmware is free software (GPL-3.0), based on <a href="https://github.com/ChanceTheMaker/gamedude-fm1-smk" target="_blank" rel="noopener">GameDude</a>. Source: <a href="https://github.com/dreamsofbacon/lsdj-burrito-src" target="_blank" rel="noopener">lsdj-burrito-src</a>; <a href="lsdj/fm1-lsdj-template-source.zip" download>matching 0.9.97-dev.1 template source</a>. Not affiliated with M-VAVE or <a href="https://www.littlesounddj.com/" target="_blank" rel="noopener">LSDj's author, Johan Kotlinski</a>.</p>
+<p class="hint foot">The firmware is free software (GPL-3.0), based on <a href="https://github.com/ChanceTheMaker/gamedude-fm1-smk" target="_blank" rel="noopener">GameDude</a>. Source: <a href="https://github.com/dreamsofbacon/lsdj-burrito-src" target="_blank" rel="noopener">lsdj-burrito-src</a>; <a href="lsdj/fm1-lsdj-template-source.zip" download>matching 0.9.97-dev.2 template source</a>. Not affiliated with M-VAVE or <a href="https://www.littlesounddj.com/" target="_blank" rel="noopener">LSDj's author, Johan Kotlinski</a>.</p>
 </main>
 <script type="module" src="lsdj/ui.js"></script>
 <script type="module" src="lsdj/lsdj-app.js"></script>

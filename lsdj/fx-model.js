@@ -46,9 +46,15 @@ export const PAGES_979 = PAGES_978.map((pg, i) =>
 /* FM-1_980 and newer: MASTER K3 / K4 are the echo's mix and time too (ECHO keeps them as well) */
 export const PAGES = PAGES_979.map((pg, i) =>
   i === 0 ? {name: 'MASTER', knobs: [['master', 'allFxOn'], ['comp', 'comp'], ['echo', 'mix'], ['echo', 'time']]} : pg);
+/* 0.9.97 (FM-1_997) and newer: the echo send with its time on ECHO (K1 send, K2 time, K3 feedback, K4 mix), the
+   echo tone on ECHO MOD K4, freeze on MASTER K4. (REVERB, the firmware's 8th page, is not on this page yet.) */
+export const PAGES_997 = PAGES.map((pg, i) =>
+  i === 0 ? {name: 'MASTER', knobs: [['master', 'allFxOn'], ['comp', 'comp'], ['echo', 'mix'], ['echo', 'freeze']]} :
+  i === 5 ? {name: 'ECHO', knobs: [['ch', 'send'], ['echo', 'time'], ['echo', 'feedback'], ['echo', 'mix']]} :
+  i === 6 ? {name: 'ECHO MOD', knobs: [['echo', 'wobble'], ['echo', 'sync'], ['echo', 'mode'], ['echo', 'tone']]} : pg);
 /* fw: the firmware's number (979 for FM-1_979; leave it out for the newest) */
 export const firmwareNumber = id => +(/^FM-1_(9\d\d)$/.exec(id || '')?.[1] ?? 0);
-export const pagesForFx = (fx, fw = Infinity) => !fx.v3 ? LEGACY_PAGES : fw >= 980 ? PAGES : fw >= 979 ? PAGES_979 : PAGES_978;
+export const pagesForFx = (fx, fw = Infinity) => !fx.v3 ? LEGACY_PAGES : fw >= 997 ? PAGES_997 : fw >= 980 ? PAGES : fw >= 979 ? PAGES_979 : PAGES_978;
 /* FM-1_977 and newer: MASTER opens with FX held on the FM-1; tapping FX shows the others
    (FM-1_978: ECHO and ECHO MOD with the channel pages again; the echo is shared, each channel sends to it). */
 export const MASTER_PAGES = [0];
