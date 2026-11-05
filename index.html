@@ -60,6 +60,11 @@ details{margin:10px 0 0}
 details>summary{cursor:pointer;color:var(--muted);font-size:13px;width:max-content;max-width:100%}
 details[open]>summary{margin-bottom:6px}
 details .hint,details p{font-size:13px;color:var(--muted)}
+.pad-map{display:grid;grid-template-columns:max-content 1fr 1fr;gap:4px 8px;align-items:center;font-size:13px;margin:6px 0}
+.pad-map .pad-slot{display:flex;gap:2px;min-width:0}
+.pad-map .pad-slot button:first-child{flex:1;min-width:0;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pad-map .pad-slot button.on{outline:2px solid var(--accent,#fd2)}
+.pad-map .pad-clear{padding:0 6px}
 .mono{font-family:ui-monospace,monospace}
 /* home */
 .choices{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(240px,100%),1fr));gap:12px;margin:0 0 18px}
@@ -435,6 +440,11 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <div id="fm1-screen-box" class="fm1-screen" hidden><canvas id="fm1-screen" width="160" height="144" role="img" aria-label="The FM-1's screen, as its display shows it"></canvas></div>
 <p id="fm1-screen-note" class="hint" hidden></p>
 <p id="pad-status" class="hint" role="status" hidden></p>
+<details id="pad-map-box" hidden><summary>Controller buttons</summary>
+<p class="hint">Click a slot, then press a button or push a stick on the controller. One controller button can press two Game Boy buttons (put it in both rows). Kept in this browser.</p>
+<div id="pad-map" class="pad-map"></div>
+<p class="pad-map-foot"><button id="pad-map-reset" type="button">Reset to default</button> <span id="pad-map-note" class="hint" role="status"></span></p>
+</details>
 </div>
 
 <div class="panel" id="pan-wire" data-pop="wire" data-title="Wiring" data-size="700x620">
@@ -571,6 +581,7 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <label class="check"><input id="rom-experimental" type="checkbox" disabled><span>I understand this firmware is experimental and may not start or sound right, and I have backed up my songs.</span></label>
 <div class="row"><button id="rom-build" type="button" class="primary" aria-describedby="rom-next" disabled>Prepare firmware</button><span class="hint">Builds the file on this computer. Nothing is installed yet.</span></div>
 <details><summary>What's in this version (0.9.97-dev.4)</summary>
+<p>New on this page (the firmware is still 0.9.97-dev.4): remap the game controller. Under the FM-1's screen, Controller buttons: click a slot and press the controller button (or push the stick) it should be. Two slots for each Game Boy button; one controller button may press two Game Boy buttons. Kept in this browser; Reset to default goes back.</p>
 <p>New in 0.9.97-dev.4 (a test build): play LSDj with a game controller through this page. Connect any controller to this computer or phone (USB, or Bluetooth paired to it) and press a button: the line under the FM-1's screen names it. D-pad or left stick: the arrows; A (bottom) and Y (top): A; B (right) and X (left): B; Menu / Start: START; View / Back: SELECT. It works while this page is open and connected; the FM-1's keys keep working too.</p>
 <p>New in 0.9.97-dev.3 (a test build): the reverb on this page (Effects, Master: the REVERB card; in effects files and backups too) and over MIDI: CC 21 reverb mix, 22 size, 23 tone, 24 input (64-127 send), on any of the four CC channels like the echo CCs.</p>
 <p>New in 0.9.97-dev.2 (a test build): the echo send and the echo time are on one page. ECHO is now K1 SEND (the channel under LSDj's cursor), K2 TIME, K3 FEEDBACK, K4 MIX; the echo TONE moved to ECHO MOD K4 and FREEZE to MASTER K4. FILTER K2 is still the send too.</p>

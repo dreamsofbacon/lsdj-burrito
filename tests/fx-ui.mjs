@@ -248,6 +248,24 @@ export async function runFxUiTests() {
         assert(padSent.filter(b => b === 1).length >= 2, `997: A again while held (${padSent.filter(b => b === 1).length})`);
         gp.buttons[0] = {pressed: false, value: 0};
         await until(() => padSent.at(-1) === 0, '997: the release sent');
+        /* Controller buttons: START's second slot gets RB (button 5) by pressing it; RB then sends START; Reset */
+        assert(!$('pad-map-box').hidden, '997: Controller buttons shown');
+        const slot = () => document.querySelector('#pad-map button[data-gb="START"][data-slot="1"]');
+        assert(slot().textContent === '+ add' && document.querySelector('#pad-map button[data-gb="START"][data-slot="0"]').textContent === 'Menu / Start / Options',
+          `997: START's slots: ${slot().textContent}`);
+        slot().click();
+        await until(() => slot().textContent === 'Press a button…', '997: waiting for a button');
+        const sentBefore = padSent.length;
+        gp.buttons[5] = {pressed: true, value: 1};
+        await until(() => slot().textContent === 'RB / R1', `997: RB taken for START (${slot().textContent})`);
+        /* while choosing nothing is pressed; once RB is START, the RB still held is START */
+        assert(padSent.slice(sentBefore).every(b => b === 0 || b === 8), `997: nothing else sent while choosing (${padSent.slice(sentBefore)})`);
+        await until(() => padSent.at(-1) === 8, '997: RB now presses START');
+        gp.buttons[5] = {pressed: false, value: 0};
+        await until(() => padSent.at(-1) === 0, '997: RB let go');
+        assert(/"b5"/.test(localStorage.getItem('lsdj-burrito-pad-map') || ''), '997: kept in the browser');
+        $('pad-map-reset').click();
+        await until(() => slot().textContent === '+ add' && !localStorage.getItem('lsdj-burrito-pad-map'), '997: Reset to default');
         firmware = 'FM-1_996';
         await $('connect-btn').onclick();
         assert(/needs LSDJ Burrito 0\.9\.97/.test($('pad-status').textContent), `996: ${$('pad-status').textContent}`);

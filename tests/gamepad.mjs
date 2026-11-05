@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // lsdj/gamepad.js: the buttons a controller holds, as Game Boy bits, and when they are sent (node tests/gamepad.mjs).
 import assert from 'node:assert/strict';
-import {GB, padMask, padName, startGamepad, RESEND_MS} from '../lsdj/gamepad.js';
+import {GB, padMask, padName, startGamepad, RESEND_MS, DEFAULT_MAP, cleanMap, isDefaultMap, assign, loadMap, saveMap, inputName, heldInputs} from '../lsdj/gamepad.js';
 
 const pad = (pressed = [], axes = [0, 0, 0, 0], id = 'Xbox Wireless Controller (STANDARD GAMEPAD Vendor: 045e Product: 0b13)') =>
   ({id, connected: true, mapping: 'standard', axes, buttons: Array.from({length: 17}, (_, i) => ({pressed: pressed.includes(i), value: pressed.includes(i) ? 1 : 0}))});
@@ -68,4 +68,34 @@ assert.equal(padName({id: '054c-0ce6-DualSense Wireless Controller'}), 'DualSens
 /* no Gamepad API */
 { let s = ''; startGamepad({send: async () => {}, status: x => s = x, nav: {}, every: () => 1, cancel: () => {}});
   assert.match(s, /does not read controllers/); }
-console.log('PASS gamepad: layout (Xbox A/Y -> A, B/X -> B, d-pad and stick), names, sent at once, held every 200 ms, released once, busy link, retries');
+/* remapping: names, maps checked, a slot set / cleared, saved in the browser, a custom map in use, capture */
+assert.equal(inputName('b9'), 'Menu / Start / Options'); assert.equal(inputName('a1-'), 'Left stick up');
+assert.equal(inputName('a3+'), 'Right stick down'); assert.equal(inputName('b20'), 'Button 20'); assert.equal(inputName('x'), '');
+assert.deepEqual(cleanMap(null), {...DEFAULT_MAP}); assert.ok(isDefaultMap(cleanMap({})));
+assert.deepEqual(cleanMap({A: ['b4', 'zz', 'b5', 'b6'], B: 'no'}).A, ['b4', 'b5']);            /* bad codes out, two at most */
+assert.deepEqual(cleanMap({A: ['b4']}).B, DEFAULT_MAP.B);
+{ let m = assign(DEFAULT_MAP, 'START', 1, 'b5');                                                /* START: Menu and RB */
+  assert.deepEqual(m.START, ['b9', 'b5']); assert.ok(!isDefaultMap(m));
+  m = assign(m, 'START', 0, null); assert.deepEqual(m.START, ['b5']);                          /* Menu off */
+  m = assign(m, 'A', 1, 'b0'); assert.deepEqual(m.A, ['b0']);                                  /* the same input twice: once */
+  m = assign(m, 'SELECT', 1, 'b5'); assert.deepEqual(m.SELECT, ['b8', 'b5']);                  /* RB presses START and SELECT */
+  assert.equal(padMask(pad([5]), m), GB.START | GB.SELECT); assert.equal(padMask(pad([9]), m), 0);
+  assert.equal(padMask(pad([], [0, 0, 0.9, 0]), assign(m, 'RIGHT', 1, 'a2+')), GB.RIGHT);     /* the right stick */
+  const store = new Map(), st = {getItem: k => store.get(k) ?? null, setItem: (k, v) => store.set(k, v), removeItem: k => store.delete(k)};
+  saveMap(m, st); assert.deepEqual(loadMap(st), m);
+  saveMap(DEFAULT_MAP, st); assert.equal(store.size, 0, 'the default: nothing kept');
+  store.set('lsdj-burrito-pad-map', '{bad'); assert.ok(isDefaultMap(loadMap(st)));
+  assert.ok(isDefaultMap(loadMap({getItem: () => { throw Error('blocked'); }}))); }
+assert.deepEqual(heldInputs(pad([4], [0.2, -0.9, 0.8, 0])), ['b4', 'a1-', 'a2+']);              /* a resting stick is not taken */
+{ let t = 0, tickFn, pads = [pad([0])], sent = [], got = [];
+  const stop = startGamepad({send: async m => { sent.push(m); }, nav: {getGamepads: () => pads}, now: () => t, getMap: () => DEFAULT_MAP,
+                             every: f => { tickFn = f; return 1; }, cancel: () => {}});
+  const run = async n => { for (let i = 0; i < n; i++) { t += 16; tickFn(); await Promise.resolve(); await Promise.resolve(); } };
+  await run(3); assert.equal(sent.at(-1), GB.A);
+  stop.capture(c => got.push(c)); await run(3);
+  assert.equal(sent.at(-1), 0, 'capturing: the FM-1 gets nothing'); assert.deepEqual(got, [], 'A was already held: not taken');
+  pads = [pad([0, 6])]; await run(2); assert.deepEqual(got, ['b6'], 'LT newly pressed: taken');
+  pads = [pad([6])]; await run(3); assert.equal(sent.at(-1) & GB.A, 0);
+  pads = [pad([0])]; await run(3); assert.equal(sent.at(-1), GB.A, 'after the capture: playing again');
+  stop.capture(c => got.push(c)); stop.cancelCapture(); pads = [pad([0, 7])]; await run(3); assert.deepEqual(got, ['b6'], 'cancelled'); }
+console.log('PASS gamepad: layout (Xbox A/Y -> A, B/X -> B, d-pad and stick), names, sent at once, held every 200 ms, released once, busy link, retries, remapping (names, slots, saved, two Game Boy buttons on one input, capture)');

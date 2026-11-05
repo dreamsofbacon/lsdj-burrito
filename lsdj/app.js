@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // The page: connect to the FM-1's running LSDJ Burrito firmware (lsdj/link.js)
 // for live effects, songs, colours and settings. Never writes firmware.
-import {startGamepad} from './gamepad.js';
+import {startGamepad, loadMap, saveMap, assign, cleanMap, isDefaultMap, inputName, GB_ORDER, SLOTS} from './gamepad.js';
 import {Link, midiPorts, LinkError, SAVE_SIZE} from './link.js';
 import {confirmSaveImport} from './save-file.js';
 import {showDeviceTheme, setMatching, matching} from './page-theme.js';
@@ -148,15 +148,53 @@ async function readReverb() {
   const w = await link.reverbGet();
   return w === null ? null : unpackReverb(w);
 }
-/* 0.9.97 and newer: a game controller on this page plays LSDj (lsdj/gamepad.js) */
-let pad = null;
+/* 0.9.97 and newer: a game controller on this page plays LSDj (lsdj/gamepad.js); its buttons remapped in
+   Controller buttons (kept in this browser) */
+let pad = null, padMap = loadMap(), capturing = null;
+const GB_LABEL = {UP: 'Up', DOWN: 'Down', LEFT: 'Left', RIGHT: 'Right', A: 'A', B: 'B', START: 'START', SELECT: 'SELECT'};
 function startPad() {
-  pad?.(); pad = null;
-  const el = $('pad-status');
-  el.hidden = false;
+  pad?.(); pad = null; capturing = null;
+  $('pad-status').hidden = false;
+  $('pad-map-box').hidden = fwNum < 997;
   if (fwNum < 997) { say('pad-status', `Game controller: needs LSDJ Burrito 0.9.97 or newer on the FM-1 (this one has ${fwId}).`); return; }
-  pad = startGamepad({send: m => link.padSet(m), canSend: () => connected && !busy && !installing(), status: t => say('pad-status', t)});
+  pad = startGamepad({send: m => link.padSet(m), canSend: () => connected && !busy && !installing(), status: t => say('pad-status', t),
+                      getMap: () => padMap});
+  drawPadMap();
 }
+function setPadMap(map, note) { padMap = cleanMap(map); saveMap(padMap); drawPadMap(); if (note !== undefined) say('pad-map-note', note, 'hint'); }
+function drawPadMap() {
+  const box = $('pad-map'); box.replaceChildren();
+  for (const k of GB_ORDER) {
+    const name = document.createElement('span'); name.textContent = GB_LABEL[k]; box.append(name);
+    for (let s = 0; s < SLOTS; s++) {
+      const code = padMap[k][s] ?? null, here = capturing?.gb === k && capturing?.slot === s;
+      const cell = document.createElement('span'); cell.className = 'pad-slot';
+      const b = document.createElement('button'); b.type = 'button'; b.dataset.gb = k; b.dataset.slot = s;
+      b.textContent = here ? 'Press a button…' : code ? inputName(code) : '+ add';
+      b.title = code ? `${GB_LABEL[k]}: ${inputName(code)} (click to change)` : `Add a controller button for ${GB_LABEL[k]}`;
+      b.classList.toggle('on', here);
+      b.onclick = () => startCapture(k, s);
+      cell.append(b);
+      if (code && !here) {
+        const x = document.createElement('button'); x.type = 'button'; x.className = 'pad-clear'; x.textContent = '✕';
+        x.title = `Take ${inputName(code)} off ${GB_LABEL[k]}`; x.setAttribute('aria-label', x.title);
+        x.onclick = () => setPadMap(assign(padMap, k, s, null), `${inputName(code)} no longer presses ${GB_LABEL[k]}.`);
+        cell.append(x);
+      }
+      box.append(cell);
+    }
+  }
+  $('pad-map-reset').disabled = isDefaultMap(padMap);
+}
+function startCapture(gb, slot) {
+  if (!pad) return;
+  capturing = {gb, slot}; drawPadMap();
+  say('pad-map-note', `Press the controller button, or push the stick, for ${GB_LABEL[gb]} (Esc: cancel).`, 'hint');
+  pad.capture(code => { capturing = null; setPadMap(assign(padMap, gb, slot, code), `${GB_LABEL[gb]}: ${inputName(code)}.`); });
+}
+function cancelCapture() { if (!capturing) return; pad?.cancelCapture(); capturing = null; drawPadMap(); say('pad-map-note', '', 'hint'); }
+addEventListener('keydown', e => { if (e.key === 'Escape') cancelCapture(); });
+$('pad-map-reset').onclick = () => { cancelCapture(); setPadMap(null, 'Back to the default buttons.'); };
 const controls = [];   // {key, ch, wrap, set(v)}
 function changed() {
   if (busy || installing()) return;
