@@ -24,7 +24,8 @@ export async function runWiringUiTests() {
     const send = (data = [], status = 0) => queueMicrotask(() => input.onmidimessage?.({
       data: [0xf0, 0x7d, 0x47, 0x53, op, status, ...data.flatMap(b => [b & 127, b >> 7]), 0xf7]}));
     if (op === OP.INFO) { const info = Array(35).fill(0); info[0] = 1; [...firmware].forEach((c, i) => info[1 + i] = c.charCodeAt(0)); return send(info); }
-    if (op === OP.REVERB_GET) return firmware >= 'FM-1_997' ? send(le32(0x0140405A)) : send([], 1);   // mix 90, INPUT SEND
+    if (op === OP.REVERB_GET) return firmware >= 'FM-1_997' ? send(le32(0x0040405A)) : send([], 1);   // mix 90
+    if (op === OP.REVERB_SENDS_GET) return firmware >= 'FM-1_997' ? send(le32(0x00004000)) : send([], 1);   // PU2 sends 64 (dev.7)
     if (op === OP.FX_GET) return send(bytes);
     if (op === OP.SETTINGS_GET) return send(le32(0x5a000000));
     if (op === OP.THEME_GET) return send(Array(16).fill(0));
@@ -84,11 +85,12 @@ export async function runWiringUiTests() {
     const svg = document.querySelector('#fx-diagram svg'); await sleep(700);
     assert(document.querySelector('#fx-diagram svg') === svg, 'not redrawn while unchanged');
     assert(!blk('reverb'), 'FM-1_989: no reverb drawn');
-    // 0.9.97: the reverb, lit (mix 90), fed by the sends; it opens the REVERB card in Master
+    // 0.9.97: the reverb, lit (mix 90), PU2 sending to it; it opens the REVERB card in Master
     firmware = 'FM-1_997';
     await $('connect-btn').onclick();
     await until(() => blk('reverb'), 'the reverb drawn');
-    assert(blk('reverb').classList.contains('on') && /REVERB \(sends\)/.test(blk('reverb').textContent), `the reverb lit, from the sends: ${blk('reverb').textContent}`);
+    assert(blk('reverb').classList.contains('on') && /REVERB/.test(blk('reverb').textContent), `the reverb lit: ${blk('reverb').textContent}`);
+    assert(/rev 64/.test($('fx-diagram').textContent) && document.querySelector('#fx-diagram .send.rv'), 'PU2 reverb send drawn');
     blk('reverb').dispatchEvent(new MouseEvent('click', {bubbles: true}));
     assert([...document.querySelectorAll('#fx-master-pages .fx-card.picked')].some(c => c.querySelector('h3').firstChild.textContent === 'REVERB'), 'reverb: the REVERB card in Master');
     return 'PASS wiring browser: blocks open DRIVE / FILTER / LO-FI / LFO (channel marked), ECHO, MASTER and REVERB (0.9.97) in Master, Enter, FM-1 page again, Columns / Rows kept, not redrawn when unchanged';

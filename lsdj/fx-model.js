@@ -52,23 +52,31 @@ export const PAGES = PAGES_979.map((pg, i) =>
 export const PAGES_997 = PAGES.map((pg, i) =>
   i === 0 ? {name: 'MASTER', knobs: [['master', 'allFxOn'], ['comp', 'comp'], ['echo', 'freeze'], null]} :
   i === 1 ? {name: 'FILTER', knobs: [['flags', 'fxOn'], ['ch', 'type'], ['ch', 'cutoff'], ['ch', 'reso']]} :
-  i === 4 ? {name: 'LO-FI', knobs: [['ch', 'crush'], ['ch', 'decim'], ['ch', 'send'], null]} :
+  i === 4 ? {name: 'LO-FI', knobs: [['ch', 'crush'], ['ch', 'decim'], ['ch', 'send'], ['rvch', 'rvSend']]} :
   i === 5 ? {name: 'ECHO', knobs: [['echo', 'time'], ['echo', 'feedback'], ['echo', 'mix'], ['echo', 'tone']]} :
   i === 6 ? {name: 'ECHO MOD', knobs: [['echo', 'wobble'], ['echo', 'sync'], ['echo', 'mode'], null]} : pg);
 /* fw: the firmware's number (979 for FM-1_979; leave it out for the newest) */
-/* 0.9.97: the master reverb, the firmware's 8th page (its own word over the link: REVERB_GET / REVERB_SET).
-   Shown only when the FM-1 has it (fx.reverb). */
-PAGES_997.push({name: 'REVERB', knobs: [['rv', 'rvMix'], ['rv', 'rvSize'], ['rv', 'rvTone'], ['rv', 'rvInput']], rv: true});
-export const REVERB_PARAMS = [{key: 'rvMix', name: 'Reverb mix'}, {key: 'rvSize', name: 'Size'}, {key: 'rvTone', name: 'Tone'},
-  {key: 'rvInput', name: 'Input', choices: ['All', 'Send']}];
-/* the reverb word: mix, size, tone, input (0 all, 1 send), a byte each, low first (firmware lsdj_fx_rv_word) */
-export function unpackReverb(w) {
+/* 0.9.97: the master reverb, the firmware's 8th page (its own word over the link: REVERB_GET / REVERB_SET), fed by
+   each channel's reverb send on LO-FI K4 (0.9.97-dev.7: REVERB_SENDS_GET / _SET; dev.1-6 had REVERB K4 INPUT
+   instead). Shown only when the FM-1 has it (fx.reverb; fx.reverb.rvSend null on dev.1-6). */
+PAGES_997.push({name: 'REVERB', knobs: [['rv', 'rvMix'], ['rv', 'rvSize'], ['rv', 'rvTone'], null], rv: true});
+export const REVERB_PARAMS = [{key: 'rvMix', name: 'Reverb mix'}, {key: 'rvSize', name: 'Size'}, {key: 'rvTone', name: 'Tone'}];
+/* the reverb word: mix, size, tone, a byte each, low first (firmware lsdj_fx_rv_word; the 4th byte was dev.1-6's
+   INPUT, 0 or 1, ignored); s: the sends word (a byte per channel, PU1 low), or null when the FM-1 has none */
+export function unpackReverb(w, s = null) {
   if (!Number.isInteger(w) || w < 0 || w > 0xFFFFFFFF) throw Error('Invalid reverb setup.');
-  const r = {rvMix: w & 255, rvSize: (w >>> 8) & 255, rvTone: (w >>> 16) & 255, rvInput: w >>> 24};
-  if (r.rvMix > 127 || r.rvSize > 127 || r.rvTone > 127 || r.rvInput > 1) throw Error('Invalid reverb setup.');
+  const r = {rvMix: w & 255, rvSize: (w >>> 8) & 255, rvTone: (w >>> 16) & 255, rvSend: s === null ? null : unpackReverbSends(s)};
+  if (r.rvMix > 127 || r.rvSize > 127 || r.rvTone > 127 || w >>> 24 > 1) throw Error('Invalid reverb setup.');
   return r;
 }
-export const packReverb = r => ((r.rvMix & 127) | (r.rvSize & 127) << 8 | (r.rvTone & 127) << 16 | (r.rvInput ? 1 : 0) << 24) >>> 0;
+export function unpackReverbSends(s) {
+  if (!Number.isInteger(s) || s < 0 || s > 0xFFFFFFFF) throw Error('Invalid reverb sends.');
+  const v = [0, 1, 2, 3].map(c => (s >>> (8 * c)) & 255);
+  if (v.some(x => x > 127)) throw Error('Invalid reverb sends.');
+  return v;
+}
+export const packReverb = r => ((r.rvMix & 127) | (r.rvSize & 127) << 8 | (r.rvTone & 127) << 16) >>> 0;
+export const packReverbSends = r => (r.rvSend || [0, 0, 0, 0]).reduce((w, v, c) => w | (v & 127) << (8 * c), 0) >>> 0;
 /* about how long the tail takes to fade 60 dB (firmware lsdj_fx_update: decay per pass, lines 27-39 ms) */
 export const reverbSeconds = v => -3 * (3288 - 354) / 4 / 22050 / Math.log10((9270 + Math.floor(v * (15775 - 9270) / 127)) / 16384);
 export const firmwareNumber = id => +(/^FM-1_(9\d\d)$/.exec(id || '')?.[1] ?? 0);
@@ -86,6 +94,7 @@ export const PARAM = Object.fromEntries([
   ...ECHO_PARAMS.map(p => [p.key, {...p, where: 'echo'}]),
   ['comp', {key: 'comp', name: 'Compressor', where: 'comp'}],
   ...REVERB_PARAMS.map(p => [p.key, {...p, where: 'rv'}]),
+  ['rvSend', {key: 'rvSend', name: 'Reverb send', where: 'rvch'}],
   ['allFxOn', {key: 'allFxOn', name: 'All FX', where: 'master', choices: ['Off', 'On']}],
   ['fxOn', {key: 'fxOn', name: 'Channel FX', where: 'flags', choices: ['Off', 'On']}],
   ['freeze', {key: 'freeze', name: 'Freeze', where: 'flags', choices: ['Off', 'On'], live: true}]]);
@@ -153,6 +162,7 @@ export function paramGet(fx, key, c) {
   case 'echo': return fx.echo[key];
   case 'comp': return fx.comp;
   case 'rv': return fx.reverb ? fx.reverb[key] : 0;
+  case 'rvch': return fx.reverb?.rvSend?.[c] ?? 0;
   case 'master': return fx.bypass ? 0 : 1;
   default: return key === 'fxOn' ? ((fx.fxOff >> c) & 1 ? 0 : 1) : (fx.freeze ? 1 : 0);
   }
@@ -167,6 +177,9 @@ export function paramSet(fx, key, c, v) {
   case 'rv':
     if (!fx.reverb) throw Error('The reverb needs 0.9.97 or newer firmware.');
     fx.reverb[key] = v; break;
+  case 'rvch':   /* a send turned up with the reverb silent sets a mix, as the FM-1's knob does */
+    if (!fx.reverb?.rvSend) throw Error('Reverb sends need 0.9.97-dev.7 or newer firmware.');
+    fx.reverb.rvSend[c] = v; if (v && !fx.reverb.rvMix) fx.reverb.rvMix = 64; break;
   case 'master':
     if (!fx.v3) throw Error('All FX requires FM-1_975 or newer firmware.');
     fx.bypass = v ? 0 : 1; break;
@@ -183,6 +196,7 @@ export function channelSummary(fx, c) {
   if (q.lfoDepth) on.push('LFO→' + ['cut', 'vol', 'pan'][q.lfoDest]);
   if (ch.crush || ch.decim) on.push('lo-fi');
   if (ch.send) on.push('echo ' + ch.send);
+  if (fx.reverb?.rvSend?.[c]) on.push('rev ' + fx.reverb.rvSend[c]);
   return on.join(' · ') || 'clean';
 }
 
@@ -332,13 +346,12 @@ export const MIDI_CC_MAP = [
   [72, 'LFO rate', 'channel'], [73, 'LFO depth', 'channel'],
   [82, 'LFO shape: 0-25 sine, 26-51 triangle, 52-76 square, 77-102 saw, 103-127 random', 'channel'],
   [83, 'LFO to: 0-42 cutoff, 43-85 volume, 86-127 pan', 'channel'],
-  [76, 'Crush', 'channel'], [77, 'Decimate', 'channel'], [91, 'Echo send', 'channel'],
+  [76, 'Crush', 'channel'], [77, 'Decimate', 'channel'], [91, 'Echo send', 'channel'], [92, 'Reverb send (0.9.97)', 'channel'],
   [80, 'Channel FX (64-127 on)', 'channel'], [81, 'Mute (64-127 muted)', 'channel'],
   [12, 'Echo time (synced: 12 note values)', 'shared'], [13, 'Echo feedback', 'shared'], [14, 'Echo mix', 'shared'],
   [15, 'Echo tone (64 flat)', 'shared'], [16, 'Echo wobble', 'shared'], [17, 'Echo sync (64-127 tempo)', 'shared'],
   [18, 'Echo mode (64-127 ping-pong)', 'shared'], [19, 'Freeze (64-127 on)', 'shared'], [20, 'Compressor', 'shared'],
-  [21, 'Reverb mix (0.9.97)', 'shared'], [22, 'Reverb size', 'shared'], [23, 'Reverb tone', 'shared'],
-  [24, 'Reverb input (64-127 send)', 'shared']];
+  [21, 'Reverb mix (0.9.97)', 'shared'], [22, 'Reverb size', 'shared'], [23, 'Reverb tone', 'shared']];
 export function unpackMidi(v) {
   if (v >>> 24 !== 0x4D) throw Error('Not a MIDI options word from this firmware.');
   return Object.fromEntries(MIDI_SETTINGS.map(s => [s.key, (v >>> s.bits[0]) & ((1 << s.bits[1]) - 1)]));

@@ -2,8 +2,8 @@
 // The effects' wiring as the firmware runs it (firmware/lsdj_fx.h lsdj_fx_mix / lsdj_fx_chan):
 // per channel DRIVE -> FILTER -> LO-FI (crush, decimate) -> LFO (volume / pan; to the cutoff it
 // moves the filter), into the mix; each channel's send, taken after its chain, feeds the one shared
-// ECHO, whose return joins the mix; then (0.9.97) the REVERB, fed by the whole mix (INPUT ALL) or by the
-// channels' echo sends (INPUT SEND), its return joining before the COMPRESSOR; and out. What is on is lit; a muted channel,
+// ECHO, whose return joins the mix; then (0.9.97) the REVERB, fed by each channel's reverb send (dev.7), its return
+// joining before the COMPRESSOR; and out. What is on is lit; a muted channel,
 // a dry one (Channel FX off) and All FX off are greyed. Pure: returns SVG text.
 // Two directions (layout): 'v' upright, one column per channel as on LSDj's song screen
 // (PU1 PU2 WAV NOI); 'h' one row per channel. compact: the upright one narrower, for phones.
@@ -36,7 +36,7 @@ const echoText = fx => fx.echo.mix > 0
   ? `MIX ${num(fx.echo.mix)} FB ${num(fx.echo.feedback)}${fx.echo.mode ? ' PING' : ''}${fx.freeze ? ' FRZ' : ''}` : 'mix 0: off';
 /* the reverb (0.9.97; fx.reverb from REVERB_GET, absent on older firmware): on when its mix is up */
 const rvOn = fx => !!fx.reverb?.rvMix;
-const rvSend = fx => !!fx.reverb?.rvInput;   /* INPUT SEND: the channels' echo sends feed it, not the whole mix */
+const rvSendOf = (fx, c) => fx.reverb?.rvSend?.[c] || 0;   /* channel c's reverb send (0.9.97-dev.7) */
 const rvText = fx => (rvOn(fx) ? `MIX ${num(fx.reverb.rvMix)} ${reverbSeconds(fx.reverb.rvSize).toFixed(1)}s` : 'mix 0: off');
 
 /* upright: G is its geometry (desktop, or compact for phones) */
@@ -61,6 +61,11 @@ function upright(fx, mute, G) {
       g += `<path class="send${echoOn ? '' : ' idle'}" d="M${cx} ${G.SEND_Y} H ${G.ECHO_X}"/><circle class="tap" cx="${cx}" cy="${G.SEND_Y}" r="3"/>` +
         `<text class="sub" x="${cx + 5}" y="${G.SEND_Y - 5}">send ${num(ch.send)}</text>`;
     }
+    if (rvSendOf(fx, c)) {   /* its reverb send: across to the reverb's line (below the echo sends) */
+      const ry = (G.SEND_Y + G.MIX_Y) / 2;
+      g += `<path class="send rv${rvOn(fx) ? '' : ' idle'}" d="M${cx} ${ry} H ${G.ECHO_X - 8}"/><circle class="tap" cx="${cx}" cy="${ry}" r="3"/>` +
+        `<text class="sub" x="${cx + 5}" y="${ry - 5}">rev ${num(rvSendOf(fx, c))}</text>`;
+    }
     parts.push(g + '</g>');
   }
   const e = fx.echo;
@@ -71,15 +76,13 @@ function upright(fx, mute, G) {
   const echo = block(G.ECHO_X, echoTop, G.ECHO_W, echoH, lines, echoOn, 'echo', null, G.T);
   const compTop = G.MIX_Y + 16;
   const comp = block(G.OUT_X - G.BOX_W / 2, compTop, G.BOX_W, G.BOX_H, ['COMP', fx.comp ? num(fx.comp) : 'off'], !!fx.comp, 'comp', null, G.T);
-  /* the reverb level with the compressor, under the echo: in from the mix (or the sends), out into the compressor */
+  /* the reverb level with the compressor, under the echo: the sends down into it, out into the compressor */
   let rv = '';
   if (fx.reverb) {
-    const on = rvOn(fx), y = compTop + G.BOX_H / 2, sx = G.ECHO_X - 8;
-    rv = (rvSend(fx)
-      ? `<path class="send${on ? '' : ' idle'}" d="M${sx} ${G.SEND_Y} V ${compTop}"/><circle class="tap" cx="${sx}" cy="${G.SEND_Y}" r="3"/>`
-      : `<line class="wire${on ? '' : ' idle'}" x1="${echoMid}" y1="${G.MIX_Y}" x2="${echoMid}" y2="${compTop}"/><circle class="tap" cx="${echoMid}" cy="${G.MIX_Y}" r="3"/>`) +
+    const on = rvOn(fx), y = compTop + G.BOX_H / 2, ry = (G.SEND_Y + G.MIX_Y) / 2;
+    rv = ([0, 1, 2, 3].some(c => rvSendOf(fx, c)) ? `<path class="send rv${on ? '' : ' idle'}" d="M${G.ECHO_X - 8} ${ry} V ${compTop + 6} H ${G.ECHO_X}"/>` : '') +
       `<line class="wire${on ? '' : ' idle'}" x1="${G.ECHO_X}" y1="${y}" x2="${G.OUT_X + G.BOX_W / 2}" y2="${y}"/>` +
-      block(G.ECHO_X, compTop, G.ECHO_W, G.BOX_H, G.ECHO_LINES ? ['REVERB', rvOn(fx) ? `MIX ${num(fx.reverb.rvMix)}` : 'off'] : [`REVERB${rvSend(fx) ? ' (sends)' : ''}`, rvText(fx)], on, 'reverb', null, G.T);
+      block(G.ECHO_X, compTop, G.ECHO_W, G.BOX_H, G.ECHO_LINES ? ['REVERB', on ? `MIX ${num(fx.reverb.rvMix)}` : 'off'] : ['REVERB', rvText(fx)], on, 'reverb', null, G.T);
   }
   const bus = `<line class="wire" x1="${G.CX[0]}" y1="${G.MIX_Y}" x2="${echoMid}" y2="${G.MIX_Y}"/>` +
     `<line class="wire${echoOn ? '' : ' idle'}" x1="${echoMid}" y1="${echoTop + echoH}" x2="${echoMid}" y2="${G.MIX_Y}"/>` +
@@ -92,7 +95,7 @@ function upright(fx, mute, G) {
 
 /* one row per channel, left to right */
 function across(fx, mute) {
-  const ROW0 = 30, ROW = 44, BOX_W = 80, BOX_H = 28, X = [60, 150, 240, 330], SEND_X = 440, MIX_X = 610, T = [12, 12];
+  const ROW0 = 30, ROW = 44, BOX_W = 80, BOX_H = 28, X = [60, 150, 240, 330], SEND_X = 440, MIX_X = 610, T = [12, 12], RV_X = 424;
   const parts = [], echoOn = fx.echo.mix > 0, echoY = ROW0 + 4 * ROW;
   for (let c = 0; c < 4; c++) {
     const ch = fx.ch[c], q = fx.q[c], y = ROW0 + c * ROW, top = y - BOX_H / 2;
@@ -107,19 +110,21 @@ function across(fx, mute) {
       g += `<path class="send${echoOn ? '' : ' idle'}" d="M${SEND_X} ${y} V ${echoY}"/><circle class="tap" cx="${SEND_X}" cy="${y}" r="3"/>` +
         `<text class="sub" x="${SEND_X + 6}" y="${y - 4}">send ${num(ch.send)}</text>`;
     }
+    if (rvSendOf(fx, c)) {   /* its reverb send: a tap just before the echo's, down the reverb's line */
+      g += `<circle class="tap" cx="${RV_X}" cy="${y}" r="3"/><text class="sub" x="${RV_X - 4}" y="${y + 25}" text-anchor="end">rev ${num(rvSendOf(fx, c))}</text>`;
+    }
     parts.push(g + '</g>');
   }
   const echo = block(SEND_X + 20, echoY - BOX_H / 2, 120, BOX_H, ['ECHO (shared)', echoText(fx)], echoOn, 'echo', null, T);
   const comp = block(MIX_X + 12, ROW0 + 1.5 * ROW - BOX_H / 2, 76, BOX_H, ['COMP', fx.comp ? num(fx.comp) : 'off'], !!fx.comp, 'comp', null, T);
-  /* the reverb under the compressor: in from the mix (or the sends, round under the echo), out up into the compressor */
+  /* the reverb under the compressor: the sends down and round under the echo into it, out up into the compressor */
   let rv = '';
   if (fx.reverb) {
     const on = rvOn(fx), y = ROW0 + 3 * ROW, mid = MIX_X + 50, idle = on ? '' : ' idle';
-    rv = (rvSend(fx)
-      ? `<path class="send${idle}" d="M${SEND_X} ${echoY} V ${echoY + 22} H ${mid} V ${y + BOX_H / 2}"/>`
-      : `<line class="wire${idle}" x1="${MIX_X}" y1="${y}" x2="${MIX_X + 12}" y2="${y}"/><circle class="tap" cx="${MIX_X}" cy="${y}" r="3"/>`) +
+    const first = [0, 1, 2, 3].find(c => rvSendOf(fx, c));
+    rv = (first !== undefined ? `<path class="send rv${idle}" d="M${RV_X} ${ROW0 + first * ROW} V ${echoY + 22} H ${mid} V ${y + BOX_H / 2}"/>` : '') +
       `<line class="wire${idle}" x1="${mid}" y1="${y - BOX_H / 2}" x2="${mid}" y2="${ROW0 + 1.5 * ROW + BOX_H / 2}"/>` +
-      block(MIX_X + 12, y - BOX_H / 2, 96, BOX_H, [`REVERB${rvSend(fx) ? ' (sends)' : ''}`, rvText(fx)], on, 'reverb', null, T);
+      block(MIX_X + 12, y - BOX_H / 2, 96, BOX_H, ['REVERB', rvText(fx)], on, 'reverb', null, T);
   }
   const bus = `<line class="wire" x1="${MIX_X}" y1="${ROW0}" x2="${MIX_X}" y2="${echoY}"/>` +
     `<line class="wire${echoOn ? '' : ' idle'}" x1="${SEND_X + 140}" y1="${echoY}" x2="${MIX_X}" y2="${echoY}"/>` +
@@ -136,7 +141,8 @@ export function fxDiagram(fx, {mute = 0, layout = 'v', compact = false} = {}) {
   const d = layout === 'h' ? across(fx, mute) : upright(fx, mute, compact ? COMPACT : UPRIGHT);
   const rows = CHANNELS.map((n, c) => `${n}${(mute >> c) & 1 ? ' muted' : (fx.fxOff >> c) & 1 ? ' dry (Channel FX off)' : ''}`);
   const label = `Effects wiring. ${rows.join('; ')}. Echo ${fx.echo.mix > 0 ? 'on' : 'off'}, ` +
-    (fx.reverb ? `reverb ${rvOn(fx) ? 'on' : 'off'}${rvSend(fx) ? ' (from the sends)' : ''}, ` : '') + `compressor ${fx.comp ? 'on' : 'off'}` +
+    (fx.reverb ? `reverb ${rvOn(fx) ? 'on' : 'off'}${[0, 1, 2, 3].some(c => rvSendOf(fx, c)) ? ' (sent to by ' +
+      CHANNELS.filter((n, c) => rvSendOf(fx, c)).join(', ') + ')' : ''}, ` : '') + `compressor ${fx.comp ? 'on' : 'off'}` +
     (fx.bypass ? '. All FX off.' : '.');
   const kind = layout === 'h' ? 'h' : compact ? 'vc' : 'v';
   return `<svg class="fxd${fx.bypass ? ' bypass' : ''}" data-layout="${kind}" viewBox="0 0 ${d.w} ${d.h}" role="group" aria-label="${label}">` +

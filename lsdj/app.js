@@ -6,7 +6,7 @@ import {Link, midiPorts, LinkError, SAVE_SIZE} from './link.js';
 import {confirmSaveImport} from './save-file.js';
 import {showDeviceTheme, setMatching, matching} from './page-theme.js';
 import {setBeforeInstall, installing, usbMidiUnavailable} from './install-ui.js';
-import {CHANNELS, pagesForFx, PARAM, paramGet, paramSet, valueText, channelSummary, unpackFx, packFx, unpackReverb, packReverb, PRESETS, THEMES, COLOR_NAMES, toHex, fromHex,
+import {CHANNELS, pagesForFx, PARAM, paramGet, paramSet, valueText, channelSummary, unpackFx, packFx, unpackReverb, packReverb, packReverbSends, PRESETS, THEMES, COLOR_NAMES, toHex, fromHex,
         SETTINGS, unpackSettings, packSettings, MIDI_SETTINGS, MIDI_CC_MAP, unpackMidi, packMidi, CUSTOM_THEME, isMasterPage,
         firmwareNumber, FEATURES, unpackFeatures, packFeatures} from './fx-model.js';
 import {fxDiagram, pageFor} from './fx-diagram.js';
@@ -135,18 +135,32 @@ let fm1Page = null, lastChPage = null, mute = 0, muteOk = false, muteTouched = 0
 let followPage = true, pickPage = 0;
 const shownPage = () => followPage ? (lastChPage ?? fx.page) : pickPage;
 /* per channel (its own value for each of the four) or one for all */
-const perChannel = key => PARAM[key].where === 'ch' || PARAM[key].where === 'q' || key === 'fxOn';
+const perChannel = key => PARAM[key].where === 'ch' || PARAM[key].where === 'q' || PARAM[key].where === 'rvch' || key === 'fxOn';
 /* mutes and freeze: live only, through MUTE_SET */
 function sendMute(freeze = fx.freeze ? 1 : 0) {
   if (!muteOk || busy || installing()) return;
   muteTouched = Date.now();
   link.muteSet(mute, freeze).catch(e => say('fx-status', e.message, 'bad'));
 }
-/* 0.9.97 and newer: the reverb (its own word), or null */
+/* 0.9.97 and newer: the reverb (its own word, and from dev.7 the sends word), or null */
 async function readReverb() {
   if (fwNum < 997) return null;
   const w = await link.reverbGet();
-  return w === null ? null : unpackReverb(w);
+  return w === null ? null : unpackReverb(w, await link.reverbSendsGet());
+}
+async function writeReverb(r) {
+  await link.reverbSet(packReverb(r));
+  if (r.rvSend) await link.reverbSendsSet(packReverbSends(r));
+}
+/* a file's reverb (an effects file or a backup) onto the FM-1, when both have it */
+async function restoreReverb(d) {
+  if (d.reverb !== undefined && fx.reverb) await link.reverbSet(d.reverb);
+  if (d.reverbSends !== undefined && fx.reverb?.rvSend) await link.reverbSendsSet(d.reverbSends);
+}
+async function reverbWords(data) {   /* into a file */
+  const w = fwNum >= 997 ? await link.reverbGet() : null; if (w === null) return;
+  data.reverb = w;
+  const s = await link.reverbSendsGet(); if (s !== null) data.reverbSends = s;
 }
 /* 0.9.97 and newer: a game controller on this page plays LSDj (lsdj/gamepad.js): the one chosen under Controller
    (or any with the standard layout), each with its own buttons (Controller buttons), kept in this browser */
@@ -232,7 +246,7 @@ function changed() {
   sendTimer = setTimeout(() => {
     sendTimer = null;
     link.fxSet(packFx(fx)).catch(e => say('fx-status', e.message, 'bad'));
-    if (fx.reverb) link.reverbSet(packReverb(fx.reverb)).catch(e => say('fx-status', e.message, 'bad'));
+    if (fx.reverb) writeReverb(fx.reverb).catch(e => say('fx-status', e.message, 'bad'));
   }, 80);
 }
 /* one control for one channel (ch: 0-3; a shared control uses 0) */
@@ -292,6 +306,7 @@ function buildFx() {
     card.innerHTML = `<h3>${pg.name}<span class="fx-who">${anyCh ? '' : 'all channels'}</span><span class="fx-onfm1">on the FM-1's knobs</span></h3>`;
     pg.knobs.forEach((slot, k) => {
       if (!slot) return;
+      if (slot[0] === 'rvch' && !fx.reverb?.rvSend) return;   // reverb sends: 0.9.97-dev.7 and newer
       const [where, key] = slot;
       const row = document.createElement('div'); row.className = 'fx-row';
       const p = PARAM[key];
@@ -442,6 +457,7 @@ addEventListener('scroll', markStageNav, {passive: true}); addEventListener('res
 function changedKeys(a, b) {
   if (!a || !b) return [];
   return Object.keys(PARAM).filter(k => k !== 'freeze' && (PARAM[k].where !== 'q' || b.v2) && (PARAM[k].where !== 'rv' || (a.reverb && b.reverb)) &&
+    (PARAM[k].where !== 'rvch' || (a.reverb?.rvSend && b.reverb?.rvSend)) &&
     [0, 1, 2, 3].some(c => paramGet(a, k, c) !== paramGet(b, k, c)));
 }
 async function tick() {
@@ -451,7 +467,8 @@ async function tick() {
     if (++ticks % 8 === 0) await followThemeSetting();
     const l = await link.live();
     const live = unpackFx(l.fx);
-    live.reverb = fx.reverb && ticks % 2 === 0 ? await readReverb() : fx.reverb && {...fx.reverb};   /* every other poll */
+    live.reverb = fx.reverb && ticks % 2 === 0 ? await readReverb()
+      : fx.reverb && {...fx.reverb, rvSend: fx.reverb.rvSend && [...fx.reverb.rvSend]};   /* every other poll */
     live.freeze = l.freeze; cursorCh = l.cursor < 4 ? l.cursor : cursorCh; bpm = l.bpm;
     fm1Page = l.page < pagesForFx(live, fwNum).length ? l.page : live.page;
     if (!isMasterPage(live, fm1Page, fwNum)) lastChPage = fm1Page;
@@ -509,7 +526,7 @@ document.querySelectorAll('#live-sec .panel[data-pop] .pop').forEach(b => {
 });
 onPopChange(() => { if (fx) refresh(); });
 $('fx-help-btn').onclick = () => $('fx-help').showModal();
-$('fx-keep').onclick = () => run('fx-status', async () => { await link.fxSet(packFx(fx)); if (fx.reverb) await link.reverbSet(packReverb(fx.reverb)); await link.store(); say('fx-status', 'Kept on the FM-1.', 'ok'); });
+$('fx-keep').onclick = () => run('fx-status', async () => { await link.fxSet(packFx(fx)); if (fx.reverb) await writeReverb(fx.reverb); await link.store(); say('fx-status', 'Kept on the FM-1.', 'ok'); });
 
 /* ---------- songs ---------- */
 async function run(statusId, fn) {
@@ -569,7 +586,7 @@ async function romFile() {
 }
 async function fxFile() {
   const data = {format: 'lsdj-burrito-fx', version: 1, firmware: fwId, fx: await link.fxGet()};
-  { const w = fwNum >= 997 ? await link.reverbGet() : null; if (w !== null) data.reverb = w; }   /* 0.9.97 and newer */
+  await reverbWords(data);   /* 0.9.97 and newer */
   return {name: 'lsdj-burrito-effects.json', bytes: new TextEncoder().encode(JSON.stringify(data, null, 1))};
 }
 $('export').onclick = () => run('save-status', async () => {
@@ -601,9 +618,9 @@ $('import-fx').onchange = e => {
     if (!Array.isArray(words) || ![11, 17].includes(words.length)) throw new LinkError('This is not an LSDJ Burrito effects file.');
     const loaded = unpackFx(words);
     if (loaded.v3 && !fx.v3) throw new LinkError('These effects need FM-1_975 or newer firmware.');
-    if (d.reverb !== undefined) unpackReverb(d.reverb);   /* checks */
+    if (d.reverb !== undefined) unpackReverb(d.reverb, d.reverbSends ?? null);   /* checks */
     await link.fxSet(words);
-    if (d.reverb !== undefined && fx.reverb) await link.reverbSet(d.reverb);
+    await restoreReverb(d);
     await link.store();
     fx = unpackFx(await link.fxGet()); fx.reverb = await readReverb(); buildFx();
     say('save-status', `Loaded the effects from ${file.name} and kept them on the FM-1.`, 'ok');
@@ -746,7 +763,7 @@ $('backup').onclick = () => run('settings-status', async () => {
   const data = {format: 'lsdj-burrito-backup', version: 1, settings: await link.settingsGet(), fx: await link.fxGet(), theme: await link.themeGet()};
   const m = await link.midiGet(); if (m !== null) data.midi = m;
   if (features) data.features = await link.featGet();
-  { const w = fwNum >= 997 ? await link.reverbGet() : null; if (w !== null) data.reverb = w; }
+  await reverbWords(data);
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 1)], {type: 'application/json'})); a.download = 'lsdj-burrito-backup.json'; a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 10000);
@@ -764,9 +781,9 @@ $('restore').onchange = e => {
     if (restoredFx.v3 && !fx.v3) throw new LinkError('This effects backup requires FM-1_975 or newer firmware.');
     if (d.midi !== undefined) unpackMidi(d.midi);   /* checks */
     if (d.features !== undefined) unpackFeatures(d.features);
-    if (d.reverb !== undefined) unpackReverb(d.reverb);
+    if (d.reverb !== undefined) unpackReverb(d.reverb, d.reverbSends ?? null);
     await link.themeSet(d.theme); await link.settingsSet(d.settings); await link.fxSet(d.fx);
-    if (d.reverb !== undefined && fx.reverb) await link.reverbSet(d.reverb);
+    await restoreReverb(d);
     if (d.midi !== undefined && midi) await link.midiSet(d.midi);
     if (d.features !== undefined && features) await link.featSet(d.features);
     await link.store();

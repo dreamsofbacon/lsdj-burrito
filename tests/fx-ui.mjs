@@ -15,6 +15,7 @@ export async function runFxUiTests() {
   const input = {name: 'FM-1 test'}, ops = [];
   let bytes = Array(68).fill(0), writes = 0, cursor = 0, firmware = 'FM-1_975', muteSent = null, liveMute = 0, featWord = 0x460001CE, featSets = 0;
   let rvWord = 0x00404000, rvSets = 0;   /* 0.9.97: the reverb word */
+  let rvsWord = 0, rvsSets = 0, sendsOk = true;   /* 0.9.97-dev.7: the reverb sends (dev.1-6: none, status 1) */
   const padSent = [];                     /* 0.9.97: PAD_SET bytes */
   bytes[36] = 5; bytes[37] = 2; bytes[42] = 0xf2; bytes[43] = 70;
   bytes[2] = 40; bytes[30] = 80; bytes[35] = 4;
@@ -41,6 +42,8 @@ export async function runFxUiTests() {
     if (op === OP.MUTE_SET) { muteSent = args; return send(); }
     if (op === OP.REVERB_GET) return firmware >= 'FM-1_997' ? send(le32(rvWord)) : send([], 1);
     if (op === OP.PAD_SET) { if (firmware < 'FM-1_997') return send([], 1); padSent.push(args[0]); return send(); }
+    if (op === OP.REVERB_SENDS_GET) return firmware >= 'FM-1_997' && sendsOk ? send(le32(rvsWord)) : send([], 1);
+    if (op === OP.REVERB_SENDS_SET) { rvsWord = (args[0] | args[1] << 8 | args[2] << 16 | args[3] << 24) >>> 0; rvsSets++; return send(); }
     if (op === OP.REVERB_SET) { rvWord = (args[0] | args[1] << 8 | args[2] << 16 | args[3] << 24) >>> 0; rvSets++; return send(); }
     if ([OP.STORE, OP.THEME_SET, OP.SETTINGS_SET].includes(op)) return send();
     /* the screen (FM-1_983+): every row one colour, red (RGB565 0xF800) */
@@ -237,7 +240,16 @@ export async function runFxUiTests() {
         const twice = Object.entries(n).filter(([, v]) => v > 1).map(([k]) => k);
         assert(!twice.length, `997: on two cards: ${twice.join(' ')}`); }
       const names = [...document.querySelectorAll('#fx-master-pages .fx-card[data-page="7"] .fx-name')].map(n => n.textContent).join();
-      assert(names === 'Reverb mix,Size,Tone,Input', `997: the REVERB card: ${names}`);
+      assert(names === 'Reverb mix,Size,Tone', `997: the REVERB card: ${names}`);
+      /* dev.7: each channel's reverb send on LO-FI K4, a column per channel; WAV's moved -> its byte sent */
+      { const rs = [...document.querySelectorAll('#fx-pages .fx-card[data-page="4"] .fx-ctl[data-key="rvSend"]')];
+        assert(rs.map(s => s.dataset.chn).join() === 'PU1,PU2,WAV,NOI', `997: the reverb sends on LO-FI: ${rs.length}`);
+        const ss = rvsSets; rs[2].querySelector('input').value = 50; rs[2].querySelector('input').dispatchEvent(new Event('input'));
+        await until(() => rvsSets > ss && rvsWord === 50 << 16, `997: WAV's reverb send sent: ${rvsWord.toString(16)}`);
+        assert((rvWord & 255) === 64, `997: a send with the reverb silent: mix 64 too (${rvWord.toString(16)})`);
+        rvsWord = 0x7F000000;   /* moved on the FM-1 (NOI 127): the panel follows */
+        await until(() => rs[3].querySelector('input').value === '127' && rs[2].querySelector('input').value === '0', '997: the panel follows the FM-1\'s sends', 120);
+        rvsWord = 0; }
       const mix = document.querySelector('.fx-ctl[data-key="rvMix"] input[type="range"]'), sets = rvSets, fxWrites = writes;
       mix.value = '90'; mix.oninput();
       await until(() => rvSets > sets, '997: the reverb sent');
@@ -245,7 +257,11 @@ export async function runFxUiTests() {
       assert(writes > fxWrites, '997: the 17 effects words sent as before');
       rvWord = 0x01204070;   /* moved on the FM-1: the panel follows */
       await until(() => document.querySelector('.fx-ctl[data-key="rvSize"] input[type="range"]').value === '64' &&
-                        document.querySelector('.fx-ctl[data-key="rvMix"] input[type="range"]').value === '112', '997: the panel follows the FM-1\'s reverb', 120); }
+                        document.querySelector('.fx-ctl[data-key="rvMix"] input[type="range"]').value === '112', '997: the panel follows the FM-1\'s reverb', 120);
+      /* dev.1-6 (no sends op): no reverb send controls, the reverb card as it is */
+      sendsOk = false; await $('connect-btn').onclick();
+      assert(!document.querySelector('.fx-ctl[data-key="rvSend"]') && document.querySelector('.fx-ctl[data-key="rvMix"]'), '997 dev.1-6: no reverb sends');
+      sendsOk = true; await $('connect-btn').onclick(); }
     /* 0.9.97: a game controller on the page: A held -> PAD_SET 1, again while held, 0 on release; older firmware: a note */
     { const gp = {id: 'Xbox Wireless Controller (STANDARD GAMEPAD Vendor: 045e Product: 0b13)', connected: true, mapping: 'standard', axes: [0, 0],
                   buttons: Array.from({length: 17}, () => ({pressed: false, value: 0}))};
@@ -318,7 +334,7 @@ export async function runFxUiTests() {
       }
     }
     firmware = 'FM-1_975';
-    return 'PASS FX browser: matching pages (975-978, 979, 980 echo on MASTER, 981 echo in Master, 997 echo send on LO-FI and REVERB, 997 game controller), FM-1 screen (983, 985 sync, note before), autosave, screen rate (989), one master switch, four channel columns (a slider changes its own channel), the cursor column, LIVE state, 17/11-word backups, old firmware gating, FX and lights, FX colours, wiring, muted column, battery';
+    return 'PASS FX browser: matching pages (975-978, 979, 980 echo on MASTER, 981 echo in Master, 997 echo send on LO-FI, REVERB and its per-channel sends, 997 game controller), FM-1 screen (983, 985 sync, note before), autosave, screen rate (989), one master switch, four channel columns (a slider changes its own channel), the cursor column, LIVE state, 17/11-word backups, old firmware gating, FX and lights, FX colours, wiring, muted column, battery';
   } finally {
     if (descriptor) Object.defineProperty(navigator, 'requestMIDIAccess', descriptor);
     else delete navigator.requestMIDIAccess;

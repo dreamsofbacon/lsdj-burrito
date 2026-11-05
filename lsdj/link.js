@@ -9,7 +9,8 @@ export const OP = {INFO: 0x01, READ: 0x02, BEGIN: 0x03, CHUNK: 0x04, COMMIT: 0x0
   SETTINGS_GET: 0x10, SETTINGS_SET: 0x11, FX_GET: 0x12, FX_SET: 0x13, THEME_GET: 0x14, THEME_SET: 0x15,
   STORE: 0x16, MIDI_GET: 0x17, MIDI_SET: 0x18, FEAT_GET: 0x19, FEAT_SET: 0x1A, LIVE: 0x20,
   CART_INFO: 0x22, CART_READ: 0x23, MUTE_SET: 0x24, SCREEN_INFO: 0x25, SCREEN_ROW: 0x26,
-  SCREEN_SYNC: 0x27, SCREEN_PIXELS: 0x28, SCREEN_FRAME: 0x29, REVERB_GET: 0x2A, REVERB_SET: 0x2B, PAD_SET: 0x2C};
+  SCREEN_SYNC: 0x27, SCREEN_PIXELS: 0x28, SCREEN_FRAME: 0x29, REVERB_GET: 0x2A, REVERB_SET: 0x2B, PAD_SET: 0x2C,
+  REVERB_SENDS_GET: 0x2D, REVERB_SENDS_SET: 0x2E};
 export const STATUS = ['ok', 'bad request', 'wrong state', 'checksum mismatch', 'flash error'];
 export const CHUNK = 128;
 export const SAVE_SIZE = 131072;
@@ -183,6 +184,9 @@ export class Link {
   /* 0.9.97 and newer: the reverb word (lsdj/fx-model.js unpackReverb), or null before */
   async reverbGet() { const r = await this.req(OP.REVERB_GET, [], {retries: 2, allow: [0, 1]}); return r.status ? null : rd32(r.data, 0); }
   async reverbSet(v) { await this.req(OP.REVERB_SET, le32(v), {retries: 2}); }
+  /* 0.9.97-dev.7 and newer: the reverb sends word (a byte per channel), or null before */
+  async reverbSendsGet() { const r = await this.req(OP.REVERB_SENDS_GET, [], {retries: 2, allow: [0, 1]}); return r.status ? null : rd32(r.data, 0); }
+  async reverbSendsSet(v) { await this.req(OP.REVERB_SENDS_SET, le32(v), {retries: 2}); }
   /* 0.9.97 and newer: the Game Boy buttons a controller on this page holds (lsdj/gamepad.js); no retries: held
      buttons are sent again anyway */
   async padSet(mask) { await this.req(OP.PAD_SET, [mask & 255], {timeout: 400, retries: 0}); }
