@@ -195,6 +195,11 @@ table.fx th,table.fx td{padding:3px 6px;border-bottom:1px solid var(--line);text
 .fx-matrix .muted,.fx-card.matrix .fx-ctl.muted{filter:grayscale(1);opacity:.45}
 .fx-card.matrix .fx-ctl.cursor{background:color-mix(in srgb,var(--accent) 9%,transparent);border-radius:6px}
 .fx-card.matrix .fx-ctl output{min-width:3.2em}
+/* a per-channel knob on a shared page (0.9.97: ECHO's send): one named line per channel */
+.fx-ctl.chan-line::before{content:attr(data-chn);font:600 11px ui-monospace,monospace;color:var(--muted);min-width:2.8em}
+.fx-ctl.chan-line.cursor{background:color-mix(in srgb,var(--accent) 9%,transparent);border-radius:6px}
+.fx-ctl.chan-line.cursor::before{color:var(--accent)}
+.fx-ctl.chan-line.muted{filter:grayscale(1);opacity:.45}
 .fx-pages.one .fx-card.matrix{padding:6px 8px}
 #fx-help{max-width:min(720px,92vw);border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--ink)}
 #fx-help::backdrop{background:rgb(0 0 0/.45)}

@@ -222,7 +222,12 @@ export async function runFxUiTests() {
     await $('connect-btn').onclick();
     assert([...document.querySelectorAll('#fx-master-pages .fx-card')].map(c => c.dataset.page).join() === '0,5,6,7', `997: MASTER, ECHO, ECHO MOD, REVERB`);
     { const echoCard = document.querySelector('#fx-master-pages .fx-card[data-page="5"]');
-      assert(echoCard.classList.contains('matrix') && echoCard.querySelectorAll('.fx-ctl[data-key="send"]').length === 4, '997: ECHO sends per channel');
+      { const sends = [...echoCard.querySelectorAll('.fx-ctl[data-key="send"]')];
+        assert(!echoCard.classList.contains('matrix') && sends.length === 4 && sends.every(s => s.classList.contains('chan-line')) &&
+               sends.map(s => s.dataset.chn).join() === 'PU1,PU2,WAV,NOI', '997: ECHO sends: a named line per channel');
+        /* (dev.5 drew them in the Master panel's narrow card as four columns, one on top of the other) */
+        const r = sends.map(s => s.querySelector('input').getBoundingClientRect());
+        assert(r.every((b, i) => b.width >= 40 && (!i || b.top >= r[i - 1].bottom - 1)), `997: the send sliders apart: ${r.map(b => `${Math.round(b.left)},${Math.round(b.top)},${Math.round(b.width)}`).join(' ')}`); }
       /* every effect on one card only: no control twice (per channel: four, one card) */
       { const n = {}; document.querySelectorAll('#fx-pages .fx-ctl, #fx-master-pages .fx-ctl').forEach(c => { const k = c.dataset.key + '/' + (c.dataset.ch ?? '-'); n[k] = (n[k] || 0) + 1; });
         const twice = Object.entries(n).filter(([, v]) => v > 1).map(([k]) => k);

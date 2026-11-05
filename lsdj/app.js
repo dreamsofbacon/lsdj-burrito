@@ -284,16 +284,20 @@ function buildFx() {
     if (pg.v2 && !fx.v2) return;                     // the new pages need alpha 66
     if (pg.rv && !fx.reverb) return;                 // REVERB: 0.9.97 and newer
     const card = document.createElement('div'); card.className = 'fx-card'; card.dataset.page = i;
-    const perCh = pg.knobs.some(slot => slot && perChannel(slot[1]));
+    const master = isMasterPage(fx, i, fwNum), anyCh = pg.knobs.some(slot => slot && perChannel(slot[1]));
+    /* a channel page: a column per channel (the Channels panel's heads). A shared page with a per-channel knob
+       (0.9.97: ECHO K1, the send): that knob one line per channel, named, as the Master panel is narrow. */
+    const perCh = anyCh && !master;
     if (perCh) card.classList.add('matrix');
-    card.innerHTML = `<h3>${pg.name}<span class="fx-who">${perCh ? '' : 'all channels'}</span><span class="fx-onfm1">on the FM-1's knobs</span></h3>`;
+    card.innerHTML = `<h3>${pg.name}<span class="fx-who">${anyCh ? '' : 'all channels'}</span><span class="fx-onfm1">on the FM-1's knobs</span></h3>`;
     pg.knobs.forEach((slot, k) => {
       if (!slot) return;
       const [where, key] = slot;
       const row = document.createElement('div'); row.className = 'fx-row';
       const p = PARAM[key];
-      row.innerHTML = `<span class="knob">K${k + 1}</span><span class="fx-name">${p.name}${(where === 'comp' || where === 'echo') && perCh ? ' <small>(all)</small>' : ''}</span>`;
+      row.innerHTML = `<span class="knob">K${k + 1}</span><span class="fx-name">${p.name}${(where === 'comp' || where === 'echo') && anyCh ? ' <small>(all)</small>' : ''}</span>`;
       if (perCh && perChannel(key)) CHANNELS.forEach((n, c) => row.append(control(key, c)));
+      else if (anyCh && perChannel(key)) CHANNELS.forEach((n, c) => { const w = control(key, c); w.classList.add('chan-line'); row.append(w); });
       else { const w = control(key, 0); if (perCh) w.classList.add('shared'); row.append(w); }
       card.append(row);
     });
@@ -352,7 +356,7 @@ function refresh(hot = []) {
     d.querySelector('small').textContent = [channelSummary(fx, n), ...tags].join(' · ');
   });
   /* the column under the FM-1's cursor marked; a muted channel's column grey (still adjustable), as the FM-1 does */
-  $$('#pan-chans [data-ch]').forEach(el => {
+  $$('#pan-chans [data-ch], .fx-ctl.chan-line').forEach(el => {
     const n = +el.dataset.ch;
     el.classList.toggle('cursor', !!lastLive && n === cursorCh);
     el.classList.toggle('muted', !!((mute >> n) & 1));
