@@ -309,7 +309,7 @@ export async function runFxUiTests() {
         await until(() => padSent.at(-1) === 2, '997: bottom presses B only');
         gp.buttons[0] = {pressed: false, value: 0}; await until(() => padSent.at(-1) === 0, '997: bottom let go');
         $('pad-map-reset').click();
-        /* a second controller without the standard layout: listed, used once chosen, its own buttons */
+        /* a second controller without the standard layout: listed, plays too, chosen alone, its own buttons */
         const joy = {id: 'USB Gamepad (Vendor: 0079 Product: 0011)', index: 1, connected: true, mapping: '', axes: [0, 0, 0, 0, 0, 0, 0, 0, 0, 9 / 7],
                      buttons: Array.from({length: 12}, () => ({pressed: false, value: 0}))};
         gp.index = 0; padList2 = [gp, joy];

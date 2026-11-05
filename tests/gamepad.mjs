@@ -31,7 +31,7 @@ assert.equal(padName({id: '054c-0ce6-DualSense Wireless Controller'}), 'DualSens
   const run = async ms => { for (let i = 0; i < ms; i += 16) { t += 16; tickFn(); await Promise.resolve(); await Promise.resolve(); } };
   await run(100);
   assert.deepEqual(sent, [], 'no controller: nothing sent');
-  assert.match(statuses.at(-1), /connect one/);
+  assert.match(statuses.at(-1), /none seen yet/);
   pads = [pad()]; await run(100);
   assert.deepEqual(sent, [], 'a controller, nothing held: nothing sent');
   assert.match(statuses.at(-1), /Xbox Wireless Controller\. It plays LSDj/);
@@ -48,8 +48,8 @@ assert.equal(padName({id: '054c-0ce6-DualSense Wireless Controller'}), 'DualSens
   stop(); await Promise.resolve(); await Promise.resolve();
   assert.equal(sent.at(-1)[1], 0, 'stop lets go');
 }
-/* a device without the standard layout (a stick resting off centre): not used unless chosen; chosen, its rest is
-   its centre, so nothing is held until a button is pressed; its d-pad as a hat */
+/* a device without the standard layout (a stick resting off centre): used like any other; its rest is its centre,
+   so nothing is held until a button is pressed; its d-pad as a hat */
 { let tickFn, sent = [], s = '', pick = '', lists = [], helds = [];
   const HAT_REST = 9 / 7;
   const odd = {...pad([], [-1, 1, 0, 0, 0, 0, 0, 0, 0, HAT_REST]), mapping: '', id: 'Some USB Joystick (Vendor: 0079 Product: 0006)', index: 1};
@@ -59,13 +59,16 @@ assert.equal(padName({id: '054c-0ce6-DualSense Wireless Controller'}), 'DualSens
                 getPick: () => pick, getMap: info => defaultMapFor(info), onPads: (l, u) => lists.push([l, u]), onHeld: (c, u) => helds.push(c),
                 every: f => { tickFn = f; return 1; }, cancel: () => {}});
   const run = async n => { for (let i = 0; i < n; i++) { tickFn(); await Promise.resolve(); await Promise.resolve(); } };
-  odd.buttons[0] = {pressed: true, value: 1}; await run(5);
-  assert.deepEqual(sent, []); assert.match(s, /Some USB Joystick has no standard layout, so it is used only when chosen/);
+  await run(5);
+  assert.deepEqual(sent, [], 'resting off centre: nothing held');
+  assert.match(s, /Some USB Joystick\. It plays LSDj on the FM-1\. It has no standard layout: check its buttons/);
   assert.equal(lists.at(-1)[0][0].name, 'Some USB Joystick'); assert.equal(lists.at(-1)[0][0].standard, false);
-  assert.equal(lists.at(-1)[0][0].hat, 9, 'the hat found'); assert.equal(lists.at(-1)[1], null, 'nothing playing');
+  assert.equal(lists.at(-1)[0][0].hat, 9, 'the hat found'); assert.equal(lists.at(-1)[1].id, odd.id, 'playing without being chosen');
+  odd.buttons[0] = {pressed: true, value: 1}; await run(3);
+  assert.equal(sent.at(-1), GB.A, 'button 1 is A, the off-centre stick holds nothing');
   pick = odd.id; stop.refresh(); await run(3);
   assert.match(s, /Some USB Joystick\. It plays LSDj/); assert.equal(lists.at(-1)[1].id, odd.id);
-  assert.equal(sent.at(-1), GB.A, 'chosen: button 1 is A, the off-centre stick holds nothing');
+  assert.equal(sent.at(-1), GB.A, 'chosen: the same');
   odd.buttons[0] = {pressed: false, value: 0}; odd.axes[9] = -1; await run(3);
   assert.equal(sent.at(-1), GB.UP, 'the hat up'); assert.deepEqual(helds.at(-1), ['h9u']);
   odd.axes[9] = -3 / 7; await run(3); assert.equal(sent.at(-1), GB.RIGHT, 'the hat right');
@@ -74,9 +77,9 @@ assert.equal(padName({id: '054c-0ce6-DualSense Wireless Controller'}), 'DualSens
   odd.axes[0] = -1; await run(3); assert.equal(sent.at(-1), 0);
   /* chosen: only that one plays, a standard controller beside it does not */
   pads = [xbox, odd]; xbox.buttons[1] = {pressed: true, value: 1}; await run(3); assert.equal(sent.at(-1), 0, 'only the chosen one');
-  pick = ''; stop.refresh(); await run(3); assert.equal(sent.at(-1), GB.B, 'any standard: the Xbox one');
-  assert.match(s, /Xbox Wireless Controller\. It plays/);
-  pick = 'Gone pad'; stop.refresh(); await run(3); assert.match(s, /the one chosen is not connected, so Xbox Wireless Controller plays/);
+  pick = ''; stop.refresh(); await run(3); assert.equal(sent.at(-1), GB.B, 'any: both (the Xbox one holds B)');
+  assert.match(s, /Xbox Wireless Controller and 1 more\. It plays/);
+  pick = 'Gone pad'; stop.refresh(); await run(3); assert.match(s, /the one chosen is not connected, so Xbox Wireless Controller and 1 more play LSDj/);
   stop(); }
 /* rest, hats, names */
 assert.equal(hatDirs(-1), 'u'); assert.equal(hatDirs(1 / 7), 'd'); assert.equal(hatDirs(1), 'ul'); assert.equal(hatDirs(9 / 7), ''); assert.equal(hatDirs(undefined), '');

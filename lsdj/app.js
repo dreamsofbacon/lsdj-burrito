@@ -163,7 +163,7 @@ async function reverbWords(data) {   /* into a file */
   const s = await link.reverbSendsGet(); if (s !== null) data.reverbSends = s;
 }
 /* 0.9.97 and newer: a game controller on this page plays LSDj (lsdj/gamepad.js): the one chosen under Controller
-   (or any with the standard layout), each with its own buttons (Controller buttons), kept in this browser */
+   (or every one connected), each with its own buttons (Controller buttons), kept in this browser */
 let pad = null, padMaps = loadMaps(), padPick = loadPick(), padInfo = null, padList = [], capturing = null;
 const GB_LABEL = {UP: 'Up', DOWN: 'Down', LEFT: 'Left', RIGHT: 'Right', A: 'A', B: 'B', START: 'START', SELECT: 'SELECT'};
 /* The controller whose buttons the page shows: the one playing, else the one chosen, else a standard one */
@@ -181,7 +181,7 @@ function startPad() {
   drawPadPick(); drawPadMap();
 }
 function drawPadPick() {
-  const sel = $('pad-pick'), opts = [['', 'Any standard controller']], seen = new Set();
+  const sel = $('pad-pick'), opts = [['', 'Any controller']], seen = new Set();
   for (const p of padList) if (!seen.has(p.id)) { seen.add(p.id); opts.push([p.id, `${p.name}${p.standard ? '' : ' (no standard layout)'}`]); }
   if (padPick && !seen.has(padPick)) opts.push([padPick, 'The one chosen before (not connected)']);
   sel.replaceChildren(...opts.map(([v, t]) => { const o = document.createElement('option'); o.value = v; o.textContent = t; return o; }));

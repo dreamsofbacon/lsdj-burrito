@@ -17,7 +17,7 @@ const OFF_CENTRE = 0.3;         // an axis resting further out than this (a trig
 const HAT_REST = 1.05;          // a hat reads -1..1 when pressed and above this (Chrome: 9/7) when let go
 const MAPS_KEY = 'lsdj-burrito-pad-maps';   // {controller id: map}
 const OLD_KEY = 'lsdj-burrito-pad-map';     // the one map of the first remap page (standard controllers)
-const PICK_KEY = 'lsdj-burrito-pad-pick';   // the chosen controller's id, '' any standard one
+const PICK_KEY = 'lsdj-burrito-pad-pick';   // the chosen controller's id, '' any controller
 
 /* The browser's "standard" layout: 0 bottom (Xbox A), 1 right (B), 2 left (X), 3 top (Y), 8 View / Back / Share,
    9 Menu / Start / Options, 12-15 d-pad up, down, left, right; axes 0 and 1 the left stick. Bottom and top are A,
@@ -153,8 +153,9 @@ export const padName = gp => (gp?.id || 'Game controller').replace(/\s*\((?:STAN
 
 /* Watch the controllers and send their buttons: on every change at once, and while held every RESEND_MS.
    send(mask) -> Promise (the link); canSend() false while the page uses the link for something long (an install);
-   status(text) for the line on the page; getPick() the chosen controller's id ('' any controller with the standard
-   layout: the others, joysticks, wheels and odd USB gear, are used only when chosen); getMap(info) the map of a
+   status(text) for the line on the page; getPick() the chosen controller's id ('' every controller connected, with
+   the standard layout or not: their axes count from where they rest, so a stick resting off centre holds nothing);
+   getMap(info) the map of a
    controller (info: {id, name, standard, hat}); onPads(list, used) when the controllers or the one playing change;
    onHeld(codes, info) the inputs held on it, when they change. Returns stop(), with
    stop.capture(cb): the next input newly pressed on the controller playing goes to cb(code, info) instead of the
@@ -174,18 +175,16 @@ export function startGamepad({send, status = () => {}, canSend = () => true, get
     if (stopped) return;
     const all = visible() ? pads() : [];
     const pick = getPick() || '', chosen = pick ? all.filter(p => p.id === pick) : [];
-    const std = all.filter(p => p.mapping === 'standard');
-    used = chosen.length ? chosen : std;
+    used = chosen.length ? chosen : all;
     const infos = all.map(infoOf), u = used.length ? infoOf(used[0]) : null;
     const sig = JSON.stringify([infos, u?.id ?? null, u?.index ?? null]);
     if (sig !== padsSig) { padsSig = sig; onPads(infos, u); }
     const named = u ? `${u.name}${used.length > 1 ? ` and ${used.length - 1} more` : ''}` : '';
     say(!nav?.getGamepads ? 'Game controller: this browser does not read controllers.'
-      : u && pick && !chosen.length ? `Game controller: the one chosen is not connected, so ${named} plays LSDj on the FM-1.`
-      : u ? `Game controller: ${named}. It plays LSDj on the FM-1.`
-      : pick && all.length ? `Game controller: the one chosen is not connected. Choose another under Controller.`
-      : all.length ? `Game controller: ${padName(all[0])} has no standard layout, so it is used only when chosen under Controller.`
-      : 'Game controller: connect one (USB, or Bluetooth to this device) and press a button on it.');
+      : u && pick && !chosen.length ? `Game controller: the one chosen is not connected, so ${named} play${used.length > 1 ? '' : 's'} LSDj on the FM-1.`
+      : u ? `Game controller: ${named}. It plays LSDj on the FM-1.${used.some(p => p.mapping !== 'standard')
+        ? ` ${used.length > 1 ? 'One has' : 'It has'} no standard layout: check its buttons below (Pressed now shows what it sends).` : ''}`
+      : 'Game controller: none seen yet. Connect one (USB, or Bluetooth to this device) and press a button on it: browsers show a controller only after a button press.');
     const now_ = used.flatMap(p => heldInputs(p, calOf(p)));
     const hs = JSON.stringify([now_, u?.id ?? null]);
     if (hs !== heldSig) { heldSig = hs; onHeld([...new Set(now_)], u); }
