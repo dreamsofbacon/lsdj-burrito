@@ -15,6 +15,7 @@ export async function runFxUiTests() {
   const input = {name: 'FM-1 test'}, ops = [];
   let bytes = Array(68).fill(0), writes = 0, cursor = 0, firmware = 'FM-1_975', muteSent = null, liveMute = 0, featWord = 0x460001CE, featSets = 0;
   let rvWord = 0x00404000, rvSets = 0;   /* 0.9.97: the reverb word */
+  const padSent = [];                     /* 0.9.97: PAD_SET bytes */
   bytes[36] = 5; bytes[37] = 2; bytes[42] = 0xf2; bytes[43] = 70;
   bytes[2] = 40; bytes[30] = 80; bytes[35] = 4;
   const output = {name: 'FM-1 test', send(message) {
@@ -39,6 +40,7 @@ export async function runFxUiTests() {
     if (op === OP.FEAT_SET) { featWord = (args[0] | args[1] << 8 | args[2] << 16 | args[3] << 24) >>> 0; featSets++; return send(); }
     if (op === OP.MUTE_SET) { muteSent = args; return send(); }
     if (op === OP.REVERB_GET) return firmware >= 'FM-1_997' ? send(le32(rvWord)) : send([], 1);
+    if (op === OP.PAD_SET) { if (firmware < 'FM-1_997') return send([], 1); padSent.push(args[0]); return send(); }
     if (op === OP.REVERB_SET) { rvWord = (args[0] | args[1] << 8 | args[2] << 16 | args[3] << 24) >>> 0; rvSets++; return send(); }
     if ([OP.STORE, OP.THEME_SET, OP.SETTINGS_SET].includes(op)) return send();
     /* the screen (FM-1_983+): every row one colour, red (RGB565 0xF800) */
@@ -231,8 +233,33 @@ export async function runFxUiTests() {
       rvWord = 0x01204070;   /* moved on the FM-1: the panel follows */
       await until(() => document.querySelector('.fx-ctl[data-key="rvSize"] input[type="range"]').value === '64' &&
                         document.querySelector('.fx-ctl[data-key="rvMix"] input[type="range"]').value === '112', '997: the panel follows the FM-1\'s reverb', 120); }
+    /* 0.9.97: a game controller on the page: A held -> PAD_SET 1, again while held, 0 on release; older firmware: a note */
+    { const gp = {id: 'Xbox Wireless Controller (STANDARD GAMEPAD Vendor: 045e Product: 0b13)', connected: true, mapping: 'standard', axes: [0, 0],
+                  buttons: Array.from({length: 17}, () => ({pressed: false, value: 0}))};
+      const had = Object.getOwnPropertyDescriptor(Navigator.prototype, 'getGamepads');
+      Object.defineProperty(navigator, 'getGamepads', {configurable: true, value: () => [gp]});
+      await sleep(300); padSent.length = 0;   /* (anything a real device on the test machine sent before) */
+      try {
+        await until(() => /Xbox Wireless Controller\. It plays LSDj/.test($('pad-status').textContent) && !$('pad-status').hidden, `997: the controller named: ${$('pad-status').textContent}`);
+        assert(!padSent.length, `997: nothing held, nothing sent (${padSent.join()})`);
+        gp.buttons[0] = {pressed: true, value: 1};
+        await until(() => padSent.includes(1), '997: A sent');
+        await sleep(450);
+        assert(padSent.filter(b => b === 1).length >= 2, `997: A again while held (${padSent.filter(b => b === 1).length})`);
+        gp.buttons[0] = {pressed: false, value: 0};
+        await until(() => padSent.at(-1) === 0, '997: the release sent');
+        firmware = 'FM-1_996';
+        await $('connect-btn').onclick();
+        assert(/needs LSDJ Burrito 0\.9\.97/.test($('pad-status').textContent), `996: ${$('pad-status').textContent}`);
+        const n = padSent.length; gp.buttons[0] = {pressed: true, value: 1}; await sleep(300);
+        assert(padSent.length === n, '996: no PAD_SET');
+      } finally {
+        delete navigator.getGamepads;
+        if (had && !navigator.getGamepads) Object.defineProperty(Navigator.prototype, 'getGamepads', had);
+      }
+    }
     firmware = 'FM-1_975';
-    return 'PASS FX browser: matching pages (975-978, 979, 980 echo on MASTER, 981 echo in Master, 997 echo send on ECHO and REVERB), FM-1 screen (983, 985 sync, note before), autosave, screen rate (989), one master switch, four channel columns (a slider changes its own channel), the cursor column, LIVE state, 17/11-word backups, old firmware gating, FX and lights, FX colours, wiring, muted column, battery';
+    return 'PASS FX browser: matching pages (975-978, 979, 980 echo on MASTER, 981 echo in Master, 997 echo send on ECHO and REVERB, 997 game controller), FM-1 screen (983, 985 sync, note before), autosave, screen rate (989), one master switch, four channel columns (a slider changes its own channel), the cursor column, LIVE state, 17/11-word backups, old firmware gating, FX and lights, FX colours, wiring, muted column, battery';
   } finally {
     if (descriptor) Object.defineProperty(navigator, 'requestMIDIAccess', descriptor);
     else delete navigator.requestMIDIAccess;

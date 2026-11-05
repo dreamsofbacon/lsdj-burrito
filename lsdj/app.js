@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // The page: connect to the FM-1's running LSDJ Burrito firmware (lsdj/link.js)
 // for live effects, songs, colours and settings. Never writes firmware.
+import {startGamepad} from './gamepad.js';
 import {Link, midiPorts, LinkError, SAVE_SIZE} from './link.js';
 import {confirmSaveImport} from './save-file.js';
 import {showDeviceTheme, setMatching, matching} from './page-theme.js';
@@ -55,6 +56,7 @@ async function connectTo(input, output, how = 'USB') {
     watchPorts(ports?.access);
     startPoll(250);
     startMirror(how);
+    startPad();
   } catch (e) { enable(false); say('device', e.message, 'bad'); }
 }
 /* ---------- a lost FM-1 ----------
@@ -68,7 +70,7 @@ const portGone = () => [link?.input, link?.output].some(p => p?.state === 'disco
 function lost(message) {
   if (!connected || installing()) return;
   connected = false; lostAt = Date.now(); missed = 0;
-  stopPoll(); mirror?.stop(); mirror = null; link?.close();
+  stopPoll(); mirror?.stop(); mirror = null; pad?.(); pad = null; link?.close();
   enable(false); say('device', message, 'warn');
 }
 const UNPLUGGED = 'The FM-1 was disconnected. Plug it in again: the page connects by itself (or press Connect).';
@@ -145,6 +147,15 @@ async function readReverb() {
   if (fwNum < 997) return null;
   const w = await link.reverbGet();
   return w === null ? null : unpackReverb(w);
+}
+/* 0.9.97 and newer: a game controller on this page plays LSDj (lsdj/gamepad.js) */
+let pad = null;
+function startPad() {
+  pad?.(); pad = null;
+  const el = $('pad-status');
+  el.hidden = false;
+  if (fwNum < 997) { say('pad-status', `Game controller: needs LSDJ Burrito 0.9.97 or newer on the FM-1 (this one has ${fwId}).`); return; }
+  pad = startGamepad({send: m => link.padSet(m), canSend: () => connected && !busy && !installing(), status: t => say('pad-status', t)});
 }
 const controls = [];   // {key, ch, wrap, set(v)}
 function changed() {
