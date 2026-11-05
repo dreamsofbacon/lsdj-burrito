@@ -46,10 +46,13 @@ export const PAGES_979 = PAGES_978.map((pg, i) =>
 /* FM-1_980 and newer: MASTER K3 / K4 are the echo's mix and time too (ECHO keeps them as well) */
 export const PAGES = PAGES_979.map((pg, i) =>
   i === 0 ? {name: 'MASTER', knobs: [['master', 'allFxOn'], ['comp', 'comp'], ['echo', 'mix'], ['echo', 'time']]} : pg);
-/* 0.9.97 (FM-1_997) and newer: the echo send with its time on ECHO (K1 send, K2 time, K3 feedback, K4 mix), the
-   echo tone on ECHO MOD K4, freeze on MASTER K4. (REVERB, the firmware's 8th page, is not on this page yet.) */
+/* 0.9.97 (FM-1_997) and newer: every effect on one page only. ECHO K1 send (per channel), K2 time, K3 feedback,
+   K4 mix; ECHO MOD K4 tone; MASTER K3 freeze; the filter type on FILTER K2 again, LO-FI K3 empty (0.9.97-dev.2-4 had
+   the send on FILTER K2 too and the mix on MASTER K3 too). REVERB, the 8th page, below. */
 export const PAGES_997 = PAGES.map((pg, i) =>
-  i === 0 ? {name: 'MASTER', knobs: [['master', 'allFxOn'], ['comp', 'comp'], ['echo', 'mix'], ['echo', 'freeze']]} :
+  i === 0 ? {name: 'MASTER', knobs: [['master', 'allFxOn'], ['comp', 'comp'], ['echo', 'freeze'], null]} :
+  i === 1 ? {name: 'FILTER', knobs: [['flags', 'fxOn'], ['ch', 'type'], ['ch', 'cutoff'], ['ch', 'reso']]} :
+  i === 4 ? {name: 'LO-FI', knobs: [['ch', 'crush'], ['ch', 'decim'], null, null]} :
   i === 5 ? {name: 'ECHO', knobs: [['ch', 'send'], ['echo', 'time'], ['echo', 'feedback'], ['echo', 'mix']]} :
   i === 6 ? {name: 'ECHO MOD', knobs: [['echo', 'wobble'], ['echo', 'sync'], ['echo', 'mode'], ['echo', 'tone']]} : pg);
 /* fw: the firmware's number (979 for FM-1_979; leave it out for the newest) */

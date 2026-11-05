@@ -223,6 +223,10 @@ export async function runFxUiTests() {
     assert([...document.querySelectorAll('#fx-master-pages .fx-card')].map(c => c.dataset.page).join() === '0,5,6,7', `997: MASTER, ECHO, ECHO MOD, REVERB`);
     { const echoCard = document.querySelector('#fx-master-pages .fx-card[data-page="5"]');
       assert(echoCard.classList.contains('matrix') && echoCard.querySelectorAll('.fx-ctl[data-key="send"]').length === 4, '997: ECHO sends per channel');
+      /* every effect on one card only: no control twice (per channel: four, one card) */
+      { const n = {}; document.querySelectorAll('#fx-pages .fx-ctl, #fx-master-pages .fx-ctl').forEach(c => { const k = c.dataset.key + '/' + (c.dataset.ch ?? '-'); n[k] = (n[k] || 0) + 1; });
+        const twice = Object.entries(n).filter(([, v]) => v > 1).map(([k]) => k);
+        assert(!twice.length, `997: on two cards: ${twice.join(' ')}`); }
       const names = [...document.querySelectorAll('#fx-master-pages .fx-card[data-page="7"] .fx-name')].map(n => n.textContent).join();
       assert(names === 'Reverb mix,Size,Tone,Input', `997: the REVERB card: ${names}`);
       const mix = document.querySelector('.fx-ctl[data-key="rvMix"] input[type="range"]'), sets = rvSets, fxWrites = writes;

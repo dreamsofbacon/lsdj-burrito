@@ -24,17 +24,18 @@ for (const pages of [PAGES, PAGES_979, PAGES_978]) {
   assert.equal(keys.length, new Set(keys).size);
 }
 assert.deepEqual(PAGES.slice(1), PAGES_979.slice(1));
-/* 0.9.97 (FM-1_997): ECHO K1 the send, K2 time, K3 feedback, K4 mix; ECHO MOD K4 tone; MASTER K4 freeze */
+/* 0.9.97 (FM-1_997): every effect once. ECHO K1 the send, K2 time, K3 feedback, K4 mix; ECHO MOD K4 tone;
+   MASTER K3 freeze; FILTER K2 type */
 assert.deepEqual(PAGES_997.map(p => p.knobs.map(k => k?.[1] ?? null)), [
-  ['allFxOn', 'comp', 'mix', 'freeze'], ['fxOn', 'send', 'cutoff', 'reso'],
+  ['allFxOn', 'comp', 'freeze', null], ['fxOn', 'type', 'cutoff', 'reso'],
   ['drive', 'dist', 'warm', null], ['lfoRate', 'lfoDepth', 'lfoShape', 'lfoDest'],
-  ['crush', 'decim', 'type', null], ['send', 'time', 'feedback', 'mix'], ['wobble', 'sync', 'mode', 'tone'],
+  ['crush', 'decim', null, null], ['send', 'time', 'feedback', 'mix'], ['wobble', 'sync', 'mode', 'tone'],
   ['rvMix', 'rvSize', 'rvTone', 'rvInput']
 ]);
 assert.ok(PAGES_997[7].rv && isMasterPage(unpackFx(setup(2, 0)), 7));
-{ const keys = PAGES_997.filter(p => !p.rv).flatMap(p => p.knobs.filter(Boolean).map(k => k[1]));   /* every key; mix and send twice */
+{ const keys = PAGES_997.filter(p => !p.rv).flatMap(p => p.knobs.filter(Boolean).map(k => k[1]));   /* every key, once */
   assert.deepEqual([...new Set(keys)].sort(), [...new Set(PAGES.flatMap(p => p.knobs.filter(Boolean).map(k => k[1])))].sort());
-  assert.equal(keys.length - new Set(keys).size, 2); }
+  assert.equal(keys.length, new Set(keys).size); }
 assert.equal(firmwareNumber('FM-1_979'), 979); assert.equal(firmwareNumber('FM-1_978'), 978); assert.equal(firmwareNumber('GameDude'), 0);
 { const v3 = unpackFx(setup(2, 1));
   assert.equal(pagesForFx(v3, 979), PAGES_979); assert.equal(pagesForFx(v3, 980), PAGES); assert.equal(pagesForFx(v3, 978), PAGES_978);
