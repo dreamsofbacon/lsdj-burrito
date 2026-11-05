@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // lsdj/gamepad.js: the buttons a controller holds, as Game Boy bits, and when they are sent (node tests/gamepad.mjs).
 import assert from 'node:assert/strict';
-import {GB, padMask, padName, startGamepad, RESEND_MS, DEFAULT_MAP, cleanMap, isDefaultMap, assign, loadMap, saveMap, inputName, heldInputs} from '../lsdj/gamepad.js';
+import {GB, padMask, padName, startGamepad, RESEND_MS, DEFAULT_MAP, cleanMap, isDefaultMap, assign, takenFrom, loadMaps, mapFor, saveMap, loadPick, savePick,
+  inputName, heldInputs, genericMap, defaultMapFor, calibrate, hatDirs, firstHat} from '../lsdj/gamepad.js';
 
 const pad = (pressed = [], axes = [0, 0, 0, 0], id = 'Xbox Wireless Controller (STANDARD GAMEPAD Vendor: 045e Product: 0b13)') =>
   ({id, connected: true, mapping: 'standard', axes, buttons: Array.from({length: 17}, (_, i) => ({pressed: pressed.includes(i), value: pressed.includes(i) ? 1 : 0}))});
@@ -47,13 +48,42 @@ assert.equal(padName({id: '054c-0ce6-DualSense Wireless Controller'}), 'DualSens
   stop(); await Promise.resolve(); await Promise.resolve();
   assert.equal(sent.at(-1)[1], 0, 'stop lets go');
 }
-/* a device that is not a standard controller (a stick resting off centre): never used */
-{ let tickFn, sent = [], s = '';
-  const odd = {...pad([0], [-1, 1]), mapping: '', id: 'Some USB Joystick'};
-  startGamepad({send: async m => { sent.push(m); }, status: x => s = x, nav: {getGamepads: () => [odd]}, now: () => 0,
+/* a device without the standard layout (a stick resting off centre): not used unless chosen; chosen, its rest is
+   its centre, so nothing is held until a button is pressed; its d-pad as a hat */
+{ let tickFn, sent = [], s = '', pick = '', lists = [], helds = [];
+  const HAT_REST = 9 / 7;
+  const odd = {...pad([], [-1, 1, 0, 0, 0, 0, 0, 0, 0, HAT_REST]), mapping: '', id: 'Some USB Joystick (Vendor: 0079 Product: 0006)', index: 1};
+  const xbox = {...pad(), index: 0};
+  let pads = [odd];
+  const stop = startGamepad({send: async m => { sent.push(m); }, status: x => s = x, nav: {getGamepads: () => pads}, now: () => 0,
+                getPick: () => pick, getMap: info => defaultMapFor(info), onPads: (l, u) => lists.push([l, u]), onHeld: (c, u) => helds.push(c),
                 every: f => { tickFn = f; return 1; }, cancel: () => {}});
-  for (let i = 0; i < 5; i++) { tickFn(); await Promise.resolve(); }
-  assert.deepEqual(sent, []); assert.match(s, /Some USB Joystick is not a standard game controller/); }
+  const run = async n => { for (let i = 0; i < n; i++) { tickFn(); await Promise.resolve(); await Promise.resolve(); } };
+  odd.buttons[0] = {pressed: true, value: 1}; await run(5);
+  assert.deepEqual(sent, []); assert.match(s, /Some USB Joystick has no standard layout, so it is used only when chosen/);
+  assert.equal(lists.at(-1)[0][0].name, 'Some USB Joystick'); assert.equal(lists.at(-1)[0][0].standard, false);
+  assert.equal(lists.at(-1)[0][0].hat, 9, 'the hat found'); assert.equal(lists.at(-1)[1], null, 'nothing playing');
+  pick = odd.id; stop.refresh(); await run(3);
+  assert.match(s, /Some USB Joystick\. It plays LSDj/); assert.equal(lists.at(-1)[1].id, odd.id);
+  assert.equal(sent.at(-1), GB.A, 'chosen: button 1 is A, the off-centre stick holds nothing');
+  odd.buttons[0] = {pressed: false, value: 0}; odd.axes[9] = -1; await run(3);
+  assert.equal(sent.at(-1), GB.UP, 'the hat up'); assert.deepEqual(helds.at(-1), ['h9u']);
+  odd.axes[9] = -3 / 7; await run(3); assert.equal(sent.at(-1), GB.RIGHT, 'the hat right');
+  odd.axes[9] = -5 / 7; await run(3); assert.equal(sent.at(-1), GB.UP | GB.RIGHT, 'the hat up-right');
+  odd.axes[9] = HAT_REST; odd.axes[0] = 0; await run(3); assert.equal(sent.at(-1), GB.RIGHT, 'the stick pushed right from its rest (-1)');
+  odd.axes[0] = -1; await run(3); assert.equal(sent.at(-1), 0);
+  /* chosen: only that one plays, a standard controller beside it does not */
+  pads = [xbox, odd]; xbox.buttons[1] = {pressed: true, value: 1}; await run(3); assert.equal(sent.at(-1), 0, 'only the chosen one');
+  pick = ''; stop.refresh(); await run(3); assert.equal(sent.at(-1), GB.B, 'any standard: the Xbox one');
+  assert.match(s, /Xbox Wireless Controller\. It plays/);
+  pick = 'Gone pad'; stop.refresh(); await run(3); assert.match(s, /the one chosen is not connected, so Xbox Wireless Controller plays/);
+  stop(); }
+/* rest, hats, names */
+assert.equal(hatDirs(-1), 'u'); assert.equal(hatDirs(1 / 7), 'd'); assert.equal(hatDirs(1), 'ul'); assert.equal(hatDirs(9 / 7), ''); assert.equal(hatDirs(undefined), '');
+{ const c = calibrate({axes: [0.05, -1, 9 / 7]}); assert.deepEqual(c.rest, [0, -1, 0]); assert.deepEqual([...c.hats], [2]); assert.equal(firstHat(c), 2); }
+assert.equal(inputName('b3', false), 'Button 4'); assert.equal(inputName('a1-', false), 'Axis 2 −'); assert.equal(inputName('h9l'), 'D-pad left');
+assert.deepEqual(genericMap(9).UP, ['h9u', 'a1-']); assert.deepEqual(genericMap().UP, ['a1-']);
+assert.equal(defaultMapFor({standard: true}), DEFAULT_MAP); assert.deepEqual(defaultMapFor({standard: false, hat: 9}), genericMap(9));
 /* a busy link: waits; a failed send is tried again */
 {
   let t = 0, tickFn, ok = false, sent = [], fail = 1;
@@ -70,7 +100,7 @@ assert.equal(padName({id: '054c-0ce6-DualSense Wireless Controller'}), 'DualSens
   assert.match(s, /does not read controllers/); }
 /* remapping: names, maps checked, a slot set / cleared, saved in the browser, a custom map in use, capture */
 assert.equal(inputName('b9'), 'Menu / Start / Options'); assert.equal(inputName('a1-'), 'Left stick up');
-assert.equal(inputName('a3+'), 'Right stick down'); assert.equal(inputName('b20'), 'Button 20'); assert.equal(inputName('x'), '');
+assert.equal(inputName('a3+'), 'Right stick down'); assert.equal(inputName('b20'), 'Button 21'); assert.equal(inputName('x'), '');
 assert.deepEqual(cleanMap(null), {...DEFAULT_MAP}); assert.ok(isDefaultMap(cleanMap({})));
 assert.deepEqual(cleanMap({A: ['b4', 'zz', 'b5', 'b6'], B: 'no'}).A, ['b4', 'b5']);            /* bad codes out, two at most */
 assert.deepEqual(cleanMap({A: ['b4']}).B, DEFAULT_MAP.B);
@@ -78,14 +108,27 @@ assert.deepEqual(cleanMap({A: ['b4']}).B, DEFAULT_MAP.B);
   assert.deepEqual(m.START, ['b9', 'b5']); assert.ok(!isDefaultMap(m));
   m = assign(m, 'START', 0, null); assert.deepEqual(m.START, ['b5']);                          /* Menu off */
   m = assign(m, 'A', 1, 'b0'); assert.deepEqual(m.A, ['b0']);                                  /* the same input twice: once */
-  m = assign(m, 'SELECT', 1, 'b5'); assert.deepEqual(m.SELECT, ['b8', 'b5']);                  /* RB presses START and SELECT */
-  assert.equal(padMask(pad([5]), m), GB.START | GB.SELECT); assert.equal(padMask(pad([9]), m), 0);
+  assert.deepEqual(takenFrom(m, 'SELECT', 'b5'), ['START']);
+  m = assign(m, 'SELECT', 1, 'b5'); assert.deepEqual(m.SELECT, ['b8', 'b5']); assert.deepEqual(m.START, []);   /* RB moves to SELECT */
+  assert.equal(padMask(pad([5]), m), GB.SELECT); assert.equal(padMask(pad([9]), m), 0);
+  /* swap A and B: the bottom button to B takes it off A, the right one to A takes it off B */
+  { let s = assign(DEFAULT_MAP, 'B', 0, 'b0'); s = assign(s, 'A', 0, 'b1');
+    assert.equal(padMask(pad([0]), s), GB.B, 'bottom: B only'); assert.equal(padMask(pad([1]), s), GB.A, 'right: A only'); }
   assert.equal(padMask(pad([], [0, 0, 0.9, 0]), assign(m, 'RIGHT', 1, 'a2+')), GB.RIGHT);     /* the right stick */
+  /* kept per controller, in this browser */
   const store = new Map(), st = {getItem: k => store.get(k) ?? null, setItem: (k, v) => store.set(k, v), removeItem: k => store.delete(k)};
-  saveMap(m, st); assert.deepEqual(loadMap(st), m);
-  saveMap(DEFAULT_MAP, st); assert.equal(store.size, 0, 'the default: nothing kept');
-  store.set('lsdj-burrito-pad-map', '{bad'); assert.ok(isDefaultMap(loadMap(st)));
-  assert.ok(isDefaultMap(loadMap({getItem: () => { throw Error('blocked'); }}))); }
+  const xb = {id: 'Xbox', standard: true}, joy = {id: 'Joy', standard: false, hat: 9};
+  let maps = saveMap({}, xb, m, st); assert.deepEqual(mapFor(loadMaps(st), xb, st), m);
+  assert.ok(isDefaultMap(mapFor(loadMaps(st), {id: 'DualSense', standard: true}, st)), 'another controller: its own');
+  maps = saveMap(maps, joy, assign(genericMap(9), 'A', 0, 'b2', genericMap(9)), st);
+  assert.deepEqual(mapFor(loadMaps(st), joy, st).A, ['b2']); assert.deepEqual(mapFor(loadMaps(st), joy, st).UP, ['h9u', 'a1-']);
+  maps = saveMap(maps, xb, DEFAULT_MAP, st); maps = saveMap(maps, joy, genericMap(9), st);
+  assert.equal(store.size, 0, 'the defaults: nothing kept');
+  store.set('lsdj-burrito-pad-map', JSON.stringify(m)); assert.deepEqual(mapFor(loadMaps(st), xb, st), m, 'the first remap page\'s map carried over');
+  assert.ok(isDefaultMap(mapFor(loadMaps(st), joy, st), genericMap(9)), '... for standard controllers only');
+  store.set('lsdj-burrito-pad-maps', '{bad'); assert.deepEqual(loadMaps(st), {});
+  assert.deepEqual(loadMaps({getItem: () => { throw Error('blocked'); }}), {});
+  savePick('Joy', st); assert.equal(loadPick(st), 'Joy'); savePick('', st); assert.equal(loadPick(st), ''); }
 assert.deepEqual(heldInputs(pad([4], [0.2, -0.9, 0.8, 0])), ['b4', 'a1-', 'a2+']);              /* a resting stick is not taken */
 { let t = 0, tickFn, pads = [pad([0])], sent = [], got = [];
   const stop = startGamepad({send: async m => { sent.push(m); }, nav: {getGamepads: () => pads}, now: () => t, getMap: () => DEFAULT_MAP,
@@ -98,4 +141,4 @@ assert.deepEqual(heldInputs(pad([4], [0.2, -0.9, 0.8, 0])), ['b4', 'a1-', 'a2+']
   pads = [pad([6])]; await run(3); assert.equal(sent.at(-1) & GB.A, 0);
   pads = [pad([0])]; await run(3); assert.equal(sent.at(-1), GB.A, 'after the capture: playing again');
   stop.capture(c => got.push(c)); stop.cancelCapture(); pads = [pad([0, 7])]; await run(3); assert.deepEqual(got, ['b6'], 'cancelled'); }
-console.log('PASS gamepad: layout (Xbox A/Y -> A, B/X -> B, d-pad and stick), names, sent at once, held every 200 ms, released once, busy link, retries, remapping (names, slots, saved, two Game Boy buttons on one input, capture)');
+console.log('PASS gamepad: layout (Xbox A/Y -> A, B/X -> B, d-pad and stick), names, sent at once, held every 200 ms, released once, busy link, retries, choosing a controller, controllers without the standard layout (rest, hat d-pad), remapping (names, slots, a button moves, kept per controller, capture)');

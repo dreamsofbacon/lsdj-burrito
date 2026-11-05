@@ -440,8 +440,11 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <div id="fm1-screen-box" class="fm1-screen" hidden><canvas id="fm1-screen" width="160" height="144" role="img" aria-label="The FM-1's screen, as its display shows it"></canvas></div>
 <p id="fm1-screen-note" class="hint" hidden></p>
 <p id="pad-status" class="hint" role="status" hidden></p>
+<p id="pad-pick-row" class="hint" hidden><label>Controller <select id="pad-pick"></select></label></p>
 <details id="pad-map-box" hidden><summary>Controller buttons</summary>
-<p class="hint">Click a slot, then press a button or push a stick on the controller. One controller button can press two Game Boy buttons (put it in both rows). Kept in this browser.</p>
+<p class="hint">Click a slot, then press a button or push a stick on the controller. A controller button presses one Game Boy button: giving it to another moves it. Each controller keeps its own buttons, in this browser.</p>
+<p id="pad-held" class="hint mono" role="status">Pressed now: (no controller playing)</p>
+<p id="pad-map-for" class="hint"></p>
 <div id="pad-map" class="pad-map"></div>
 <p class="pad-map-foot"><button id="pad-map-reset" type="button">Reset to default</button> <span id="pad-map-note" class="hint" role="status"></span></p>
 </details>
@@ -582,7 +585,8 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <div class="row"><button id="rom-build" type="button" class="primary" aria-describedby="rom-next" disabled>Prepare firmware</button><span class="hint">Builds the file on this computer. Nothing is installed yet.</span></div>
 <details><summary>What's in this version (0.9.97-dev.5)</summary>
 <p>New in 0.9.97-dev.5 (a test build): every effect is on one page only. MASTER: ALL FX, COMP, FREEZE. FILTER: FX ON, TYPE, CUTOFF, RESO (the filter type is back next to the cutoff). LO-FI: CRUSH, DECIMATE. ECHO: SEND, TIME, FEEDBACK, MIX (the send and the mix are no longer on FILTER and MASTER too). KNOBS = CHANNELS goes through FILTER to LO-FI; the sends are on ECHO.</p>
-<p>New on this page (dev.4): remap the game controller. Under the FM-1's screen, Controller buttons: click a slot and press the controller button (or push the stick) it should be. Two slots for each Game Boy button; one controller button may press two Game Boy buttons. Kept in this browser; Reset to default goes back.</p>
+<p>New on this page: choose the game controller (Controller, under the FM-1's screen). Every controller the browser sees is listed, including ones without the standard layout (generic USB pads, arcade sticks, adapters): choose one and set its buttons. Each controller keeps its own buttons. In Controller buttons, "Pressed now" shows what the page reads from the controller, and a controller button presses one Game Boy button only: giving it to another moves it.</p>
+<p>dev.4: remap the game controller. Under the FM-1's screen, Controller buttons: click a slot and press the controller button (or push the stick) it should be. Two slots for each Game Boy button. Kept in this browser; Reset to default goes back.</p>
 <p>New in 0.9.97-dev.4 (a test build): play LSDj with a game controller through this page. Connect any controller to this computer or phone (USB, or Bluetooth paired to it) and press a button: the line under the FM-1's screen names it. D-pad or left stick: the arrows; A (bottom) and Y (top): A; B (right) and X (left): B; Menu / Start: START; View / Back: SELECT. It works while this page is open and connected; the FM-1's keys keep working too.</p>
 <p>New in 0.9.97-dev.3 (a test build): the reverb on this page (Effects, Master: the REVERB card; in effects files and backups too) and over MIDI: CC 21 reverb mix, 22 size, 23 tone, 24 input (64-127 send), on any of the four CC channels like the echo CCs.</p>
 <p>New in 0.9.97-dev.2 (a test build): the echo send and the echo time are on one page. ECHO is now K1 SEND (the channel under LSDj's cursor), K2 TIME, K3 FEEDBACK, K4 MIX; the echo TONE moved to ECHO MOD K4 and FREEZE to MASTER K4. FILTER K2 is still the send too.</p>

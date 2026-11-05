@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // The page: connect to the FM-1's running LSDJ Burrito firmware (lsdj/link.js)
 // for live effects, songs, colours and settings. Never writes firmware.
-import {startGamepad, loadMap, saveMap, assign, cleanMap, isDefaultMap, inputName, GB_ORDER, SLOTS} from './gamepad.js';
+import {startGamepad, loadMaps, mapFor, saveMap, loadPick, savePick, assign, takenFrom, isDefaultMap, defaultMapFor, inputName, GB_ORDER, SLOTS} from './gamepad.js';
 import {Link, midiPorts, LinkError, SAVE_SIZE} from './link.js';
 import {confirmSaveImport} from './save-file.js';
 import {showDeviceTheme, setMatching, matching} from './page-theme.js';
@@ -148,53 +148,82 @@ async function readReverb() {
   const w = await link.reverbGet();
   return w === null ? null : unpackReverb(w);
 }
-/* 0.9.97 and newer: a game controller on this page plays LSDj (lsdj/gamepad.js); its buttons remapped in
-   Controller buttons (kept in this browser) */
-let pad = null, padMap = loadMap(), capturing = null;
+/* 0.9.97 and newer: a game controller on this page plays LSDj (lsdj/gamepad.js): the one chosen under Controller
+   (or any with the standard layout), each with its own buttons (Controller buttons), kept in this browser */
+let pad = null, padMaps = loadMaps(), padPick = loadPick(), padInfo = null, padList = [], capturing = null;
 const GB_LABEL = {UP: 'Up', DOWN: 'Down', LEFT: 'Left', RIGHT: 'Right', A: 'A', B: 'B', START: 'START', SELECT: 'SELECT'};
+/* The controller whose buttons the page shows: the one playing, else the one chosen, else a standard one */
+const shownPad = () => padInfo || padList.find(p => p.id === padPick) || {id: '', name: 'Game controller', standard: true, hat: -1};
+const namer = info => (info?.standard === false ? c => inputName(c, false) : c => inputName(c));
 function startPad() {
-  pad?.(); pad = null; capturing = null;
+  pad?.(); pad = null; capturing = null; padInfo = null;
   $('pad-status').hidden = false;
-  $('pad-map-box').hidden = fwNum < 997;
+  $('pad-pick-row').hidden = $('pad-map-box').hidden = fwNum < 997;
   if (fwNum < 997) { say('pad-status', `Game controller: needs LSDJ Burrito 0.9.97 or newer on the FM-1 (this one has ${fwId}).`); return; }
   pad = startGamepad({send: m => link.padSet(m), canSend: () => connected && !busy && !installing(), status: t => say('pad-status', t),
-                      getMap: () => padMap});
-  drawPadMap();
+                      getPick: () => padPick, getMap: info => mapFor(padMaps, info),
+                      onPads: (list, used) => { padList = list; padInfo = used; drawPadPick(); if (!capturing) drawPadMap(); },
+                      onHeld: (codes, info) => drawPadHeld(codes, info)});
+  drawPadPick(); drawPadMap();
 }
-function setPadMap(map, note) { padMap = cleanMap(map); saveMap(padMap); drawPadMap(); if (note !== undefined) say('pad-map-note', note, 'hint'); }
+function drawPadPick() {
+  const sel = $('pad-pick'), opts = [['', 'Any standard controller']], seen = new Set();
+  for (const p of padList) if (!seen.has(p.id)) { seen.add(p.id); opts.push([p.id, `${p.name}${p.standard ? '' : ' (no standard layout)'}`]); }
+  if (padPick && !seen.has(padPick)) opts.push([padPick, 'The one chosen before (not connected)']);
+  sel.replaceChildren(...opts.map(([v, t]) => { const o = document.createElement('option'); o.value = v; o.textContent = t; return o; }));
+  sel.value = padPick;
+}
+$('pad-pick').onchange = e => { cancelCapture(); padPick = e.target.value; savePick(padPick); padInfo = null; pad?.refresh(); drawPadMap();
+  say('pad-map-note', '', 'hint'); };
+function drawPadHeld(codes, info) {
+  const name = namer(info);
+  $('pad-held').textContent = !info ? 'Pressed now: (no controller playing)' : `Pressed now: ${codes.length ? codes.map(name).join(', ') : 'nothing'}`;
+}
+function setPadMap(map, note) {
+  padMaps = saveMap(padMaps, shownPad(), map); drawPadMap();
+  if (note !== undefined) say('pad-map-note', note, 'hint');
+}
 function drawPadMap() {
+  const info = shownPad(), def = defaultMapFor(info), map = mapFor(padMaps, info), name = namer(info);
+  $('pad-map-for').textContent = info.id ? `Buttons for ${info.name}${info.standard ? '' : ' (no standard layout: check them)'}:` : 'Buttons for a standard controller:';
   const box = $('pad-map'); box.replaceChildren();
   for (const k of GB_ORDER) {
-    const name = document.createElement('span'); name.textContent = GB_LABEL[k]; box.append(name);
+    const label = document.createElement('span'); label.textContent = GB_LABEL[k]; box.append(label);
     for (let s = 0; s < SLOTS; s++) {
-      const code = padMap[k][s] ?? null, here = capturing?.gb === k && capturing?.slot === s;
+      const code = map[k][s] ?? null, here = capturing?.gb === k && capturing?.slot === s;
       const cell = document.createElement('span'); cell.className = 'pad-slot';
       const b = document.createElement('button'); b.type = 'button'; b.dataset.gb = k; b.dataset.slot = s;
-      b.textContent = here ? 'Press a button…' : code ? inputName(code) : '+ add';
-      b.title = code ? `${GB_LABEL[k]}: ${inputName(code)} (click to change)` : `Add a controller button for ${GB_LABEL[k]}`;
+      b.textContent = here ? 'Press a button…' : code ? name(code) : '+ add';
+      b.title = code ? `${GB_LABEL[k]}: ${name(code)} (click to change)` : `Add a controller button for ${GB_LABEL[k]}`;
       b.classList.toggle('on', here);
-      b.onclick = () => startCapture(k, s);
+      b.onclick = () => (here ? cancelCapture() : startCapture(k, s));
       cell.append(b);
       if (code && !here) {
         const x = document.createElement('button'); x.type = 'button'; x.className = 'pad-clear'; x.textContent = '✕';
-        x.title = `Take ${inputName(code)} off ${GB_LABEL[k]}`; x.setAttribute('aria-label', x.title);
-        x.onclick = () => setPadMap(assign(padMap, k, s, null), `${inputName(code)} no longer presses ${GB_LABEL[k]}.`);
+        x.title = `Take ${name(code)} off ${GB_LABEL[k]}`; x.setAttribute('aria-label', x.title);
+        x.onclick = () => setPadMap(assign(map, k, s, null, def), `${name(code)} no longer presses ${GB_LABEL[k]}.`);
         cell.append(x);
       }
       box.append(cell);
     }
   }
-  $('pad-map-reset').disabled = isDefaultMap(padMap);
+  $('pad-map-reset').disabled = isDefaultMap(map, def);
 }
 function startCapture(gb, slot) {
   if (!pad) return;
+  if (!padInfo) { say('pad-map-note', 'No controller is playing: connect one and press a button on it (or choose it under Controller).', 'warn'); return; }
   capturing = {gb, slot}; drawPadMap();
-  say('pad-map-note', `Press the controller button, or push the stick, for ${GB_LABEL[gb]} (Esc: cancel).`, 'hint');
-  pad.capture(code => { capturing = null; setPadMap(assign(padMap, gb, slot, code), `${GB_LABEL[gb]}: ${inputName(code)}.`); });
+  say('pad-map-note', `Press the controller button, or push the stick, for ${GB_LABEL[gb]} (Esc or click again: cancel).`, 'hint');
+  pad.capture((code, info) => {
+    capturing = null;
+    const i = info || shownPad(), name = namer(i), map = mapFor(padMaps, i), from = takenFrom(map, gb, code);
+    padMaps = saveMap(padMaps, i, assign(map, gb, slot, code, defaultMapFor(i))); drawPadMap();
+    say('pad-map-note', `${GB_LABEL[gb]}: ${name(code)}.${from.length ? ` (Moved off ${from.map(k => GB_LABEL[k]).join(' and ')}.)` : ''}`, 'hint');
+  });
 }
 function cancelCapture() { if (!capturing) return; pad?.cancelCapture(); capturing = null; drawPadMap(); say('pad-map-note', '', 'hint'); }
 addEventListener('keydown', e => { if (e.key === 'Escape') cancelCapture(); });
-$('pad-map-reset').onclick = () => { cancelCapture(); setPadMap(null, 'Back to the default buttons.'); };
+$('pad-map-reset').onclick = () => { cancelCapture(); setPadMap(defaultMapFor(shownPad()), 'Back to the default buttons.'); };
 const controls = [];   // {key, ch, wrap, set(v)}
 function changed() {
   if (busy || installing()) return;

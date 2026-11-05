@@ -241,7 +241,8 @@ export async function runFxUiTests() {
     { const gp = {id: 'Xbox Wireless Controller (STANDARD GAMEPAD Vendor: 045e Product: 0b13)', connected: true, mapping: 'standard', axes: [0, 0],
                   buttons: Array.from({length: 17}, () => ({pressed: false, value: 0}))};
       const had = Object.getOwnPropertyDescriptor(Navigator.prototype, 'getGamepads');
-      Object.defineProperty(navigator, 'getGamepads', {configurable: true, value: () => [gp]});
+      let padList2 = null;
+      Object.defineProperty(navigator, 'getGamepads', {configurable: true, value: () => padList2 || [gp]});
       await sleep(300); padSent.length = 0;   /* (anything a real device on the test machine sent before) */
       try {
         await until(() => /Xbox Wireless Controller\. It plays LSDj/.test($('pad-status').textContent) && !$('pad-status').hidden, `997: the controller named: ${$('pad-status').textContent}`);
@@ -265,11 +266,38 @@ export async function runFxUiTests() {
         /* while choosing nothing is pressed; once RB is START, the RB still held is START */
         assert(padSent.slice(sentBefore).every(b => b === 0 || b === 8), `997: nothing else sent while choosing (${padSent.slice(sentBefore)})`);
         await until(() => padSent.at(-1) === 8, '997: RB now presses START');
+        assert(/RB \/ R1/.test($('pad-held').textContent), `997: pressed now: ${$('pad-held').textContent}`);
         gp.buttons[5] = {pressed: false, value: 0};
         await until(() => padSent.at(-1) === 0, '997: RB let go');
-        assert(/"b5"/.test(localStorage.getItem('lsdj-burrito-pad-map') || ''), '997: kept in the browser');
+        assert(/"b5"/.test(localStorage.getItem('lsdj-burrito-pad-maps') || ''), '997: kept in the browser');
         $('pad-map-reset').click();
-        await until(() => slot().textContent === '+ add' && !localStorage.getItem('lsdj-burrito-pad-map'), '997: Reset to default');
+        await until(() => slot().textContent === '+ add' && !localStorage.getItem('lsdj-burrito-pad-maps'), '997: Reset to default');
+        /* moving: the bottom button to B's first slot takes it off A */
+        const bSlot = () => document.querySelector('#pad-map button[data-gb="B"][data-slot="0"]');
+        bSlot().click(); await until(() => bSlot().textContent === 'Press a button…', '997: waiting for B');
+        gp.buttons[0] = {pressed: true, value: 1};
+        await until(() => bSlot().textContent === 'A / Cross (bottom)', `997: bottom taken for B (${bSlot().textContent})`);
+        assert(/Moved off A/.test($('pad-map-note').textContent), `997: moved note: ${$('pad-map-note').textContent}`);
+        assert(document.querySelector('#pad-map button[data-gb="A"][data-slot="0"]').textContent === 'Y / Triangle (top)', '997: A keeps only the top button');
+        await until(() => padSent.at(-1) === 2, '997: bottom presses B only');
+        gp.buttons[0] = {pressed: false, value: 0}; await until(() => padSent.at(-1) === 0, '997: bottom let go');
+        $('pad-map-reset').click();
+        /* a second controller without the standard layout: listed, used once chosen, its own buttons */
+        const joy = {id: 'USB Gamepad (Vendor: 0079 Product: 0011)', index: 1, connected: true, mapping: '', axes: [0, 0, 0, 0, 0, 0, 0, 0, 0, 9 / 7],
+                     buttons: Array.from({length: 12}, () => ({pressed: false, value: 0}))};
+        gp.index = 0; padList2 = [gp, joy];
+        await until(() => [...$('pad-pick').options].some(o => o.value === joy.id), '997: the second controller listed');
+        assert(!$('pad-pick-row').hidden, '997: Controller list shown');
+        $('pad-pick').value = joy.id; $('pad-pick').dispatchEvent(new Event('change'));
+        await until(() => /USB Gamepad\. It plays LSDj/.test($('pad-status').textContent), `997: chosen: ${$('pad-status').textContent}`);
+        assert(/USB Gamepad \(no standard layout/.test($('pad-map-for').textContent), `997: its buttons: ${$('pad-map-for').textContent}`);
+        joy.axes[9] = -1; await until(() => padSent.at(-1) === 64, '997: its d-pad up');
+        joy.axes[9] = 9 / 7; await until(() => padSent.at(-1) === 0, '997: let go');
+        gp.buttons[0] = {pressed: true, value: 1}; await sleep(200);
+        assert(padSent.at(-1) === 0, '997: the Xbox one is not used while the other is chosen');
+        gp.buttons[0] = {pressed: false, value: 0};
+        $('pad-pick').value = ''; $('pad-pick').dispatchEvent(new Event('change')); padList2 = null;
+        localStorage.removeItem('lsdj-burrito-pad-pick');
         firmware = 'FM-1_996';
         await $('connect-btn').onclick();
         assert(/needs LSDJ Burrito 0\.9\.97/.test($('pad-status').textContent), `996: ${$('pad-status').textContent}`);
