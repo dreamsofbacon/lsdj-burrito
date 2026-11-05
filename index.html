@@ -228,6 +228,7 @@ body:not(.connected) .pop-body{opacity:.5;pointer-events:none}
   body.perform #pan-chans .fx-card.shown{max-height:100%}
   body.perform #pan-chans .fx-card.shown h3{margin-bottom:0}
   body.perform .panel{margin:0;overflow:hidden}
+  body.perform #pan-screen.panel{overflow:auto}   /* Controller buttons open: scroll, not cut off */
   body.perform .fm1-screen{max-width:none;padding:0;border:0;background:none}
   body.perform .fxd-wrap{overflow:hidden;margin:0}
   body.perform .fxd{min-width:0}
@@ -304,7 +305,8 @@ body:not(.connected) .pop-body{opacity:.5;pointer-events:none}
   body.perform #live-badges{flex:1}
   body.perform .stage-head #fx-status{left:0;right:auto;max-width:70%}
   body.perform #pan-screen{grid-area:screen;position:sticky;top:56px;align-self:start;padding:4px;
-    width:min(46vw,calc((100vh - 72px)*160/144));width:min(46vw,calc((100dvh - 72px)*160/144))}
+    width:min(46vw,calc((100vh - 72px)*160/144));width:min(46vw,calc((100dvh - 72px)*160/144));
+    max-height:calc(100vh - 64px);max-height:calc(100dvh - 64px);overflow:auto}
   body.perform #pan-screen .panel-head{display:none}
   body.perform .fm1-screen{max-width:none;padding:0;border:0;background:none}
   body.perform #pan-master{grid-area:master}
@@ -442,7 +444,7 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <p id="pad-status" class="hint" role="status" hidden></p>
 <p id="pad-pick-row" class="hint" hidden><label>Controller <select id="pad-pick"></select></label></p>
 <details id="pad-map-box" hidden><summary>Controller buttons</summary>
-<p class="hint">Click a slot, then press a button or push a stick on the controller. A controller button presses one Game Boy button: giving it to another moves it. Each controller keeps its own buttons, in this browser.</p>
+<p class="hint">Click a slot, then press the controller button. Each button does one thing; using it again moves it. Kept per controller.</p>
 <p id="pad-held" class="hint mono" role="status">Pressed now: (no controller playing)</p>
 <p id="pad-map-for" class="hint"></p>
 <div id="pad-map" class="pad-map"></div>
