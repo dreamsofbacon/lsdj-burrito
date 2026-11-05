@@ -2,7 +2,7 @@
 // lsdj/gamepad.js: the buttons a controller holds, as Game Boy bits, and when they are sent (node tests/gamepad.mjs).
 import assert from 'node:assert/strict';
 import {GB, padMask, padName, startGamepad, RESEND_MS, DEFAULT_MAP, cleanMap, isDefaultMap, assign, takenFrom, loadMaps, mapFor, saveMap, loadPick, savePick,
-  inputName, heldInputs, genericMap, defaultMapFor, calibrate, hatDirs, firstHat} from '../lsdj/gamepad.js';
+  inputName, heldInputs, genericMap, defaultMapFor, calibrate, recentre, rawInputs, hatDirs, firstHat} from '../lsdj/gamepad.js';
 
 const pad = (pressed = [], axes = [0, 0, 0, 0], id = 'Xbox Wireless Controller (STANDARD GAMEPAD Vendor: 045e Product: 0b13)') =>
   ({id, connected: true, mapping: 'standard', axes, buttons: Array.from({length: 17}, (_, i) => ({pressed: pressed.includes(i), value: pressed.includes(i) ? 1 : 0}))});
@@ -144,4 +144,27 @@ assert.deepEqual(heldInputs(pad([4], [0.2, -0.9, 0.8, 0])), ['b4', 'a1-', 'a2+']
   pads = [pad([6])]; await run(3); assert.equal(sent.at(-1) & GB.A, 0);
   pads = [pad([0])]; await run(3); assert.equal(sent.at(-1), GB.A, 'after the capture: playing again');
   stop.capture(c => got.push(c)); stop.cancelCapture(); pads = [pad([0, 7])]; await run(3); assert.deepEqual(got, ['b6'], 'cancelled'); }
-console.log('PASS gamepad: layout (Xbox A/Y -> A, B/X -> B, d-pad and stick), names, sent at once, held every 200 ms, released once, busy link, retries, choosing a controller, controllers without the standard layout (rest, hat d-pad), remapping (names, slots, a button moves, kept per controller, capture)');
+/* an axis "button" held when the browser first showed the pad: taken as its rest, then let go to the middle: after
+   SETTLE_MS there it rests at the middle, and pressing it reads again */
+{ const gp = {axes: [1, 0]}; let c = calibrate(gp, null, 0);
+  assert.equal(c.rest[0], 1);
+  gp.axes[0] = 0; c = calibrate(gp, c, 100); c = calibrate(gp, c, 500); assert.equal(c.rest[0], 1, 'not yet');
+  c = calibrate(gp, c, 800); assert.equal(c.rest[0], 0, 'settled');
+  gp.axes[0] = 1; assert.deepEqual(heldInputs(gp, c), ['a0+']);
+  /* a trigger resting at -1 stays so */
+  const tr = {axes: [-1]}; let d = calibrate(tr, null, 0); d = calibrate(tr, d, 5000); assert.equal(d.rest[0], -1);
+  /* Re-centre: where everything is now (hats kept) */
+  const rc = recentre({axes: [0.6, -1, 9 / 7]}, {rest: [0, 0, 0], hats: new Set([2])});
+  assert.deepEqual(rc.rest, [0.6, -1, 0]); assert.ok(rc.hats.has(2));
+  /* a pressure button part way: taken when remapping only */
+  const pb = {buttons: [{pressed: false, value: 0.4}], axes: []};
+  assert.deepEqual(heldInputs(pb), []); assert.deepEqual(heldInputs(pb, null, true), ['b0']);
+  /* the raw view */
+  assert.deepEqual(rawInputs({buttons: [{pressed: true, value: 0}, {pressed: false, value: 0.333}], axes: [0.1234, 9 / 7]}, {rest: [0, 0], hats: new Set([1])}),
+    {buttons: [1, 0.33], axes: [0.12, 1.29], rest: [0, 0], hats: [1]}); }
+{ let tickFn, raws = [], pads = [{...pad(), axes: [1, 0, 0, 0], id: 'Odd', mapping: ''}];
+  const stop = startGamepad({send: async () => {}, nav: {getGamepads: () => pads}, now: () => 0, onRaw: r => raws.push(r),
+                             every: f => { tickFn = f; return 1; }, cancel: () => {}});
+  tickFn(); assert.equal(raws.at(-1).rest[0], 1);
+  pads[0].axes[0] = 0; stop.recentre(); assert.equal(raws.at(-1).rest[0], 0, 'Re-centre from the page'); stop(); }
+console.log('PASS gamepad: layout (Xbox A/Y -> A, B/X -> B, d-pad and stick), names, sent at once, held every 200 ms, released once, busy link, retries, choosing a controller, controllers without the standard layout (rest, hat d-pad), remapping (names, slots, a button moves, kept per controller, capture), settling, re-centre, pressure buttons, raw view');

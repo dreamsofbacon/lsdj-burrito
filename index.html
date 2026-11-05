@@ -65,6 +65,10 @@ details .hint,details p{font-size:13px;color:var(--muted)}
 .pad-map .pad-slot button:first-child{flex:1;min-width:0;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pad-map .pad-slot button.on{outline:2px solid var(--accent,#fd2)}
 .pad-map .pad-clear{padding:0 6px}
+.pad-raw{font-size:12px;display:grid;gap:6px;margin:6px 0}
+.pad-raw .pad-b{display:inline-block;min-width:1.8em;text-align:center;margin:0 2px 2px 0;padding:1px 3px;border:1px solid var(--line);border-radius:4px}
+.pad-raw .pad-b.on{background:var(--accent,#fd2);color:#000}.pad-raw .pad-b.part{border-color:var(--accent,#fd2)}
+.pad-raw .pad-as{display:flex;flex-wrap:wrap;gap:2px 12px}.pad-raw .pad-a.on{color:var(--accent,#fd2);font-weight:600}
 .mono{font-family:ui-monospace,monospace}
 /* home */
 .choices{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(240px,100%),1fr));gap:12px;margin:0 0 18px}
@@ -547,6 +551,11 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <div id="pad-map-box" hidden>
 <p class="hint">Click a slot, then press the controller button. Each button does one thing; using it again moves it.</p>
 <p id="pad-held" class="hint mono" role="status">Pressed now: (no controller playing)</p>
+<details id="pad-raw-box"><summary>Raw input (what the browser reports)</summary>
+<p class="hint">Every button (lit while down) and axis of the controller playing. If a press lights nothing here, the browser does not see it. If an axis shows "rests" at a value it does not rest at, let go of everything and click Re-centre.</p>
+<div id="pad-raw" class="pad-raw mono">Raw input: (no controller playing)</div>
+<p><button id="pad-recentre" type="button">Re-centre</button></p>
+</details>
 <p id="pad-map-for" class="hint"></p>
 <div id="pad-map" class="pad-map"></div>
 <p class="pad-map-foot"><button id="pad-map-reset" type="button">Reset to default</button> <span id="pad-map-note" class="hint" role="status"></span></p>

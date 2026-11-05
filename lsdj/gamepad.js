@@ -12,7 +12,10 @@ export const GB_ORDER = ['UP', 'DOWN', 'LEFT', 'RIGHT', 'A', 'B', 'START', 'SELE
 export const SLOTS = 2;         // inputs a Game Boy button can have
 export const RESEND_MS = 200;   // held buttons again this often (the FM-1 keeps them 500 ms)
 const DEAD = 0.5;               // an axis this far from where it rests: a direction
-const CAPTURE = 0.7;            // ... and further, to be taken when remapping
+const CAPTURE = 0.5;            // ... this far, to be taken when remapping (it must be newly pressed, so a resting
+                                // stick never is)
+const LOOSE = 0.3;              // remapping: a pressure button this far down counts (some never say "pressed")
+const SETTLE_MS = 600;          // an axis taken as resting off centre that then sits at the middle this long: its rest
 const OFF_CENTRE = 0.3;         // an axis resting further out than this (a trigger, a worn stick) counts from its rest
 const HAT_REST = 1.05;          // a hat reads -1..1 when pressed and above this (Chrome: 9/7) when let go
 const MAPS_KEY = 'lsdj-burrito-pad-maps';   // {controller id: map}
@@ -58,12 +61,27 @@ export function hatDirs(v) {
   return ['u', 'ur', 'r', 'dr', 'd', 'dl', 'l', 'ul'][((Math.round((v + 1) * 3.5) % 8) + 8) % 8];
 }
 /* What a controller looks like at rest, taken when it is first seen: each axis's rest, the axes that are hats.
-   (The browser shows a controller only once a button is pressed, so the sticks are let go then.) */
-export function calibrate(gp, cal = null) {
+   The browser shows a controller only once a button is pressed, and on many generic pads that "button" is an axis
+   (a d-pad, a trigger): so an axis taken as resting off centre that later sits at the middle for SETTLE_MS rests
+   there (t: now, ms). recentre() takes them all again, as they are now. */
+export function calibrate(gp, cal = null, t = 0) {
   const axes = gp?.axes || [];
-  if (!cal) cal = {rest: axes.map(v => (typeof v === 'number' && Math.abs(v) > OFF_CENTRE && Math.abs(v) <= 1 ? v : 0)), hats: new Set()};
-  axes.forEach((v, i) => { if (typeof v === 'number' && Math.abs(v) > HAT_REST) cal.hats.add(i); });
+  if (!cal) cal = {rest: axes.map(v => (typeof v === 'number' && Math.abs(v) > OFF_CENTRE && Math.abs(v) <= 1 ? v : 0)), hats: new Set(), mid: []};
+  axes.forEach((v, i) => {
+    if (typeof v !== 'number') return;
+    if (Math.abs(v) > HAT_REST) cal.hats.add(i);
+    if (cal.rest[i] && Math.abs(v) < 0.1) {   /* at the middle while its rest is off centre */
+      if (cal.mid[i] === undefined) cal.mid[i] = t;
+      else if (t - cal.mid[i] >= SETTLE_MS) { cal.rest[i] = 0; cal.mid[i] = undefined; }
+    } else cal.mid[i] = undefined;
+  });
   return cal;
+}
+export function recentre(gp, cal) {
+  const c = calibrate(gp, null);
+  c.rest = (gp?.axes || []).map(v => (typeof v === 'number' && Math.abs(v) <= 1 ? v : 0));
+  for (const h of cal?.hats || []) c.hats.add(h);
+  return c;
 }
 export const firstHat = cal => (cal?.hats?.size ? Math.min(...cal.hats) : -1);
 const isHat = (cal, i, v) => !!cal?.hats?.has(i) || Math.abs(v) > HAT_REST;
@@ -135,11 +153,11 @@ export function padMask(gp, map = DEFAULT_MAP, cal = null) {
   for (const k of GB_ORDER) if ((map[k] || []).some(c => held(gp, c, cal))) m |= GB[k];
   return m;
 }
-/* The inputs held now, firmly (for remapping, and the page's "pressed now") */
-export function heldInputs(gp, cal = null) {
+/* The inputs held now, firmly (for remapping, and the page's "pressed now"); loose: pressure buttons part way too */
+export function heldInputs(gp, cal = null, loose = false) {
   if (!gp) return [];
   const out = [];
-  (gp.buttons || []).forEach((b, i) => { if (down(b)) out.push(`b${i}`); });
+  (gp.buttons || []).forEach((b, i) => { if (down(b) || (loose && typeof b === 'object' && b?.value > LOOSE)) out.push(`b${i}`); });
   (gp.axes || []).forEach((v, i) => {
     if (typeof v !== 'number') return;
     if (isHat(cal, i, v)) { for (const d of hatDirs(v)) out.push(`h${i}${d}`); return; }
@@ -147,6 +165,13 @@ export function heldInputs(gp, cal = null) {
     if (d > CAPTURE) out.push(`a${i}+`); else if (d < -CAPTURE) out.push(`a${i}-`);
   });
   return out;
+}
+/* Everything the browser reports for a controller, for the page's raw view: buttons (0..1), axes (-1..1, hats more),
+   each axis's rest, which axes are hats */
+export function rawInputs(gp, cal = null) {
+  const r = v => Math.round(v * 100) / 100;
+  return {buttons: [...(gp?.buttons || [])].map(b => r(typeof b === 'object' ? (b?.pressed ? Math.max(b.value, 1) : b?.value || 0) : b || 0)),
+          axes: [...(gp?.axes || [])].map(v => r(v || 0)), rest: (cal?.rest || []).map(r), hats: [...(cal?.hats || [])]};
 }
 /* "Xbox Wireless Controller (STANDARD GAMEPAD Vendor: 045e Product: 0b13)" -> "Xbox Wireless Controller" */
 export const padName = gp => (gp?.id || 'Game controller').replace(/\s*\((?:STANDARD GAMEPAD|Vendor:)[^)]*\)\s*$/i, '').replace(/^[0-9a-f]{4}-[0-9a-f]{4}-/i, '') || 'Game controller';
@@ -161,14 +186,14 @@ export const padName = gp => (gp?.id || 'Game controller').replace(/\s*\((?:STAN
    stop.capture(cb): the next input newly pressed on the controller playing goes to cb(code, info) instead of the
    FM-1 (nothing is sent meanwhile), and stop.cancelCapture(). */
 export function startGamepad({send, status = () => {}, canSend = () => true, getMap = () => DEFAULT_MAP, getPick = () => '',
-                              onPads = () => {}, onHeld = () => {}, nav = globalThis.navigator,
+                              onPads = () => {}, onHeld = () => {}, onRaw = () => {}, nav = globalThis.navigator,
                               now = () => performance.now(), every = (f, ms) => setInterval(f, ms), cancel = clearInterval,
                               visible = () => typeof document === 'undefined' || !document.hidden}) {
   let last = 0, sentAt = -Infinity, inflight = false, shown = '', stopped = false, capture = null, before = null;
-  let padsSig = null, heldSig = null, used = [];
+  let padsSig = null, heldSig = null, rawSig = null, used = [];
   const cals = new Map();   /* index|id -> calibrate() */
   const say = t => { if (t !== shown) { shown = t; status(t); } };
-  const calOf = p => { const k = `${p.index}|${p.id}`; const c = calibrate(p, cals.get(k)); cals.set(k, c); return c; };
+  const calOf = p => { const k = `${p.index}|${p.id}`; const c = calibrate(p, cals.get(k), now()); cals.set(k, c); return c; };
   const infoOf = p => ({id: p.id, name: padName(p), standard: p.mapping === 'standard', index: p.index ?? 0, hat: firstHat(calOf(p))});
   const pads = () => [...(nav?.getGamepads?.() || [])].filter(p => p && p.connected !== false);
   const tick = () => {
@@ -188,9 +213,11 @@ export function startGamepad({send, status = () => {}, canSend = () => true, get
     const now_ = used.flatMap(p => heldInputs(p, calOf(p)));
     const hs = JSON.stringify([now_, u?.id ?? null]);
     if (hs !== heldSig) { heldSig = hs; onHeld([...new Set(now_)], u); }
+    const raw = used.length ? rawInputs(used[0], calOf(used[0])) : null, rs = JSON.stringify(raw);
+    if (rs !== rawSig) { rawSig = rs; onRaw(raw, u); }
     let mask = 0;
     if (capture) {   /* remapping: an input that was not already held when the capture began */
-      const set = new Set(now_);
+      const set = new Set(used.flatMap(p => heldInputs(p, calOf(p), true)));
       if (!before) before = new Set();
       for (const c of before) if (!set.has(c)) before.delete(c);   /* let go: may be taken next time */
       const got = [...set].find(c => !before.has(c));
@@ -208,7 +235,8 @@ export function startGamepad({send, status = () => {}, canSend = () => true, get
   tick();
   const stop = () => { stopped = true; cancel(id); if (last > 0) Promise.resolve().then(() => send(0)).catch(() => {}); };
   stop.capture = cb => {   /* what is held now is not taken (it was pressed before the click) */
-    capture = cb; before = new Set(used.flatMap(p => heldInputs(p, calOf(p)))); };
+    capture = cb; before = new Set(used.flatMap(p => heldInputs(p, calOf(p), true))); };
+  stop.recentre = () => { for (const p of used) { const k = `${p.index}|${p.id}`; cals.set(k, recentre(p, cals.get(k))); } padsSig = heldSig = rawSig = null; tick(); };
   stop.cancelCapture = () => { capture = null; before = null; };
   stop.refresh = () => { padsSig = null; heldSig = null; tick(); };   /* the pick changed: at once */
   return stop;

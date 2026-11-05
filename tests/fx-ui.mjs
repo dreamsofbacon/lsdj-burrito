@@ -294,6 +294,7 @@ export async function runFxUiTests() {
         assert(padSent.slice(sentBefore).every(b => b === 0 || b === 8), `997: nothing else sent while choosing (${padSent.slice(sentBefore)})`);
         await until(() => padSent.at(-1) === 8, '997: RB now presses START');
         assert(/RB \/ R1/.test($('pad-held').textContent), `997: pressed now: ${$('pad-held').textContent}`);
+        assert($('pad-raw').querySelector('.pad-b.on')?.textContent === '6' && /Axis 1: 0\.00/.test($('pad-raw').textContent), `997: raw input: ${$('pad-raw').textContent}`);
         gp.buttons[5] = {pressed: false, value: 0};
         await until(() => padSent.at(-1) === 0, '997: RB let go');
         assert(/"b5"/.test(localStorage.getItem('lsdj-burrito-pad-maps') || ''), '997: kept in the browser');

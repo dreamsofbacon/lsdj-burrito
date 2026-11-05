@@ -177,7 +177,7 @@ function startPad() {
   pad = startGamepad({send: m => link.padSet(m), canSend: () => connected && !busy && !installing(), status: t => say('pad-status', t),
                       getPick: () => padPick, getMap: info => mapFor(padMaps, info),
                       onPads: (list, used) => { padList = list; padInfo = used; drawPadPick(); if (!capturing) drawPadMap(); },
-                      onHeld: (codes, info) => drawPadHeld(codes, info)});
+                      onHeld: (codes, info) => drawPadHeld(codes, info), onRaw: raw => drawPadRaw(raw)});
   drawPadPick(); drawPadMap();
 }
 function drawPadPick() {
@@ -193,6 +193,18 @@ function drawPadHeld(codes, info) {
   const name = namer(info);
   $('pad-held').textContent = !info ? 'Pressed now: (no controller playing)' : `Pressed now: ${codes.length ? codes.map(name).join(', ') : 'nothing'}`;
 }
+/* everything the browser reports, live: buttons lit when down, each axis's value (and its rest when off centre) */
+function drawPadRaw(raw) {
+  const box = $('pad-raw');
+  if (!raw) { box.textContent = 'Raw input: (no controller playing)'; return; }
+  const b = raw.buttons.map((v, i) => `<span class="pad-b${v >= 0.5 ? ' on' : v > 0.05 ? ' part' : ''}" title="Button ${i + 1}: ${v}">${i + 1}</span>`).join('');
+  const a = raw.axes.map((v, i) => {
+    const hat = raw.hats.includes(i), rest = raw.rest[i] || 0;
+    return `<span class="pad-a${!hat && Math.abs(v - rest) > 0.5 ? ' on' : ''}">Axis ${i + 1}${hat ? ' (d-pad)' : ''}: ${v.toFixed(2)}${!hat && rest ? ` (rests ${rest.toFixed(2)})` : ''}</span>`;
+  }).join('');
+  box.innerHTML = `<div class="pad-bs">Buttons ${b || 'none'}</div><div class="pad-as">${a || 'No axes'}</div>`;
+}
+$('pad-recentre').onclick = () => { pad?.recentre(); say('pad-map-note', 'Re-centred: where every stick, trigger and d-pad is now is its rest.', 'hint'); };
 function setPadMap(map, note) {
   padMaps = saveMap(padMaps, shownPad(), map); drawPadMap();
   if (note !== undefined) say('pad-map-note', note, 'hint');
