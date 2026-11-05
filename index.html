@@ -233,7 +233,7 @@ body:not(.connected) .pop-body{opacity:.5;pointer-events:none}
   body.perform #pan-chans .fx-card.shown{max-height:100%}
   body.perform #pan-chans .fx-card.shown h3{margin-bottom:0}
   body.perform .panel{margin:0;overflow:hidden}
-  body.perform #pan-screen.panel{overflow:auto}   /* Controller buttons open: scroll, not cut off */
+  body.perform #pan-screen.panel{overflow:auto}   /* anything below the screen: scroll, not cut off */
   body.perform .fm1-screen{max-width:none;padding:0;border:0;background:none}
   body.perform .fxd-wrap{overflow:hidden;margin:0}
   body.perform .fxd{min-width:0}
@@ -446,15 +446,6 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <div class="panel-head"><h3>Screen</h3><button class="pop" type="button" title="Open in its own window">⇱</button></div>
 <div id="fm1-screen-box" class="fm1-screen" hidden><canvas id="fm1-screen" width="160" height="144" role="img" aria-label="The FM-1's screen, as its display shows it"></canvas></div>
 <p id="fm1-screen-note" class="hint" hidden></p>
-<p id="pad-status" class="hint" role="status" hidden></p>
-<p id="pad-pick-row" class="hint" hidden><label>Controller <select id="pad-pick"></select></label></p>
-<details id="pad-map-box" hidden><summary>Controller buttons</summary>
-<p class="hint">Click a slot, then press the controller button. Each button does one thing; using it again moves it. Kept per controller.</p>
-<p id="pad-held" class="hint mono" role="status">Pressed now: (no controller playing)</p>
-<p id="pad-map-for" class="hint"></p>
-<div id="pad-map" class="pad-map"></div>
-<p class="pad-map-foot"><button id="pad-map-reset" type="button">Reset to default</button> <span id="pad-map-note" class="hint" role="status"></span></p>
-</details>
 </div>
 
 <div class="panel" id="pan-wire" data-pop="wire" data-title="Wiring" data-size="700x620">
@@ -548,6 +539,19 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <p class="hint">Settings, effects and custom colours in one file. Songs are backed up separately, in Songs.</p>
 <div class="row"><button id="backup" type="button">Back up settings…</button>
 <button id="restore-pick" type="button">Restore a backup…</button><input id="restore" type="file" accept=".json" hidden></div>
+<div id="pad-sec">
+<h3 class="subhead">Game controller</h3>
+<p class="hint">A game controller connected to this computer or phone (USB, or Bluetooth paired to it) plays LSDj on the FM-1 through this page, from any tab (0.9.97 and newer). Its buttons are kept in this browser, per controller.</p>
+<p id="pad-status" class="hint" role="status" hidden></p>
+<p id="pad-pick-row" hidden><label>Controller <select id="pad-pick"></select></label></p>
+<div id="pad-map-box" hidden>
+<p class="hint">Click a slot, then press the controller button. Each button does one thing; using it again moves it.</p>
+<p id="pad-held" class="hint mono" role="status">Pressed now: (no controller playing)</p>
+<p id="pad-map-for" class="hint"></p>
+<div id="pad-map" class="pad-map"></div>
+<p class="pad-map-foot"><button id="pad-map-reset" type="button">Reset to default</button> <span id="pad-map-note" class="hint" role="status"></span></p>
+</div>
+</div>
 </section>
 </div>
 
@@ -591,12 +595,13 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <label class="check"><input id="rom-experimental" type="checkbox" disabled><span>I understand this firmware is experimental and may not start or sound right, and I have backed up my songs.</span></label>
 <div class="row"><button id="rom-build" type="button" class="primary" aria-describedby="rom-next" disabled>Prepare firmware</button><span class="hint">Builds the file on this computer. Nothing is installed yet.</span></div>
 <details><summary>What's in this version (0.9.97-dev.7)</summary>
+<p>New on this page: the game controller section moved from under the FM-1's screen to Settings › Game controller; the Screen panel shows only the screen.</p>
 <p>New in 0.9.97-dev.7 (a test build): reverb sends, like the echo's. Each channel sets how much it sends to the reverb on LO-FI K4 (RV SND; on this page in the Channels panel, a slider per channel), and only the sends feed the reverb. REVERB is now MIX, SIZE, TONE (K4 INPUT is gone). Turning a send up while the reverb's mix is 0 sets the mix to 64. MIDI: CC 92 is each channel's reverb send (next to CC 91, the echo send); CC 24 does nothing now. Effects saved by dev.1-6 keep their sound: INPUT ALL becomes every send full, INPUT SEND the echo sends.</p>
 <p>dev.6: the echo send is on the channel pages: LO-FI K3 (CRUSH, DECIMATE, SEND), and on this page in the Channels panel, a slider per channel. ECHO is now TIME, FEEDBACK, MIX, TONE, all shared; ECHO MOD K4 is empty. KNOBS = CHANNELS includes the send again (the last effect).</p>
 <p>dev.5: every effect is on one page only. MASTER: ALL FX, COMP, FREEZE. FILTER: FX ON, TYPE, CUTOFF, RESO (the filter type is back next to the cutoff). LO-FI: CRUSH, DECIMATE. ECHO: SEND, TIME, FEEDBACK, MIX (the send and the mix are no longer on FILTER and MASTER too). KNOBS = CHANNELS goes through FILTER to LO-FI; the sends are on ECHO.</p>
-<p>New on this page: choose the game controller (Controller, under the FM-1's screen). Every controller the browser sees is listed, including ones without the standard layout (generic USB pads, arcade sticks, adapters): choose one and set its buttons. Each controller keeps its own buttons. In Controller buttons, "Pressed now" shows what the page reads from the controller, and a controller button presses one Game Boy button only: giving it to another moves it.</p>
-<p>dev.4: remap the game controller. Under the FM-1's screen, Controller buttons: click a slot and press the controller button (or push the stick) it should be. Two slots for each Game Boy button. Kept in this browser; Reset to default goes back.</p>
-<p>New in 0.9.97-dev.4 (a test build): play LSDj with a game controller through this page. Connect any controller to this computer or phone (USB, or Bluetooth paired to it) and press a button: the line under the FM-1's screen names it. D-pad or left stick: the arrows; A (bottom) and Y (top): A; B (right) and X (left): B; Menu / Start: START; View / Back: SELECT. It works while this page is open and connected; the FM-1's keys keep working too.</p>
+<p>New on this page: choose the game controller (Settings › Game controller). Every controller the browser sees is listed, including ones without the standard layout (generic USB pads, arcade sticks, adapters): choose one and set its buttons. Each controller keeps its own buttons. There, "Pressed now" shows what the page reads from the controller, and a controller button presses one Game Boy button only: giving it to another moves it.</p>
+<p>dev.4: remap the game controller. In Settings, Game controller: click a slot and press the controller button (or push the stick) it should be. Two slots for each Game Boy button. Kept in this browser; Reset to default goes back.</p>
+<p>New in 0.9.97-dev.4 (a test build): play LSDj with a game controller through this page. Connect any controller to this computer or phone (USB, or Bluetooth paired to it) and press a button: Settings › Game controller names it. D-pad or left stick: the arrows; A (bottom) and Y (top): A; B (right) and X (left): B; Menu / Start: START; View / Back: SELECT. It works while this page is open and connected; the FM-1's keys keep working too.</p>
 <p>New in 0.9.97-dev.3 (a test build): the reverb on this page (Effects, Master: the REVERB card; in effects files and backups too) and over MIDI: CC 21 reverb mix, 22 size, 23 tone, 24 input (64-127 send), on any of the four CC channels like the echo CCs.</p>
 <p>New in 0.9.97-dev.2 (a test build): the echo send and the echo time are on one page. ECHO is now K1 SEND (the channel under LSDj's cursor), K2 TIME, K3 FEEDBACK, K4 MIX; the echo TONE moved to ECHO MOD K4 and FREEZE to MASTER K4. FILTER K2 is still the send too.</p>
 <p>New in 0.9.97-dev.1 (a test build): a reverb. Press FX for the master pages; REVERB is the fourth (SELECT). K1 MIX (0 is off), K2 SIZE (a small room to a long hall), K3 TONE (dark to bright), K4 INPUT: ALL (the whole mix, echo repeats included) or SEND (only what the channels send to the echo, FILTER K2). It comes after the echo and before the compressor, and it is saved with the other effects. </p>

@@ -280,6 +280,8 @@ export async function runFxUiTests() {
         await until(() => padSent.at(-1) === 0, '997: the release sent');
         /* Controller buttons: START's second slot gets RB (button 5) by pressing it; RB then sends START; Reset */
         assert(!$('pad-map-box').hidden, '997: Controller buttons shown');
+        assert($('settings-sec').contains($('pad-map-box')) && $('settings-sec').contains($('pad-pick')) && !$('pan-screen').querySelector('[id^="pad-"]'),
+          '997: the controller in Settings, the Screen panel only the screen');
         const slot = () => document.querySelector('#pad-map button[data-gb="START"][data-slot="1"]');
         assert(slot().textContent === '+ add' && document.querySelector('#pad-map button[data-gb="START"][data-slot="0"]').textContent === 'Menu / Start / Options',
           `997: START's slots: ${slot().textContent}`);
