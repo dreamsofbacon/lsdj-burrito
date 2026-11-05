@@ -46,15 +46,15 @@ export const PAGES_979 = PAGES_978.map((pg, i) =>
 /* FM-1_980 and newer: MASTER K3 / K4 are the echo's mix and time too (ECHO keeps them as well) */
 export const PAGES = PAGES_979.map((pg, i) =>
   i === 0 ? {name: 'MASTER', knobs: [['master', 'allFxOn'], ['comp', 'comp'], ['echo', 'mix'], ['echo', 'time']]} : pg);
-/* 0.9.97 (FM-1_997) and newer: every effect on one page only. ECHO K1 send (per channel), K2 time, K3 feedback,
-   K4 mix; ECHO MOD K4 tone; MASTER K3 freeze; the filter type on FILTER K2 again, LO-FI K3 empty (0.9.97-dev.2-4 had
-   the send on FILTER K2 too and the mix on MASTER K3 too). REVERB, the 8th page, below. */
+/* 0.9.97 (FM-1_997) and newer: every effect on one page only, the per-channel ones on the channel pages. LO-FI K3
+   the echo send; ECHO time, feedback, mix, tone (all shared); ECHO MOD K4 empty; MASTER K3 freeze; FILTER K2 the
+   filter type. (dev.2-5 had the send on ECHO K1, the tone on ECHO MOD K4.) REVERB, the 8th page, below. */
 export const PAGES_997 = PAGES.map((pg, i) =>
   i === 0 ? {name: 'MASTER', knobs: [['master', 'allFxOn'], ['comp', 'comp'], ['echo', 'freeze'], null]} :
   i === 1 ? {name: 'FILTER', knobs: [['flags', 'fxOn'], ['ch', 'type'], ['ch', 'cutoff'], ['ch', 'reso']]} :
-  i === 4 ? {name: 'LO-FI', knobs: [['ch', 'crush'], ['ch', 'decim'], null, null]} :
-  i === 5 ? {name: 'ECHO', knobs: [['ch', 'send'], ['echo', 'time'], ['echo', 'feedback'], ['echo', 'mix']]} :
-  i === 6 ? {name: 'ECHO MOD', knobs: [['echo', 'wobble'], ['echo', 'sync'], ['echo', 'mode'], ['echo', 'tone']]} : pg);
+  i === 4 ? {name: 'LO-FI', knobs: [['ch', 'crush'], ['ch', 'decim'], ['ch', 'send'], null]} :
+  i === 5 ? {name: 'ECHO', knobs: [['echo', 'time'], ['echo', 'feedback'], ['echo', 'mix'], ['echo', 'tone']]} :
+  i === 6 ? {name: 'ECHO MOD', knobs: [['echo', 'wobble'], ['echo', 'sync'], ['echo', 'mode'], null]} : pg);
 /* fw: the firmware's number (979 for FM-1_979; leave it out for the newest) */
 /* 0.9.97: the master reverb, the firmware's 8th page (its own word over the link: REVERB_GET / REVERB_SET).
    Shown only when the FM-1 has it (fx.reverb). */

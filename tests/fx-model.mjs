@@ -24,12 +24,12 @@ for (const pages of [PAGES, PAGES_979, PAGES_978]) {
   assert.equal(keys.length, new Set(keys).size);
 }
 assert.deepEqual(PAGES.slice(1), PAGES_979.slice(1));
-/* 0.9.97 (FM-1_997): every effect once. ECHO K1 the send, K2 time, K3 feedback, K4 mix; ECHO MOD K4 tone;
-   MASTER K3 freeze; FILTER K2 type */
+/* 0.9.97 (FM-1_997): every effect once, the per-channel ones on the channel pages. LO-FI K3 the send; ECHO time,
+   feedback, mix, tone; MASTER K3 freeze; FILTER K2 type */
 assert.deepEqual(PAGES_997.map(p => p.knobs.map(k => k?.[1] ?? null)), [
   ['allFxOn', 'comp', 'freeze', null], ['fxOn', 'type', 'cutoff', 'reso'],
   ['drive', 'dist', 'warm', null], ['lfoRate', 'lfoDepth', 'lfoShape', 'lfoDest'],
-  ['crush', 'decim', null, null], ['send', 'time', 'feedback', 'mix'], ['wobble', 'sync', 'mode', 'tone'],
+  ['crush', 'decim', 'send', null], ['time', 'feedback', 'mix', 'tone'], ['wobble', 'sync', 'mode', null],
   ['rvMix', 'rvSize', 'rvTone', 'rvInput']
 ]);
 assert.ok(PAGES_997[7].rv && isMasterPage(unpackFx(setup(2, 0)), 7));

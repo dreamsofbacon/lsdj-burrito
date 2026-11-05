@@ -217,17 +217,21 @@ export async function runFxUiTests() {
       await until(() => featSets > sets, 'screen rate sent');
       assert((featWord >>> 18 & 3) === 3, `989: 30 a second: ${featWord.toString(16)}`); }
     assert(!ops.includes(OP.REVERB_GET), 'before 0.9.97: the reverb never asked');
-    /* 0.9.97 (FM-1_997): ECHO = send (per channel), time, feedback, mix; REVERB the 4th master card, sent on its own */
+    /* 0.9.97 (FM-1_997): the send on LO-FI K3 (a column per channel), ECHO = time, feedback, mix, tone; REVERB the 4th
+       master card, sent on its own */
     firmware = 'FM-1_997';
     await $('connect-btn').onclick();
     assert([...document.querySelectorAll('#fx-master-pages .fx-card')].map(c => c.dataset.page).join() === '0,5,6,7', `997: MASTER, ECHO, ECHO MOD, REVERB`);
     { const echoCard = document.querySelector('#fx-master-pages .fx-card[data-page="5"]');
-      { const sends = [...echoCard.querySelectorAll('.fx-ctl[data-key="send"]')];
-        assert(!echoCard.classList.contains('matrix') && sends.length === 4 && sends.every(s => s.classList.contains('chan-line')) &&
-               sends.map(s => s.dataset.chn).join() === 'PU1,PU2,WAV,NOI', '997: ECHO sends: a named line per channel');
-        /* (dev.5 drew them in the Master panel's narrow card as four columns, one on top of the other) */
-        const r = sends.map(s => s.querySelector('input').getBoundingClientRect());
-        assert(r.every((b, i) => b.width >= 40 && (!i || b.top >= r[i - 1].bottom - 1)), `997: the send sliders apart: ${r.map(b => `${Math.round(b.left)},${Math.round(b.top)},${Math.round(b.width)}`).join(' ')}`); }
+      { const names = [...echoCard.querySelectorAll('.fx-ctl')].map(c => c.dataset.key).join();
+        assert(names === 'time,feedback,mix,tone' && !echoCard.querySelector('.chan-line'), `997: ECHO all shared: ${names}`);
+        const lofi = document.querySelector('#fx-pages .fx-card[data-page="4"]');
+        const sends = [...document.querySelectorAll('.fx-ctl[data-key="send"]')];
+        assert(lofi.classList.contains('matrix') && sends.length === 4 && sends.every(s => lofi.contains(s)) &&
+               sends.map(s => s.dataset.chn).join() === 'PU1,PU2,WAV,NOI', '997: the sends on LO-FI, a column per channel');
+        lofi.querySelector('.fx-ctl[data-key="send"][data-ch="1"] input').value = 33;
+        lofi.querySelector('.fx-ctl[data-key="send"][data-ch="1"] input').dispatchEvent(new Event('input'));
+        await until(() => read().ch[1].send === 33 && read().ch[0].send !== 33, '997: PU2\'s send sent'); }
       /* every effect on one card only: no control twice (per channel: four, one card) */
       { const n = {}; document.querySelectorAll('#fx-pages .fx-ctl, #fx-master-pages .fx-ctl').forEach(c => { const k = c.dataset.key + '/' + (c.dataset.ch ?? '-'); n[k] = (n[k] || 0) + 1; });
         const twice = Object.entries(n).filter(([, v]) => v > 1).map(([k]) => k);
@@ -314,7 +318,7 @@ export async function runFxUiTests() {
       }
     }
     firmware = 'FM-1_975';
-    return 'PASS FX browser: matching pages (975-978, 979, 980 echo on MASTER, 981 echo in Master, 997 echo send on ECHO and REVERB, 997 game controller), FM-1 screen (983, 985 sync, note before), autosave, screen rate (989), one master switch, four channel columns (a slider changes its own channel), the cursor column, LIVE state, 17/11-word backups, old firmware gating, FX and lights, FX colours, wiring, muted column, battery';
+    return 'PASS FX browser: matching pages (975-978, 979, 980 echo on MASTER, 981 echo in Master, 997 echo send on LO-FI and REVERB, 997 game controller), FM-1 screen (983, 985 sync, note before), autosave, screen rate (989), one master switch, four channel columns (a slider changes its own channel), the cursor column, LIVE state, 17/11-word backups, old firmware gating, FX and lights, FX colours, wiring, muted column, battery';
   } finally {
     if (descriptor) Object.defineProperty(navigator, 'requestMIDIAccess', descriptor);
     else delete navigator.requestMIDIAccess;
