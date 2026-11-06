@@ -17,7 +17,7 @@ let state = {keys: new Set(), enc: new Int32Array(7), pot: 900};
 /* The virtual FM-1 for My FM-1 (lsdj/app.js): a USB cable plugged in at boot (the wasm built with
    vendor/fm1-emu-usb.patch), and a MIDI input / output pair on it, shaped like Web MIDI ports, for the
    page's Link. usb: this run has the cable; booted: resolves when the firmware runs. */
-let usb = false, bootedWait = null;
+let usb = false, bootedWait = null, autoPaused = false;   /* autoPaused: paused because the page was hidden */
 const virtualIn = {id: 'virtual-fm1', name: 'Virtual FM-1', state: 'disconnected', onmidimessage: null};
 const virtualOut = {id: 'virtual-fm1', name: 'Virtual FM-1', state: 'disconnected',
   send(bytes) { if (usb && phase === 'running') send({type: 'usb', bytes: Uint8Array.from(bytes)}); }};
@@ -167,7 +167,7 @@ async function start(bytes, name, {withUsb = false} = {}) {
         if (usb) virtualState(true);
         bootedWait?.resolve(); bootedWait = null;
         say(`Emulating ${current.product} from ${current.name}${songs ? `, with the songs from ${songsName}` : ''}. This is virtual hardware, not a hardware validation.`, 'ok');
-        if (document.hidden) $('emu-pause').click();
+        if (document.hidden) { autoPaused = usb; $('emu-pause').click(); }
         else panel.canvas.focus({preventScroll: true});
       } else if (m.type === 'frame') {
         draw(m);
@@ -219,9 +219,9 @@ $('emu-pause').onclick = async () => {
     releaseAll();
     if (pausing) await context.suspend(); else await context.resume();
     if (seq !== generation || audio !== context) return;
+    /* (the virtual FM-1 stays connected while paused: My FM-1 waits for it rather than losing it) */
     if (pausing) { phase = 'paused'; say('Paused. Virtual memory is retained until Stop or reload.'); }
-    if (usb) virtualState(!pausing);
-    else { timing = null; phase = 'running'; say(`Emulating ${current.product}.`, 'ok'); }
+    else { timing = null; phase = 'running'; autoPaused = false; say(`Emulating ${current.product}.`, 'ok'); }
     buttons();
   } catch (error) { if (seq === generation) fail(error); }
 };
@@ -237,7 +237,9 @@ $('emu-front').onclick = () => {
 };
 document.addEventListener('visibilitychange', () => {
   releaseAll();
-  if (document.hidden && phase === 'running') $('emu-pause').click();
+  if (document.hidden && phase === 'running') { autoPaused = usb; $('emu-pause').click(); }
+  /* the virtual FM-1 (My FM-1) carries on when the page is back; Try it waits for Resume, as before */
+  else if (!document.hidden && autoPaused && phase === 'paused') $('emu-pause').click();
 });
 window.addEventListener('blur', releaseAll);
 document.addEventListener('firmware-selection-state', buttons);
@@ -338,6 +340,7 @@ export async function startVirtual() {
   return {input: virtualIn, output: virtualOut};
 }
 export const virtualRunning = () => usb && phase === 'running';
+export const virtualPaused = () => usb && phase === 'paused';
 export const virtualFirmware = () => !!(getFirmwareSelection() || file || lastFirmware);
 /* The instrument (and the enlarged screen) shown somewhere else: Perform's Screen panel; null puts them back */
 const home = {view: null, lcd: null};

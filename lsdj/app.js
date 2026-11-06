@@ -14,7 +14,7 @@ import {zipStore} from './zip.js';
 import {romFromSlot} from './lsdj-rom.js';
 import {ScreenMirror} from './screen.js';
 import {popOut, onPopChange, isOut, docs, seen, anyVisible, visibleWindow} from './popout.js';
-import {startVirtual, virtualFirmware, mountVirtual} from '../emulator/app.js';
+import {startVirtual, virtualFirmware, mountVirtual, virtualPaused} from '../emulator/app.js';
 
 /* by id or selector, in the page and in the panels' own windows (lsdj/popout.js) */
 const $ = id => { for (const d of docs()) { const el = d.getElementById(id); if (el) return el; } return null; };
@@ -522,7 +522,7 @@ function changedKeys(a, b) {
     [0, 1, 2, 3].some(c => paramGet(a, k, c) !== paramGet(b, k, c)));
 }
 async function tick() {
-  if (!link || busy || !anyVisible()) return;
+  if (!link || busy || !anyVisible() || (virtual && virtualPaused())) return;   /* a paused virtual FM-1 answers nothing */
   if (portGone()) return lost(UNPLUGGED);
   try {
     if (++ticks % 8 === 0) await followThemeSetting();

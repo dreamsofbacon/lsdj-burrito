@@ -50,6 +50,15 @@ async function virtualUi() {
   assert($('emu-view').hidden && !$('emu-lcd').hidden, 'screen only');
   $('virtual-view').click();
   assert(!$('emu-view').hidden && $('emu-lcd').hidden, 'instrument again');
+  // Pause keeps the link (the poll waits), Resume carries on: Perform still reads the FM-1
+  step = 'pause'; $('emu-pause').click();
+  await until(() => /Paused/.test($('emu-status').textContent), `paused: ${$('emu-status').textContent}`, 3000);
+  await sleep(2500);
+  assert(/Connected to the virtual FM-1/.test(device()), `still connected while paused: ${device()}`);
+  $('emu-pause').click();
+  await until(() => /Emulating/.test($('emu-status').textContent), `resumed: ${$('emu-status').textContent}`, 3000);
+  const resumed = values(); turnVirtual(4, -20);
+  await until(() => values() !== resumed, 'after Resume a knob turned on the virtual FM-1 shows on the page', 8000);
   // Stop on Try it: the page says the virtual FM-1 stopped; the instrument goes back to Try it
   step = 'stop'; $('emu-stop').click();
   await until(() => /virtual FM-1 stopped/.test(device()), `stopped: ${device()}`, 5000);
