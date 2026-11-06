@@ -184,8 +184,16 @@ an already running virtual machine.
 
 The emulator and Three.js assets are served locally and loaded on demand.
 No private packages are uploaded, no hosted emulator iframe is used, and this
-section never requests MIDI access or writes a physical device. The live Songs,
-Settings and Effects sections still target the physical FM-1, not the emulator.
+section never requests MIDI access or writes a physical device.
+
+**Use the virtual FM-1** (My FM-1, next to Connect over USB) starts the same
+emulator with a USB cable plugged in and connects the page to it as to a real
+FM-1: Perform, Songs, Colours and Settings work on the virtual unit, both ways,
+and the Screen panel shows the virtual instrument (or only its screen) instead
+of the screen mirror. The web emulator is built here from fm1-emu's source with
+`emulator/vendor/fm1-emu-usb.patch` (three exports: `fm1_usb_plug`,
+`fm1_usb_send`, `fm1_usb_take`; the USB model itself is upstream's
+`fm1_soc::usb`); `emulator/upstream.json` names the revision and hashes.
 
 Click keys, drag/scroll knobs, or focus the 3D instrument and use arrows, Z/X and
 Shift/Enter for the firmware's Game Boy direction, B/A and Select/Start keys.

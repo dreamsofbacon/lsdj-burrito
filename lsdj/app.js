@@ -14,6 +14,7 @@ import {zipStore} from './zip.js';
 import {romFromSlot} from './lsdj-rom.js';
 import {ScreenMirror} from './screen.js';
 import {popOut, onPopChange, isOut, docs, seen, anyVisible, visibleWindow} from './popout.js';
+import {startVirtual, virtualFirmware, mountVirtual} from '../emulator/app.js';
 
 /* by id or selector, in the page and in the panels' own windows (lsdj/popout.js) */
 const $ = id => { for (const d of docs()) { const el = d.getElementById(id); if (el) return el; } return null; };
@@ -30,20 +31,24 @@ let fwId = '', fwNum = 0;   // the firmware: "FM-1_979", 979
 let link = null, ports = null, fx = null, settings = null, theme = PRESETS[0].slice(), busy = false, touched = 0;
 let connected = false;
 let mirror = null;   // the FM-1's screen above Effects (lsdj/screen.js)
+let virtual = false;   // connected to the virtual FM-1 (emulator/app.js) over its emulated USB, not a device
+const VIRTUAL = 'the virtual FM-1';
 
 /* ---------- connect ---------- */
 async function connectTo(input, output, how = 'USB') {
   if (busy || installing()) return;
   connected = false;
   mirror?.stop(); mirror = null;
+  showVirtual(how === VIRTUAL);
   link?.close(); link = new Link(input, output);
   try {
     const info = await link.info();
     if (info.protocol !== 1) throw new LinkError(`This page speaks link version 1; the FM-1 speaks ${info.protocol}. Update the page or the firmware.`);
     fwId = info.firmware; fwNum = firmwareNumber(info.firmware);
     muteOk = fwNum >= 977;   // MUTE_SET: FM-1_977 and newer
-    say('device', `Connected over ${how}: ${info.firmware} running ${info.title || 'a game'}` + (info.liveKnown ? '' : ' (live data needs LSDj 9.3.9)'), 'ok');
-    $('stage-dev').textContent = `· ${info.firmware} over ${how}`;
+    say('device', (virtual ? `Connected to the virtual FM-1 (the emulator on this page, not a device): ` : `Connected over ${how}: `) +
+      `${info.firmware} running ${info.title || 'a game'}` + (info.liveKnown ? '' : ' (live data needs LSDj 9.3.9)'), 'ok');
+    $('stage-dev').textContent = virtual ? `· virtual FM-1 (${info.firmware})` : `· ${info.firmware} over ${how}`;
     fx = unpackFx(await link.fxGet());
     fx.reverb = await readReverb();
     settings = unpackSettings(await link.settingsGet());
@@ -55,7 +60,7 @@ async function connectTo(input, output, how = 'USB') {
     connected = true; lostAt = 0; missed = 0;
     watchPorts(ports?.access);
     startPoll(250);
-    startMirror(how);
+    if (!virtual) startMirror(how);
     startPad();
   } catch (e) { enable(false); say('device', e.message, 'bad'); }
 }
@@ -69,7 +74,8 @@ const samePort = (a, b) => !!a && !!b && (a === b || (a.id != null && a.id === b
 const portGone = () => [link?.input, link?.output].some(p => p?.state === 'disconnected');
 function lost(message) {
   if (!connected || installing()) return;
-  connected = false; lostAt = Date.now(); missed = 0;
+  if (virtual) { message = 'The virtual FM-1 stopped. Press Use the virtual FM-1 to start it again.'; showVirtual(false); }
+  connected = false; lostAt = virtual ? 0 : Date.now(); missed = 0;
   stopPoll(); mirror?.stop(); mirror = null; pad?.(); pad = null; link?.close();
   enable(false); say('device', message, 'warn');
 }
@@ -116,6 +122,49 @@ if (usbMidiUnavailable()) {
   $('connect-btn').disabled = true;
   say('device', usbMidiUnavailable(), 'warn');
 }
+/* ---------- the virtual FM-1 ----------
+   The emulator (emulator/app.js) with a USB cable plugged in: the page's link reaches it as it reaches a
+   device, so Perform, Songs, Colours and Settings work on it. Its own picture (the playable instrument, or
+   its screen) stands in the Screen panel instead of the screen mirror. */
+function showVirtual(on) {
+  if (virtual === on) return;
+  virtual = on;
+  $('virtual-box').hidden = !on;
+  $('pan-screen').classList.toggle('virtual', on);
+  if (on) { $('fm1-screen-box').hidden = true; $('fm1-screen-note').hidden = true; }
+  mountVirtual(on ? $('virtual-mount') : null);
+  virtualView();
+}
+let virtualLcd = false;   /* the Screen panel shows: the instrument, or only its screen */
+function virtualView() {
+  $('virtual-view').setAttribute('aria-pressed', String(virtualLcd));
+  $('virtual-view').textContent = virtualLcd ? 'Show the instrument' : 'Show only the screen';
+  if (!virtual) { $('emu-view').hidden = false; return; }
+  $('emu-view').hidden = virtualLcd; $('emu-lcd').hidden = !virtualLcd;
+}
+$('virtual-view').onclick = () => { virtualLcd = !virtualLcd; virtualView(); };
+const virtualReady = () => { $('virtual-btn').disabled = busy || installing() || !virtualFirmware(); };
+document.addEventListener('firmware-selection-state', virtualReady);
+document.addEventListener('firmware-install-state', virtualReady);
+document.addEventListener('virtual-fm1-firmware', virtualReady);
+document.addEventListener('virtual-fm1', e => { if (!e.detail.connected && virtual) lost(''); });
+virtualReady();
+$('virtual-btn').onclick = async () => {
+  if (busy || installing()) return;
+  say('device', 'Starting the virtual FM-1…');
+  try {
+    const {input, output} = await startVirtual();
+    /* the firmware starts its USB a moment after the emulator boots: ask until it answers (~30 s at most) */
+    for (let i = 0; ; i++) {
+      const probe = new Link(input, output);
+      try { await probe.info(); probe.close(); break; }
+      catch (e) { probe.close(); if (i >= 20 || input.state !== 'connected') throw e; }
+      say('device', 'Starting the virtual FM-1… (waiting for its USB)');
+    }
+    ports = null;
+    await connectTo(input, output, VIRTUAL);
+  } catch (e) { if (!connected) say('device', `The virtual FM-1 did not connect: ${e.message}`, 'bad'); }
+};
 $('port-pick').onchange = e => {
   const i = +e.target.value, input = ports.ins[i];
   const output = ports.outs.find(o => o.name === input.name) || ports.outs[i];

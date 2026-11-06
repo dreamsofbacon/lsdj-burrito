@@ -112,7 +112,9 @@ export async function createPanel(host, ui, controls, onError) {
   const render = () => renderer.render(scene, camera);
   function resize() {
     const w = Math.max(240, host.clientWidth), ratio = L.H / L.W;
-    const h = Math.round(Math.min(w * ratio * 1.08, Math.max(320, innerHeight - 60)));
+    /* .fill: the host's own height (Perform's Screen panel); the camera fits the FM-1 in either shape */
+    const h = host.classList.contains('fill') ? Math.max(160, host.clientHeight)
+      : Math.round(Math.min(w * ratio * 1.08, Math.max(320, innerHeight - 60)));
     renderer.setSize(w, h); camera.aspect = w / h;
     const half = Math.tan(camera.fov * Math.PI / 360), margin = flat ? 1.04 : 1.14;
     camera.position.set(0, 0, Math.max(L.H * UNIT / 2 / half, L.W * UNIT / 2 / (half * camera.aspect)) * margin + DEPTH);

@@ -1,12 +1,11 @@
 {
   "fm1Emu": {
     "repository": "https://github.com/joakimeriksson/fm1-emu",
-    "sourceRevision": "51ca41af6734ea23871685450fe1f2e1e357bb0e",
+    "sourceRevision": "1c6e80a816f07f350aa8abbbce5f040992b219f3",
     "license": "MIT",
-    "wasmUrl": "https://joakimeriksson.github.io/fm1-emu/fm1_web.wasm",
-    "wasmSha256": "b08ec9a3dbb2c7e7e7ba6151b8911fa6f834511d4f6837cbb1cd68be1cfc8ac0",
-    "wasmProvenance": "Upstream deployed binary, hash-pinned locally; not rebuilt from source here.",
-    "localChanges": "worklet.js: boot takes flashPatch (bytes written into the flash before it runs: an LSDj save). The panel picture is drawn by emulator/face.js; fm1-emu's panel only says where its controls are."
+    "wasmSha256": "79b6d285c87b6f21383272722c8df49ddfdc277c2a3c21d6a43e60864c2af5b3",
+    "wasmProvenance": "Built here from upstream source at sourceRevision with fm1-emu-usb.patch (three exports for a USB cable to the page: fm1_usb_plug, fm1_usb_send, fm1_usb_take; fm1_soc::usb is upstream's), by web/build.sh with Rust 1.99.1, wasm32-unknown-unknown.",
+    "localChanges": "worklet.js and jit.js: upstream's at sourceRevision. worklet.js: boot takes flashPatch (bytes written into the flash before it runs: an LSDj save) and usb (plugs the cable); messages \"usb\" (one MIDI message to the FM-1) and \"usb-out\" (what it sent). The panel picture is drawn by emulator/face.js; fm1-emu's panel only says where its controls are."
   },
   "three": {
     "version": "0.180.0",
@@ -15,14 +14,15 @@
     "distribution": "https://cdn.jsdelivr.net/npm/three@0.180.0/"
   },
   "assets": {
-    "fm1_web.wasm": "b08ec9a3dbb2c7e7e7ba6151b8911fa6f834511d4f6837cbb1cd68be1cfc8ac0",
-    "worklet.js": "c41ebf21053a123f929337f88b969ea1e9354604bcd981b8bf5ac8f5d2bab7c0",
-    "jit.js": "dd4ffe84d260eb3a9fe379cad1053587e3767937e51436a121b21252aec4ee3c",
+    "fm1_web.wasm": "79b6d285c87b6f21383272722c8df49ddfdc277c2a3c21d6a43e60864c2af5b3",
+    "worklet.js": "21e5f4cea423e368a665db59e0aeb2c1fe1df132e826e98c2f58ccad3dc72abf",
+    "jit.js": "0ed468667f668f3c471038ce6ba5cb4ac10bff51cb05b3b459552210e5d531d1",
     "LICENSE-fm1-emu.txt": "de303af17a9bed9ac5ab105f33ef72b3aa5c658d30132d13609db45f7fc7f257",
     "three.module.min.js": "e2b5ee6bccd38fd6d8a2428546b83c5f2426d84b152ef82be8055556e3b40eb6",
     "three.core.min.js": "61ba0df005b05991361d040d8ff670e1aadfd0ce7aeebd1fdb0725957a8957de",
     "LICENSE-three.txt": "bfe119ea4fd413f5f7ca3fcd63adb0c4a073ed39daa2fe7d3e6b769e21272601",
-    "fonts/DotGothic16-subset.woff": "64f5bf21134bb81ed79b6ab1f65e0a8c75d55cfd68b08a2501e21e571a3cc61f"
+    "fonts/DotGothic16-subset.woff": "64f5bf21134bb81ed79b6ab1f65e0a8c75d55cfd68b08a2501e21e571a3cc61f",
+    "fm1-emu-usb.patch": "19aaf806def04866df0b26aaf1df4551660a636b5d20235ba6ff2b3880aed77d"
   },
   "dotGothic16": {
     "license": "SIL OFL 1.1 (vendor/fonts/OFL.txt)",

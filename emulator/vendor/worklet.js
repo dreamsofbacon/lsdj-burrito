@@ -7,15 +7,21 @@
 // The WebAssembly JIT's host side, as web/jit.js (a copy: an AudioWorklet does not import
 // modules everywhere): compile a hot block's module, install its `run` in the function table.
 function jitImports(exports, stats) {
+  let next;
   return {
-    fm1_jit_compile(ptr, len) {
+    fm1_jit_compile(ptr, len, hRead, hWrite, hOp) {
       const start = now();
       try {
         const x = exports();
         const bytes = new Uint8Array(x.memory.buffer, ptr, len).slice();
         const table = x.__indirect_function_table;
-        const run = new WebAssembly.Instance(new WebAssembly.Module(bytes), { env: { memory: x.memory, table } }).exports.run;
-        const slot = table.grow(1);
+        // the helpers as function imports, from the table (a module importing the table itself
+        // gets a copy of it, grown and updated with every region: 40% of a two-core firmware's
+        // time); the table grows by a chunk, the emulator's own instance being its only user
+        const env = { memory: x.memory, h_read: table.get(hRead), h_write: table.get(hWrite), h_op: table.get(hOp) };
+        const run = new WebAssembly.Instance(new WebAssembly.Module(bytes), { env }).exports.run;
+        if (next === undefined || next >= table.length) { next = table.length; table.grow(256); }
+        const slot = next++;
         table.set(slot, run);
         stats.regions++;
         stats.bytes += len;
@@ -87,6 +93,11 @@ class Fm1 extends AudioWorkletProcessor {
         else if (m.type === "enc") this.x.fm1_enc(m.enc, m.clicks);
         else if (m.type === "pot") this.x.fm1_pot(m.value);
         else if (m.type === "midi") for (const b of m.bytes) this.x.fm1_midi(b);
+        else if (m.type === "usb" && this.x.fm1_usb_send) {   // LSDJ Burrito: one MIDI message over USB
+          const len = Math.min(m.bytes.length, this.x.fm1_usb_in_cap());
+          new Uint8Array(this.x.memory.buffer, this.x.fm1_usb_in(), len).set(m.bytes.slice(0, len));
+          this.x.fm1_usb_send(len);
+        }
         else if (m.type === "analog") this.x.fm1_analog(m.idx, m.value);   // SMK-37: pads, faders, wheels
         else if (m.type === "vel") this.x.fm1_velocity(m.us);             // SMK-37: the next keys' velocity
       }
@@ -124,11 +135,20 @@ class Fm1 extends AudioWorkletProcessor {
       if (!(offset >= 0 && offset + bytes.byteLength <= len)) throw new Error("flash patch out of range");
       new Uint8Array(x.memory.buffer, x.fm1_flash() + offset, bytes.byteLength).set(new Uint8Array(bytes));
     }
+    // LSDJ Burrito (local change): a USB cable to the page (fm1_usb_*, the wasm built with fm1-emu-usb.patch)
+    if (m.usb) {
+      if (!x.fm1_usb_plug) throw new Error("this emulator build has no USB");
+      x.fm1_usb_plug();
+    }
     if (m.sectors?.byteLength && x.fm1_flash_restore(copy(m.sectors), m.sectors.byteLength) !== 0) {
       throw new Error("invalid saved flash sectors");
     }
     if (m.syx && x.fm1_load_syx(copy(m.syx), m.syx.byteLength) === 1) {
       throw new Error("this firmware cannot load that DX7 bank");
+    }
+    // a try-out's input script (web/tryout.js): UTF-8 bytes, played on the emulated clock from now
+    if (m.script?.byteLength && (!x.fm1_bench_script || x.fm1_bench_script(copy(m.script), m.script.byteLength) !== 0)) {
+      throw new Error("the input script did not load");
     }
     this.x = x;                         // (a reboot replaces the whole instance)
     this.mhz = m.mhz;
@@ -205,6 +225,10 @@ class Fm1 extends AudioWorkletProcessor {
     let have;
     try {
       have = x.fm1_render(n, this.budget);
+      if (x.fm1_usb_take) {   // LSDJ Burrito: what the FM-1 sent over USB
+        const len = x.fm1_usb_take();
+        if (len) this.port.postMessage({ type: "usb-out", seq: this.seq, bytes: new Uint8Array(x.memory.buffer, x.fm1_usb_out(), len).slice() });
+      }
     } catch (err) {                       // a trap in the emulator: stop and say so
       this.x = null;
       for (const request of this.snapshots.splice(0)) {
