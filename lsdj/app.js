@@ -11,6 +11,7 @@ import {CHANNELS, pagesForFx, PARAM, paramGet, paramSet, valueText, channelSumma
         firmwareNumber, FEATURES, unpackFeatures, packFeatures} from './fx-model.js';
 import {fxDiagram, pageFor} from './fx-diagram.js';
 import {zipStore} from './zip.js';
+import {startClock, startRelay, clampBpm} from './midiclock.js';
 import {romFromSlot} from './lsdj-rom.js';
 import {ScreenMirror} from './screen.js';
 import {popOut, onPopChange, isOut, docs, seen, anyVisible, visibleWindow} from './popout.js';
@@ -362,7 +363,7 @@ function maybeFollow(d) {
 }
 function devLabel(d, i) { return `FM-1 ${i + 1}: ${d.info.title || 'no LSDj'} · ${d.info.firmware} (${d.name})`; }
 function drawDevPick() {
-  drawGrid(); drawPadTargets();
+  drawGrid(); drawPadTargets(); refreshSync();
   const choices = devices.map((d, i) => [String(i), devLabel(d, i)]);
   if (virtual) choices.push(['virtual', 'The virtual FM-1']);
   const now = virtual ? 'virtual' : connected ? String(devices.findIndex(d => sameDev(d, current))) : '';
@@ -390,6 +391,65 @@ for (const id of ['follow-btn', 'stage-follow']) $(id).onclick = () => {
   try { localStorage.setItem('lsdj-burrito-follow', follow ? '1' : '0'); } catch { /* kept for this visit only */ }
   drawDevPick(); syncWatchers();
 };
+/* ---------- MIDI sync (lsdj/midiclock.js) ----------
+   Clock: Off; This page (a tempo, Play / Stop: clock, Start and Stop to every FM-1 plugged in); or one FM-1 leads
+   (its clock and Start / Stop, as they arrive, passed on to the others). Over each FM-1's own output, whichever FM-1
+   is in use; the leader's input is listened to beside its link (addEventListener: the link keeps onmidimessage). */
+let clock = null, relay = null, leader = null, syncMode = 'off';
+const syncSet = new Map();   // output -> timed, as given to the clock or the relay
+const leaderHear = e => relay?.feed(e.data);
+function syncOuts() {
+  const outs = new Map(devices.map(d => [d.output, true]));
+  if (connected && link && !outs.has(link.output)) outs.set(link.output, !virtual);   /* the virtual FM-1: no timestamps */
+  if (leader) outs.delete(leader.output);   /* never back to the leader */
+  return outs;
+}
+function syncTargets() {
+  const engine = clock || relay, want = engine ? syncOuts() : new Map();
+  for (const [out] of [...syncSet]) if (!want.has(out)) { engine?.removeTarget(out); syncSet.delete(out); }
+  for (const [out, timed] of want) if (!syncSet.has(out)) { engine.addTarget(out, {timed}); syncSet.set(out, timed); }
+}
+function setSync(mode) {
+  if (clock) { clock.stop(); clock.close(); clock = null; }   /* (Stop to every FM-1 first) */
+  relay?.close(); relay = null;
+  if (leader) { leader.input.removeEventListener?.('midimessage', leaderHear); leader = null; }
+  syncSet.clear(); syncMode = 'off';
+  if (mode === 'page') {
+    syncMode = 'page';
+    clock = startClock({bpm: +$('sync-bpm').value, onState: drawSync});
+  } else if (mode && mode !== 'off') {
+    const d = devices.find(x => portKey(x) === mode);
+    if (d) {
+      syncMode = mode; leader = d; relay = startRelay({});
+      d.input.open?.().catch?.(() => {});
+      d.input.addEventListener?.('midimessage', leaderHear);
+    }
+  }
+  syncTargets(); drawSync();
+}
+function drawSync(note) {
+  $('sync-row').hidden = !connected && !devices.length;
+  const sel = $('sync-mode');
+  const opts = [['off', 'Off'], ['page', 'This page'], ...(devices.length >= 2 ? devices.map((d, i) => [portKey(d), `FM-1 ${i + 1} leads (${d.info.title || 'no LSDj'})`]) : [])];
+  sel.replaceChildren(...opts.map(([v, t]) => new Option(t, v)));
+  sel.value = syncMode;
+  $('sync-page').hidden = syncMode !== 'page';
+  $('sync-play').setAttribute('aria-pressed', String(!!clock?.running));
+  const n = syncSet.size;
+  $('sync-note').textContent = typeof note === 'string' ? note
+    : syncMode === 'page' ? `${clock?.running ? 'Playing' : 'Stopped'} · clock to ${n} FM-1${n === 1 ? '' : 's'}. On each: LSDj PROJECT › SYNC = MIDI, GLO › MIDI › CLOCK IN = ALL or USB; TRANSPORT ON lets Play and Stop start it.`
+    : leader ? `${n} FM-1${n === 1 ? '' : 's'} follow${n === 1 ? 's' : ''} the leader, one SYNC DELAY behind. The leader: LSDj SYNC = LSDJ, CLOCK OUT = USB; the others: SYNC = MIDI, CLOCK IN = ALL or USB.`
+    : '';
+}
+/* the FM-1s plugged in changed: the clock's targets follow; a leader pulled: Off */
+function refreshSync() {
+  if (leader && !devices.includes(leader)) { setSync('off'); drawSync('The leading FM-1 went away: the clock is off.'); return; }
+  syncTargets(); drawSync();
+}
+$('sync-mode').onchange = e => setSync(e.target.value);
+$('sync-play').onclick = () => { if (clock) { if (clock.running) clock.stop(); clock.start(); drawSync(); } };
+$('sync-stop').onclick = () => { if (clock) { clock.stop(); drawSync(); } };
+$('sync-bpm').onchange = () => { const v = clock ? clock.setTempo(+$('sync-bpm').value) : clampBpm(+$('sync-bpm').value); $('sync-bpm').value = v; };
 $('port-pick').onchange = e => {
   const i = +e.target.value, input = ports.ins[i];
   const output = ports.outs.find(o => o.name === input.name) || ports.outs[i];

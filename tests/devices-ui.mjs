@@ -14,12 +14,13 @@ async function until(check, message, ms = 8000) {
   throw Error(message);
 }
 function fm1(n, title, fw = 'FM-1_981') {
-  const d = {n, title, page: 1, lives: 0, infos: 0, fxSets: [], silent: false, settings: 0x5a000000, screens: 0, themes: 0, delay: 0, pads: []};
+  const d = {n, title, page: 1, lives: 0, infos: 0, fxSets: [], silent: false, settings: 0x5a000000, screens: 0, themes: 0, delay: 0, pads: [], midi: []};
   const fx = Array(68).fill(0);
   fx[36] = 5; fx[37] = 2; fx[42] = 0xf2; fx[43] = 70; fx[38] = 1;
-  d.input = {id: `in-${n}`, name: 'FM-1', state: 'connected', onmidimessage: null};
+  d.input = Object.assign(new EventTarget(), {id: `in-${n}`, name: 'FM-1', state: 'connected', onmidimessage: null});   /* (listened to beside its link: MIDI sync) */
   d.output = {id: `out-${n}`, name: 'FM-1', state: 'connected', send(message) {
     if (this.state !== 'connected') throw new DOMException('The port is not connected', 'InvalidStateError');
+    if (message[0] !== 0xf0) { d.midi.push(message[0]); return; }   /* clock, Start, Stop */
     if (d.silent) return;
     const op = message[4];
     const send = (data = [], status = 0) => (d.delay ? f => setTimeout(f, d.delay) : queueMicrotask)(() => d.input.onmidimessage?.({
@@ -208,6 +209,59 @@ export async function runPadTargetsUiTests() {
     try { localStorage.removeItem('lsdj-burrito-follow'); } catch {}
     delete navigator.getGamepads;
     if (hadPads && !navigator.getGamepads) Object.defineProperty(Navigator.prototype, 'getGamepads', hadPads);
+    if (descriptor) Object.defineProperty(navigator, 'requestMIDIAccess', descriptor);
+    else delete navigator.requestMIDIAccess;
+  }
+}
+
+/* MIDI sync: the page as the clock (tempo, Play / Stop to every FM-1), then one FM-1 leading (its clock and
+   Start / Stop passed on to the others, never back to it); the leader pulled: Off */
+export async function runSyncUiTests() {
+  assert(['localhost', '127.0.0.1'].includes(location.hostname), 'Use a fresh local preview, never a real device');
+  const descriptor = Object.getOwnPropertyDescriptor(navigator, 'requestMIDIAccess');
+  const A = fm1(1, 'LSDj-AAA'), B = fm1(2, 'LSDj-BBB'), C = fm1(3, 'LSDj-CCC');
+  const access = new EventTarget();
+  access.inputs = new Map([['a', A.input], ['b', B.input], ['c', C.input]]);
+  access.outputs = new Map([['a', A.output], ['b', B.output], ['c', C.output]]);
+  const plug = (d, state) => {
+    d.input.state = d.output.state = state;
+    for (const port of [d.input, d.output]) { const e = new Event('statechange'); e.port = port; access.dispatchEvent(e); }
+  };
+  const count = (d, b) => d.midi.filter(x => x === b).length;
+  const mode = v => { const s = $('sync-mode'); s.value = v; s.dispatchEvent(new Event('change')); };
+  try {
+    Object.defineProperty(navigator, 'requestMIDIAccess', {configurable: true, value: async () => access});
+    await $('connect-btn').onclick();
+    await until(() => !$('sync-row').hidden && $('sync-mode').options.length === 5, `Clock: Off, This page, three leaders: ${$('sync-mode').options.length}`);
+    // 1. the page as the clock at 150 BPM: Start then 24 clocks a beat to all three; Stop: FC to all, no clocks after
+    mode('page');
+    assert(!$('sync-page').hidden, 'tempo and Play / Stop shown');
+    $('sync-bpm').value = '150'; $('sync-bpm').dispatchEvent(new Event('change'));
+    $('sync-play').click();
+    await sleep(2000);
+    for (const d of [A, B, C]) {
+      const f8 = count(d, 0xf8);
+      assert(d.midi[0] === 0xfa && f8 >= 110 && f8 <= 135, `${d.title}: Start, then ~120 clocks in 2 s at 150 BPM: ${d.midi[0]?.toString(16)}, ${f8}`);
+    }
+    $('sync-stop').click();
+    await sleep(100);
+    const after = A.midi.length;
+    await sleep(500);
+    assert([A, B, C].every(d => d.midi.includes(0xfc)) && A.midi.length === after, `Stop to all, nothing after: ${A.midi.length - after}`);
+    // 2. A leads: what A sends goes on to B and C, not back to A
+    mode('off'); [A, B, C].forEach(d => { d.midi.length = 0; });
+    mode('out-1');
+    assert($('sync-page').hidden && /follow the leader/.test($('sync-note').textContent), $('sync-note').textContent);
+    const hear = b => { const e = new Event('midimessage'); e.data = Uint8Array.of(b); A.input.dispatchEvent(e); };
+    hear(0xfa); for (let i = 0; i < 24; i++) hear(0xf8); hear(0x90); hear(0xfc);
+    assert(count(B, 0xf8) === 24 && count(C, 0xf8) === 24 && B.midi[0] === 0xfa && B.midi.at(-1) === 0xfc, `B and C follow A: ${B.midi.length}, ${C.midi.length}`);
+    assert(A.midi.length === 0 && !B.midi.includes(0x90), 'nothing back to the leader; notes not passed on');
+    // 3. the leader pulled: the clock goes off and says so
+    plug(A, 'disconnected');
+    await until(() => $('sync-mode').value === 'off' && /leading FM-1 went away/.test($('sync-note').textContent), `leader gone: ${$('sync-mode').value} ${$('sync-note').textContent}`, 5000);
+    return 'PASS MIDI sync: the page as the clock (tempo, Start, 24 a beat, Stop to every FM-1), one FM-1 leading (passed on to the others, not back), the leader pulled: off';
+  } finally {
+    try { $('sync-mode').value = 'off'; $('sync-mode').dispatchEvent(new Event('change')); } catch {}
     if (descriptor) Object.defineProperty(navigator, 'requestMIDIAccess', descriptor);
     else delete navigator.requestMIDIAccess;
   }
