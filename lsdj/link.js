@@ -100,11 +100,7 @@ export class Link {
     return p;
   }
 
-  async info() {
-    const {data: d} = await this.req(OP.INFO, [], {retries: 2});
-    const str = (a, b) => String.fromCharCode(...d.slice(a, b)).replace(/\0.*$/, '');
-    return {protocol: d[0], firmware: str(1, 9), title: str(9, 25), saveSize: rd32(d, 25), saveCrc: rd32(d, 29), importing: d[33], liveKnown: !!(d[34] & 1)};
-  }
+  async info() { return infoFrom((await this.req(OP.INFO, [], {retries: 2})).data); }
   async cartridgeInfo(signal) {
     const r = await this.req(OP.CART_INFO, [], {retries: 2, allow: [0, 1], signal});
     if (r.status === 1) throw new LinkError('This firmware cannot read back its cartridge. Install FM-1_974 or newer once using your original LSDj ROM, then reconnect. Nothing was prepared.');
@@ -229,11 +225,44 @@ export function battery(b) {
   return {bars: b & 3, usb: !!(b & 0x80)};
 }
 
+/* INFO's reply -> {protocol, firmware, title, ...} */
+export function infoFrom(d) {
+  const str = (a, b) => String.fromCharCode(...d.slice(a, b)).replace(/\0.*$/, '');
+  return {protocol: d[0], firmware: str(1, 9), title: str(9, 25), saveSize: rd32(d, 25), saveCrc: rd32(d, 29), importing: d[33], liveKnown: !!(d[34] & 1)};
+}
+
 /* Web MIDI: the FM-1's ports (its USB name is Felucca), or every port to choose from. */
+const isFm1Port = p => p.state !== 'disconnected' && /felucca|fm-?1|h.gelton/i.test(`${p.name} ${p.manufacturer}`);
 export async function midiPorts() {
   if (!navigator.requestMIDIAccess) throw new LinkError('This browser has no Web MIDI. Use Chrome or Edge.');
   const access = await navigator.requestMIDIAccess({sysex: true});
   const ins = [...access.inputs.values()], outs = [...access.outputs.values()];
-  const fm1 = p => /felucca|fm-?1|h.gelton/i.test(`${p.name} ${p.manufacturer}`);
-  return {access, ins, outs, input: ins.find(fm1), output: outs.find(fm1)};
+  return {access, ins, outs, input: ins.find(isFm1Port), output: outs.find(isFm1Port)};
+}
+/* Every FM-1 plugged in with LSDJ Burrito running: [{input, output, name, info}]. Two FM-1s may have the same
+   port name, so each output is asked INFO in turn and the input that answers is its pair. known: FM-1s already
+   connected ({input, output, name, info}): listed as they are, never asked (their link owns their input). */
+export async function findFm1s(access, {known = [], wait = 500} = {}) {
+  const ins = [...access.inputs.values()].filter(isFm1Port), outs = [...access.outputs.values()].filter(isFm1Port);
+  const found = known.filter(k => ins.includes(k.input) && outs.includes(k.output));
+  const used = new Set(found.flatMap(k => [k.input, k.output]));
+  for (const output of outs) {
+    if (used.has(output)) continue;
+    const free = ins.filter(i => !used.has(i));
+    if (!free.length) break;
+    let hit = null;
+    const before = free.map(i => i.onmidimessage);
+    free.forEach(input => input.onmidimessage = e => {
+      const r = parse(Array.from(e.data));
+      if (!hit && r && r.op === OP.INFO && r.status === 0 && r.data.length >= 35) hit = {input, info: infoFrom(r.data)};
+    });
+    try {
+      for (let tries = 0; tries < 2 && !hit; tries++) {   /* (the link drops a message now and then: ask twice) */
+        try { output.send(frame(OP.INFO)); } catch { break; }
+        for (const end = Date.now() + wait / 2; !hit && Date.now() < end;) await new Promise(r => setTimeout(r, 15));
+      }
+    } finally { free.forEach((i, n) => { i.onmidimessage = before[n]; }); }
+    if (hit?.info.protocol === 1) { found.push({input: hit.input, output, name: output.name, info: hit.info}); used.add(hit.input); used.add(output); }
+  }
+  return found;
 }

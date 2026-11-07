@@ -126,6 +126,8 @@ input[type=range]{accent-color:var(--accent)}
 .fx-ctl input[type=range]{flex:1;min-width:60px;accent-color:var(--accent)}
 .fx-ctl select{flex:1;min-width:0}
 .fx-ctl output{font:12px ui-monospace,monospace;min-width:4em;text-align:right;color:var(--muted)}
+button.follow[aria-pressed=true]{background:var(--accent);color:var(--accent-ink,#000);border-color:var(--accent)}
+#stage-pick,#dev-pick{max-width:min(100%,360px)}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;flex:1}
 .seg button{flex:1;border:0;border-radius:0;padding:5px 6px;font-size:13px;background:var(--card)}
 .seg button+button{border-left:1px solid var(--line)}
@@ -435,10 +437,13 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <p id="device" role="status"></p>
 <div class="row"><button id="connect-btn" class="primary" type="button">Connect over USB</button>
 <select id="port-pick" hidden></select>
+<select id="dev-pick" hidden aria-label="The FM-1 to use"></select>
+<button id="follow-btn" class="follow" type="button" aria-pressed="false" hidden title="Switch by itself to the FM-1 being played (a knob, a page, a mute, start / stop)">Follow the one played</button>
 <button id="virtual-btn" type="button" title="Runs your prepared firmware in the emulator on this page. Nothing connects to a real FM-1." disabled>Use the virtual FM-1</button></div>
 </div>
 <details class="connect-help"><summary>If it doesn't connect</summary>
 <p>No FM-1 to hand? Use the virtual FM-1 runs the firmware you prepared in Install in the emulator on this page (Try it), and Perform, Songs, Colours and Settings work on it as on a real one. It changes only the virtual FM-1.</p>
+<p>Several FM-1s? Plug them all in: Connect lists them, and the list (here and in Perform) switches between them, one at a time. Follow the one played switches by itself to the FM-1 you play (a knob, a page, a mute, start / stop); while the one in use is played too, or two others at once, it stays put. Installing needs just one FM-1 plugged in.</p>
 <p>No FM-1 found? Use a data cable (some charge-only cables don't carry data), check the FM-1 is on and close other music apps that may hold its MIDI port. Installing firmware is done from <a href="#install">Install</a>, not here.</p>
 </details>
 </section>
@@ -450,6 +455,8 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <section id="live-sec" class="tab-panel needs-device stage" aria-disabled="true">
 <div class="stage-head">
 <h2>Perform <span id="stage-dev" class="hint"></span></h2>
+<select id="stage-pick" hidden aria-label="The FM-1 to use"></select>
+<button id="stage-follow" class="follow" type="button" aria-pressed="false" hidden title="Switch by itself to the FM-1 being played">Follow</button>
 <span id="live-badges"></span>
 <span class="stage-gap"></span>
 <span id="fx-status" class="hint" role="status"></span>
@@ -621,6 +628,7 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <label class="check"><input id="rom-experimental" type="checkbox" disabled><span>I understand this firmware is experimental and may not start or sound right, and I have backed up my songs.</span></label>
 <div class="row"><button id="rom-build" type="button" class="primary" aria-describedby="rom-next" disabled>Prepare firmware</button><span class="hint">Builds the file on this computer. Nothing is installed yet.</span></div>
 <details><summary>What's in this version (0.9.97-dev.7)</summary>
+<p>New on this page: several FM-1s plugged in at once. Connect lists them all, and the list in My FM-1 and in Perform switches between them (one at a time). Follow the one played (Follow in Perform) switches by itself to the FM-1 you play: a knob, a page, a mute, the cursor, start / stop. It stays put while the one in use is played too, or two others at once, and keeps a switch for a few seconds. A pulled cable reconnects to the same FM-1 only. Installing still needs just one FM-1 plugged in. Pause in Try it works again; a virtual FM-1 paused by switching tabs carries on when you come back.</p>
 <p>New on this page: the virtual FM-1 in My FM-1. With no FM-1 to hand, press Use the virtual FM-1: it runs your prepared firmware in the emulator on this page, and Perform, Songs, Colours and Settings work on it as on a real one (over a USB cable inside the emulator). The Screen panel shows the virtual FM-1 itself, to play there, or only its screen. It changes only the virtual FM-1. The emulator is a newer build of Joakim Eriksson's fm1-emu, built here with a USB port for the page; it also runs a little faster.</p>
 <p>New on this page: every game controller plays, not only ones with the browser's standard layout (generic USB pads, arcade sticks, adapters too; a stick that rests off centre holds nothing). One without the standard layout starts with a guess for its buttons: check them in Settings › Game controller, where Pressed now shows what it sends.</p>
 <p>The game controller section moved from under the FM-1's screen to Settings › Game controller; the Screen panel shows only the screen.</p>

@@ -2,7 +2,7 @@
 // The page: connect to the FM-1's running LSDJ Burrito firmware (lsdj/link.js)
 // for live effects, songs, colours and settings. Never writes firmware.
 import {startGamepad, loadMaps, mapFor, saveMap, loadPick, savePick, assign, takenFrom, isDefaultMap, defaultMapFor, inputName, GB_ORDER, SLOTS} from './gamepad.js';
-import {Link, midiPorts, LinkError, SAVE_SIZE} from './link.js';
+import {Link, midiPorts, findFm1s, LinkError, SAVE_SIZE} from './link.js';
 import {confirmSaveImport} from './save-file.js';
 import {showDeviceTheme, setMatching, matching} from './page-theme.js';
 import {setBeforeInstall, installing, usbMidiUnavailable} from './install-ui.js';
@@ -14,7 +14,7 @@ import {zipStore} from './zip.js';
 import {romFromSlot} from './lsdj-rom.js';
 import {ScreenMirror} from './screen.js';
 import {popOut, onPopChange, isOut, docs, seen, anyVisible, visibleWindow} from './popout.js';
-import {startVirtual, virtualFirmware, mountVirtual, virtualPaused} from '../emulator/app.js';
+import {startVirtual, virtualFirmware, mountVirtual, virtualPaused, pauseVirtual} from '../emulator/app.js';
 
 /* by id or selector, in the page and in the panels' own windows (lsdj/popout.js) */
 const $ = id => { for (const d of docs()) { const el = d.getElementById(id); if (el) return el; } return null; };
@@ -36,8 +36,20 @@ const VIRTUAL = 'the virtual FM-1';
 
 /* ---------- connect ---------- */
 async function connectTo(input, output, how = 'USB') {
-  if (busy || installing()) return;
-  connected = false;
+  if (busy || installing() || connecting) return;
+  connecting = true;
+  try { await connectOnce(input, output, how); }
+  finally { connecting = false; }
+  drawDevPick(); syncWatchers();
+  if (connected && !virtual) scanSoon();   /* (the other FM-1s plugged in, for the list) */
+}
+async function connectOnce(input, output, how) {
+  await scanning;   /* a search for FM-1s borrows their inputs: let it finish */
+  await flushSend();   /* an effect moved a moment ago goes to the FM-1 it was moved for */
+  stopPoll(); pad?.(); pad = null; lostAt = 0; missed = 0; lastKey = null;
+  if (virtual && how !== VIRTUAL) pauseVirtual();
+  for (const d of [...watchers.keys()]) if (d.input === input || d.output === output) unwatch(d);
+  connected = false; current = null;
   mirror?.stop(); mirror = null;
   showVirtual(how === VIRTUAL);
   link?.close(); link = new Link(input, output);
@@ -57,7 +69,12 @@ async function connectTo(input, output, how = 'USB') {
     theme = await link.themeGet(); customTheme = theme.slice();
     buildFx(); buildSettings(); buildTheme(); enable(true);
     pageTheme();
-    connected = true; lostAt = 0; missed = 0;
+    connected = true; lostAt = 0; missed = 0; activeAt = Date.now();
+    if (!virtual) {
+      current = devices.find(d => d.input === input && d.output === output) || {input, output, name: output.name, info};
+      current.info = info;
+      lastDev = {inId: input.id, outId: output.id, name: output.name};
+    }
     watchPorts(ports?.access);
     startPoll(250);
     if (!virtual) startMirror(how);
@@ -77,6 +94,8 @@ function lost(message) {
   if (virtual) { message = 'The virtual FM-1 stopped. Press Use the virtual FM-1 to start it again.'; showVirtual(false); }
   connected = false; lostAt = virtual ? 0 : Date.now(); missed = 0;
   stopPoll(); mirror?.stop(); mirror = null; pad?.(); pad = null; link?.close();
+  soloAtLoss = devices.filter(d => !sameDev(d, current)).length === 0;
+  current = null; syncWatchers(); drawDevPick();
   enable(false); say('device', message, 'warn');
 }
 const UNPLUGGED = 'The FM-1 was disconnected. Plug it in again: the page connects by itself (or press Connect).';
@@ -85,6 +104,7 @@ function onPortChange(e) {
   if (!p) return;
   if (p.state === 'disconnected' && connected && (samePort(p, link?.input) || samePort(p, link?.output))) return lost(UNPLUGGED);
   if (p.state === 'connected' && !connected && lostAt) reconnect();
+  scanSoon();   /* another FM-1 plugged in or pulled: the list follows (only the one in use is "lost") */
 }
 function watchPorts(access) {
   if (access === watching || !access?.addEventListener) return;   // test doubles may have no events
@@ -99,7 +119,7 @@ async function reconnect() {
     for (const wait of [300, 1000, 2500]) {
       await new Promise(r => setTimeout(r, wait));
       if (connected || !lostAt || busy || installing()) return;
-      await connectUsbQuietly();
+      await connectUsbQuietly({again: true});   /* the same FM-1 only, never another one plugged in */
       if (connected) return;
     }
     if (!connected) say('device', 'The FM-1 is back but did not answer. Is LSDJ Burrito running? Press Connect to try again.', 'warn');
@@ -111,6 +131,8 @@ $('connect-btn').onclick = async () => {
   if (unavailable) return say('device', unavailable, 'warn');
   try {
     ports = await midiPorts();
+    const found = await scan();
+    if (found.length) { const d = choose(found) || found[0]; return connectTo(d.input, d.output); }
     if (ports.input && ports.output) return connectTo(ports.input, ports.output);
     if (!ports.ins.length) return say('device', 'No MIDI devices found. Check the USB cable (a data cable) and that the FM-1 is on.', 'bad');
     const pick = $('port-pick'); pick.hidden = false; pick.replaceChildren(new Option('Choose the FM-1…', ''));
@@ -161,9 +183,125 @@ $('virtual-btn').onclick = async () => {
       catch (e) { probe.close(); if (i >= 20 || input.state !== 'connected') throw e; }
       say('device', 'Starting the virtual FM-1… (waiting for its USB)');
     }
-    ports = null;
     await connectTo(input, output, VIRTUAL);
   } catch (e) { if (!connected) say('device', `The virtual FM-1 did not connect: ${e.message}`, 'bad'); }
+};
+/* ---------- several FM-1s ----------
+   Every FM-1 plugged in is listed (link.js findFm1s: each answers INFO on its own ports). The page talks to one
+   at a time; the list (My FM-1, and Perform's head) switches. Follow: the page also watches the others (LIVE, a
+   few times a second) and switches to the one being played (a knob, a page, a mute, the cursor, start / stop).
+   It stays while the one in use is played too, and while two or more others are played at once (no flip-flop),
+   and keeps a switch at least HOLD_MS. A pulled cable reconnects to the same FM-1 only. */
+const QUIET_MS = 1500, HOLD_MS = 2500, WATCH_MS = 300;
+let devices = [], current = null, lastDev = null, scanning = null, connecting = false, scanTimer = 0;
+let follow = false, activeAt = 0, switchedAt = 0, lastKey = null;
+const watchers = new Map();   // an FM-1 not in use -> {link, base, at, missed}
+try { follow = localStorage.getItem('lsdj-burrito-follow') === '1'; } catch { /* storage blocked: off */ }
+const sameDev = (a, b) => !!a && !!b && a.input === b.input && a.output === b.output;
+const liveKey = l => [l.page, l.cursor, l.bpm, l.mute, l.freeze, l.playing, ...l.fx].join();
+const portKey = d => String(d.output.id ?? d.name);
+async function scan() {
+  if (!ports?.access || connecting || busy || installing()) return devices;
+  if (scanning) return scanning;
+  scanning = (async () => {
+    const known = [...(connected && current ? [current] : []), ...watchers.keys()];
+    devices = (await findFm1s(ports.access, {known})).sort((a, b) => portKey(a).localeCompare(portKey(b)));
+    drawDevPick(); syncWatchers();
+    return devices;
+  })().catch(() => devices).finally(() => { scanning = null; });
+  return scanning;
+}
+const scanSoon = () => { clearTimeout(scanTimer); scanTimer = setTimeout(() => void scan(), 700); };
+/* the FM-1 used last (a reconnect, Read from my FM-1): by its ports, else the only one there is.
+   again (a pulled cable): by its ports, or (its ports renamed) the only one when it was the only one: FM-1s
+   share a port name, so with several a name proves nothing, and the page never takes another one. */
+let soloAtLoss = true;
+function choose(found, again = false) {
+  const byId = lastDev && found.find(d => d.input.id === lastDev.inId && d.output.id === lastDev.outId);
+  if (byId) return byId;
+  if (again) return soloAtLoss && found.length === 1 ? found[0] : null;
+  return found.length === 1 ? found[0] : null;
+}
+async function flushSend() {
+  if (!sendTimer || !link) return;
+  clearTimeout(sendTimer); sendTimer = null;
+  try { await link.fxSet(packFx(fx)); if (fx.reverb) await writeReverb(fx.reverb); } catch { /* it went away */ }
+}
+async function switchTo(d) {
+  if (connected && sameDev(d, current)) return;
+  switchedAt = Date.now();
+  await connectTo(d.input, d.output);
+}
+function watch(d) {
+  if (watchers.has(d) || sameDev(d, current)) return;
+  const w = {link: new Link(d.input, d.output), base: null, at: 0, missed: 0};
+  watchers.set(d, w);
+  const step = async () => {
+    if (watchers.get(d) !== w) return;
+    if (!busy && !installing() && !connecting && anyVisible()) {
+      try {
+        const key = liveKey(await w.link.live()); w.missed = 0;
+        if (w.base !== null && key !== w.base) { w.at = Date.now(); maybeFollow(d); }
+        w.base = key;
+      } catch { if (++w.missed >= LOST_POLLS) { unwatch(d); scanSoon(); return; } }
+    }
+    if (watchers.get(d) === w) visibleWindow().setTimeout(step, WATCH_MS);
+  };
+  step();
+}
+function unwatch(d) { const w = watchers.get(d); if (!w) return; watchers.delete(d); w.link.close(); }
+function syncWatchers() {
+  const want = follow && connected && !connecting ? devices.filter(d => !sameDev(d, current)) : [];
+  for (const d of [...watchers.keys()]) if (!want.includes(d)) unwatch(d);
+  want.forEach(watch);
+}
+/* d was just played: switch to it, unless the FM-1 in use was played lately (or the page's own controls), a
+   switch was just made, or another one is being played as well */
+const CONFIRM_MS = 700;   /* played at the same moment as the one in use: its poll gets the time to say so */
+let followTimer = 0;
+function maybeFollow(d) {
+  const stay = () => {
+    const now = Date.now();
+    return !follow || !connected || busy || installing() || connecting || capturing || !watchers.has(d) ||
+      now - activeAt < QUIET_MS || now - touched < QUIET_MS || now - switchedAt < HOLD_MS ||
+      [...watchers].some(([o, w]) => o !== d && now - w.at < QUIET_MS);
+  };
+  if (stay() || followTimer) return;
+  followTimer = setTimeout(() => {
+    followTimer = 0;
+    if (stay()) return;
+    say('device', 'Following the FM-1 being played…');
+    void switchTo(d);
+  }, CONFIRM_MS);
+}
+function devLabel(d, i) { return `FM-1 ${i + 1}: ${d.info.title || 'no LSDj'} · ${d.info.firmware} (${d.name})`; }
+function drawDevPick() {
+  const choices = devices.map((d, i) => [String(i), devLabel(d, i)]);
+  if (virtual) choices.push(['virtual', 'The virtual FM-1']);
+  const now = virtual ? 'virtual' : connected ? String(devices.findIndex(d => sameDev(d, current))) : '';
+  const has = choices.some(([v]) => v === now);
+  for (const id of ['dev-pick', 'stage-pick']) {
+    const s = $(id);
+    s.hidden = choices.length < 2;
+    s.replaceChildren(...(has ? [] : [new Option('Choose an FM-1…', '')]), ...choices.map(([v, t]) => new Option(t, v)));
+    s.value = has ? now : '';
+  }
+  for (const id of ['follow-btn', 'stage-follow']) {
+    const b = $(id);
+    b.hidden = devices.length < 2 && !(virtual && devices.length);
+    b.setAttribute('aria-pressed', String(follow));
+  }
+}
+for (const id of ['dev-pick', 'stage-pick']) $(id).onchange = e => {
+  const v = e.target.value;
+  if (v === 'virtual') { if (!virtual) $('virtual-btn').onclick(); return; }
+  const d = devices[+v];
+  if (v !== '' && d) void switchTo(d);
+};
+for (const id of ['follow-btn', 'stage-follow']) $(id).onclick = () => {
+  follow = !follow;
+  try { localStorage.setItem('lsdj-burrito-follow', follow ? '1' : '0'); } catch { /* kept for this visit only */ }
+  drawDevPick(); syncWatchers();
 };
 $('port-pick').onchange = e => {
   const i = +e.target.value, input = ports.ins[i];
@@ -527,6 +665,7 @@ async function tick() {
   try {
     if (++ticks % 8 === 0) await followThemeSetting();
     const l = await link.live();
+    { const key = liveKey(l); if (lastKey !== null && key !== lastKey) activeAt = Date.now(); lastKey = key; }   /* played: Follow stays */
     const live = unpackFx(l.fx);
     live.reverb = fx.reverb && ticks % 2 === 0 ? await readReverb()
       : fx.reverb && {...fx.reverb, rvSend: fx.reverb.rvSend && [...fx.reverb.rvSend]};   /* every other poll */
@@ -600,16 +739,19 @@ async function run(statusId, fn) {
   finally { busy = false; buttons.forEach((b, i) => b.disabled = disabled[i]); $('save-progress').hidden = true; }
 }
 /* Not connected: connect over USB as the Connect button does, when the FM-1 is found by name. */
-async function connectUsbQuietly() {
+/* again: after a pulled cable, the same FM-1 only. Several plugged in and none used yet: none (choose in My FM-1). */
+async function connectUsbQuietly({again = false} = {}) {
   if (connected || busy || installing() || usbMidiUnavailable()) return;
   try {
     ports = await midiPorts();
-    if (ports.input && ports.output) await connectTo(ports.input, ports.output);
+    const found = await scan(), d = choose(found, again);
+    if (d) await connectTo(d.input, d.output);
+    else if (!again && !found.length && ports.input && ports.output) await connectTo(ports.input, ports.output);
   } catch { /* MIDI blocked or unavailable: the message below says what to do */ }
 }
 export async function readInstalledCartridge(progress, signal) {
   await connectUsbQuietly();
-  if (!link || !connected) throw new LinkError('No FM-1 found over USB. Turn it on and plug it in with a data cable, or connect to the running FM-1 in My FM-1 (choose its MIDI port), then try Read from my FM-1 again.');
+  if (!link || !connected) throw new LinkError('No FM-1 found over USB. Turn it on and plug it in with a data cable, or connect to the running FM-1 in My FM-1 (choose its MIDI port; with several plugged in, choose the one to read), then try Read from my FM-1 again.');
   if (busy || installing() || sendTimer) throw new LinkError('Wait for the current device operation to finish.');
   const active = link;
   busy = true;

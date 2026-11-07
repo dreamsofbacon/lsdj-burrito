@@ -353,5 +353,7 @@ export function mountVirtual(box) {
   lcd.hidden = true; $('emu-zoom').setAttribute('aria-expanded', 'false');
 }
 export const stopVirtual = () => stop();
+/* My FM-1 switched to another FM-1: the virtual one rests (no CPU) until it is chosen again (startVirtual resumes it) */
+export function pauseVirtual() { if (usb && phase === 'running') { autoPaused = false; $('emu-pause').click(); } }
 /* an encoder of the virtual FM-1 turned (enc as fm1-emu numbers them: 0 SELECT, 2-5 KNOB1-4) */
 export function turnVirtual(enc, clicks) { if (phase === 'running') send({type: 'enc', enc, clicks}); }
