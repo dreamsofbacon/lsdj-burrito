@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // The page: connect to the FM-1's running LSDJ Burrito firmware (lsdj/link.js)
 // for live effects, songs, colours and settings. Never writes firmware.
+import {startGamepad, loadMaps, mapFor, saveMap, loadPick, savePick, assign, takenFrom, isDefaultMap, defaultMapFor, inputName, GB_ORDER, SLOTS} from './gamepad.js';
 import {Link, midiPorts, LinkError, SAVE_SIZE} from './link.js';
 import {confirmSaveImport} from './save-file.js';
 import {showDeviceTheme, setMatching, matching} from './page-theme.js';
 import {setBeforeInstall, installing, usbMidiUnavailable} from './install-ui.js';
-import {CHANNELS, pagesForFx, PARAM, paramGet, paramSet, valueText, channelSummary, unpackFx, packFx, PRESETS, THEMES, COLOR_NAMES, toHex, fromHex,
+import {CHANNELS, pagesForFx, PARAM, paramGet, paramSet, valueText, channelSummary, unpackFx, packFx, unpackReverb, packReverb, packReverbSends, PRESETS, THEMES, COLOR_NAMES, toHex, fromHex,
         SETTINGS, unpackSettings, packSettings, MIDI_SETTINGS, MIDI_CC_MAP, unpackMidi, packMidi, CUSTOM_THEME, isMasterPage,
         firmwareNumber, FEATURES, unpackFeatures, packFeatures} from './fx-model.js';
 import {fxDiagram, pageFor} from './fx-diagram.js';
@@ -13,6 +14,7 @@ import {zipStore} from './zip.js';
 import {romFromSlot} from './lsdj-rom.js';
 import {ScreenMirror} from './screen.js';
 import {popOut, onPopChange, isOut, docs, seen, anyVisible, visibleWindow} from './popout.js';
+import {startVirtual, virtualFirmware, mountVirtual, virtualPaused} from '../emulator/app.js';
 
 /* by id or selector, in the page and in the panels' own windows (lsdj/popout.js) */
 const $ = id => { for (const d of docs()) { const el = d.getElementById(id); if (el) return el; } return null; };
@@ -29,21 +31,26 @@ let fwId = '', fwNum = 0;   // the firmware: "FM-1_979", 979
 let link = null, ports = null, fx = null, settings = null, theme = PRESETS[0].slice(), busy = false, touched = 0;
 let connected = false;
 let mirror = null;   // the FM-1's screen above Effects (lsdj/screen.js)
+let virtual = false;   // connected to the virtual FM-1 (emulator/app.js) over its emulated USB, not a device
+const VIRTUAL = 'the virtual FM-1';
 
 /* ---------- connect ---------- */
 async function connectTo(input, output, how = 'USB') {
   if (busy || installing()) return;
   connected = false;
   mirror?.stop(); mirror = null;
+  showVirtual(how === VIRTUAL);
   link?.close(); link = new Link(input, output);
   try {
     const info = await link.info();
     if (info.protocol !== 1) throw new LinkError(`This page speaks link version 1; the FM-1 speaks ${info.protocol}. Update the page or the firmware.`);
     fwId = info.firmware; fwNum = firmwareNumber(info.firmware);
     muteOk = fwNum >= 977;   // MUTE_SET: FM-1_977 and newer
-    say('device', `Connected over ${how}: ${info.firmware} running ${info.title || 'a game'}` + (info.liveKnown ? '' : ' (live data needs LSDj 9.3.9)'), 'ok');
-    $('stage-dev').textContent = `· ${info.firmware} over ${how}`;
+    say('device', (virtual ? `Connected to the virtual FM-1 (the emulator on this page, not a device): ` : `Connected over ${how}: `) +
+      `${info.firmware} running ${info.title || 'a game'}` + (info.liveKnown ? '' : ' (live data needs LSDj 9.3.9)'), 'ok');
+    $('stage-dev').textContent = virtual ? `· virtual FM-1 (${info.firmware})` : `· ${info.firmware} over ${how}`;
     fx = unpackFx(await link.fxGet());
+    fx.reverb = await readReverb();
     settings = unpackSettings(await link.settingsGet());
     { const w = await link.midiGet(); midi = w === null ? null : unpackMidi(w); }
     { const w = fwNum >= 979 ? await link.featGet() : null; features = w === null ? null : unpackFeatures(w); }
@@ -53,7 +60,8 @@ async function connectTo(input, output, how = 'USB') {
     connected = true; lostAt = 0; missed = 0;
     watchPorts(ports?.access);
     startPoll(250);
-    startMirror(how);
+    if (!virtual) startMirror(how);
+    startPad();
   } catch (e) { enable(false); say('device', e.message, 'bad'); }
 }
 /* ---------- a lost FM-1 ----------
@@ -66,8 +74,9 @@ const samePort = (a, b) => !!a && !!b && (a === b || (a.id != null && a.id === b
 const portGone = () => [link?.input, link?.output].some(p => p?.state === 'disconnected');
 function lost(message) {
   if (!connected || installing()) return;
-  connected = false; lostAt = Date.now(); missed = 0;
-  stopPoll(); mirror?.stop(); mirror = null; link?.close();
+  if (virtual) { message = 'The virtual FM-1 stopped. Press Use the virtual FM-1 to start it again.'; showVirtual(false); }
+  connected = false; lostAt = virtual ? 0 : Date.now(); missed = 0;
+  stopPoll(); mirror?.stop(); mirror = null; pad?.(); pad = null; link?.close();
   enable(false); say('device', message, 'warn');
 }
 const UNPLUGGED = 'The FM-1 was disconnected. Plug it in again: the page connects by itself (or press Connect).';
@@ -113,6 +122,49 @@ if (usbMidiUnavailable()) {
   $('connect-btn').disabled = true;
   say('device', usbMidiUnavailable(), 'warn');
 }
+/* ---------- the virtual FM-1 ----------
+   The emulator (emulator/app.js) with a USB cable plugged in: the page's link reaches it as it reaches a
+   device, so Perform, Songs, Colours and Settings work on it. Its own picture (the playable instrument, or
+   its screen) stands in the Screen panel instead of the screen mirror. */
+function showVirtual(on) {
+  if (virtual === on) return;
+  virtual = on;
+  $('virtual-box').hidden = !on;
+  $('pan-screen').classList.toggle('virtual', on);
+  if (on) { $('fm1-screen-box').hidden = true; $('fm1-screen-note').hidden = true; }
+  mountVirtual(on ? $('virtual-mount') : null);
+  virtualView();
+}
+let virtualLcd = false;   /* the Screen panel shows: the instrument, or only its screen */
+function virtualView() {
+  $('virtual-view').setAttribute('aria-pressed', String(virtualLcd));
+  $('virtual-view').textContent = virtualLcd ? 'Show the instrument' : 'Show only the screen';
+  if (!virtual) { $('emu-view').hidden = false; return; }
+  $('emu-view').hidden = virtualLcd; $('emu-lcd').hidden = !virtualLcd;
+}
+$('virtual-view').onclick = () => { virtualLcd = !virtualLcd; virtualView(); };
+const virtualReady = () => { $('virtual-btn').disabled = busy || installing() || !virtualFirmware(); };
+document.addEventListener('firmware-selection-state', virtualReady);
+document.addEventListener('firmware-install-state', virtualReady);
+document.addEventListener('virtual-fm1-firmware', virtualReady);
+document.addEventListener('virtual-fm1', e => { if (!e.detail.connected && virtual) lost(''); });
+virtualReady();
+$('virtual-btn').onclick = async () => {
+  if (busy || installing()) return;
+  say('device', 'Starting the virtual FM-1…');
+  try {
+    const {input, output} = await startVirtual();
+    /* the firmware starts its USB a moment after the emulator boots: ask until it answers (~30 s at most) */
+    for (let i = 0; ; i++) {
+      const probe = new Link(input, output);
+      try { await probe.info(); probe.close(); break; }
+      catch (e) { probe.close(); if (i >= 20 || input.state !== 'connected') throw e; }
+      say('device', 'Starting the virtual FM-1… (waiting for its USB)');
+    }
+    ports = null;
+    await connectTo(input, output, VIRTUAL);
+  } catch (e) { if (!connected) say('device', `The virtual FM-1 did not connect: ${e.message}`, 'bad'); }
+};
 $('port-pick').onchange = e => {
   const i = +e.target.value, input = ports.ins[i];
   const output = ports.outs.find(o => o.name === input.name) || ports.outs[i];
@@ -132,13 +184,122 @@ let fm1Page = null, lastChPage = null, mute = 0, muteOk = false, muteTouched = 0
 let followPage = true, pickPage = 0;
 const shownPage = () => followPage ? (lastChPage ?? fx.page) : pickPage;
 /* per channel (its own value for each of the four) or one for all */
-const perChannel = key => PARAM[key].where === 'ch' || PARAM[key].where === 'q' || key === 'fxOn';
+const perChannel = key => PARAM[key].where === 'ch' || PARAM[key].where === 'q' || PARAM[key].where === 'rvch' || key === 'fxOn';
 /* mutes and freeze: live only, through MUTE_SET */
 function sendMute(freeze = fx.freeze ? 1 : 0) {
   if (!muteOk || busy || installing()) return;
   muteTouched = Date.now();
   link.muteSet(mute, freeze).catch(e => say('fx-status', e.message, 'bad'));
 }
+/* 0.9.97 and newer: the reverb (its own word, and from dev.7 the sends word), or null */
+async function readReverb() {
+  if (fwNum < 997) return null;
+  const w = await link.reverbGet();
+  return w === null ? null : unpackReverb(w, await link.reverbSendsGet());
+}
+async function writeReverb(r) {
+  await link.reverbSet(packReverb(r));
+  if (r.rvSend) await link.reverbSendsSet(packReverbSends(r));
+}
+/* a file's reverb (an effects file or a backup) onto the FM-1, when both have it */
+async function restoreReverb(d) {
+  if (d.reverb !== undefined && fx.reverb) await link.reverbSet(d.reverb);
+  if (d.reverbSends !== undefined && fx.reverb?.rvSend) await link.reverbSendsSet(d.reverbSends);
+}
+async function reverbWords(data) {   /* into a file */
+  const w = fwNum >= 997 ? await link.reverbGet() : null; if (w === null) return;
+  data.reverb = w;
+  const s = await link.reverbSendsGet(); if (s !== null) data.reverbSends = s;
+}
+/* 0.9.97 and newer: a game controller on this page plays LSDj (lsdj/gamepad.js): the one chosen under Controller
+   (or every one connected), each with its own buttons (Controller buttons), kept in this browser */
+let pad = null, padMaps = loadMaps(), padPick = loadPick(), padInfo = null, padList = [], capturing = null;
+const GB_LABEL = {UP: 'Up', DOWN: 'Down', LEFT: 'Left', RIGHT: 'Right', A: 'A', B: 'B', START: 'START', SELECT: 'SELECT'};
+/* The controller whose buttons the page shows: the one playing, else the one chosen, else a standard one */
+const shownPad = () => padInfo || padList.find(p => p.id === padPick) || {id: '', name: 'Game controller', standard: true, hat: -1};
+const namer = info => (info?.standard === false ? c => inputName(c, false) : c => inputName(c));
+function startPad() {
+  pad?.(); pad = null; capturing = null; padInfo = null;
+  $('pad-status').hidden = false;
+  $('pad-sec').hidden = fwNum < 997;   /* (main: the released firmware has no game controller yet) */
+  $('pad-pick-row').hidden = $('pad-map-box').hidden = fwNum < 997;
+  if (fwNum < 997) { say('pad-status', `Game controller: needs LSDJ Burrito 0.9.97 or newer on the FM-1 (this one has ${fwId}).`); return; }
+  pad = startGamepad({send: m => link.padSet(m), canSend: () => connected && !busy && !installing(), status: t => say('pad-status', t),
+                      getPick: () => padPick, getMap: info => mapFor(padMaps, info),
+                      onPads: (list, used) => { padList = list; padInfo = used; drawPadPick(); if (!capturing) drawPadMap(); },
+                      onHeld: (codes, info) => drawPadHeld(codes, info), onRaw: raw => drawPadRaw(raw)});
+  drawPadPick(); drawPadMap();
+}
+function drawPadPick() {
+  const sel = $('pad-pick'), opts = [['', 'Any controller']], seen = new Set();
+  for (const p of padList) if (!seen.has(p.id)) { seen.add(p.id); opts.push([p.id, `${p.name}${p.standard ? '' : ' (no standard layout)'}`]); }
+  if (padPick && !seen.has(padPick)) opts.push([padPick, 'The one chosen before (not connected)']);
+  sel.replaceChildren(...opts.map(([v, t]) => { const o = document.createElement('option'); o.value = v; o.textContent = t; return o; }));
+  sel.value = padPick;
+}
+$('pad-pick').onchange = e => { cancelCapture(); padPick = e.target.value; savePick(padPick); padInfo = null; pad?.refresh(); drawPadMap();
+  say('pad-map-note', '', 'hint'); };
+function drawPadHeld(codes, info) {
+  const name = namer(info);
+  $('pad-held').textContent = !info ? 'Pressed now: (no controller playing)' : `Pressed now: ${codes.length ? codes.map(name).join(', ') : 'nothing'}`;
+}
+/* everything the browser reports, live: buttons lit when down, each axis's value (and its rest when off centre) */
+function drawPadRaw(raw) {
+  const box = $('pad-raw');
+  if (!raw) { box.textContent = 'Raw input: (no controller playing)'; return; }
+  const b = raw.buttons.map((v, i) => `<span class="pad-b${v >= 0.5 ? ' on' : v > 0.05 ? ' part' : ''}" title="Button ${i + 1}: ${v}">${i + 1}</span>`).join('');
+  const a = raw.axes.map((v, i) => {
+    const hat = raw.hats.includes(i), rest = raw.rest[i] || 0;
+    return `<span class="pad-a${!hat && Math.abs(v - rest) > 0.5 ? ' on' : ''}">Axis ${i + 1}${hat ? ' (d-pad)' : ''}: ${v.toFixed(2)}${!hat && rest ? ` (rests ${rest.toFixed(2)})` : ''}</span>`;
+  }).join('');
+  box.innerHTML = `<div class="pad-bs">Buttons ${b || 'none'}</div><div class="pad-as">${a || 'No axes'}</div>`;
+}
+$('pad-recentre').onclick = () => { pad?.recentre(); say('pad-map-note', 'Re-centred: where every stick, trigger and d-pad is now is its rest.', 'hint'); };
+function setPadMap(map, note) {
+  padMaps = saveMap(padMaps, shownPad(), map); drawPadMap();
+  if (note !== undefined) say('pad-map-note', note, 'hint');
+}
+function drawPadMap() {
+  const info = shownPad(), def = defaultMapFor(info), map = mapFor(padMaps, info), name = namer(info);
+  $('pad-map-for').textContent = info.id ? `Buttons for ${info.name}${info.standard ? '' : ' (no standard layout: check them)'}:` : 'Buttons for a standard controller:';
+  const box = $('pad-map'); box.replaceChildren();
+  for (const k of GB_ORDER) {
+    const label = document.createElement('span'); label.textContent = GB_LABEL[k]; box.append(label);
+    for (let s = 0; s < SLOTS; s++) {
+      const code = map[k][s] ?? null, here = capturing?.gb === k && capturing?.slot === s;
+      const cell = document.createElement('span'); cell.className = 'pad-slot';
+      const b = document.createElement('button'); b.type = 'button'; b.dataset.gb = k; b.dataset.slot = s;
+      b.textContent = here ? 'Press a button…' : code ? name(code) : '+ add';
+      b.title = code ? `${GB_LABEL[k]}: ${name(code)} (click to change)` : `Add a controller button for ${GB_LABEL[k]}`;
+      b.classList.toggle('on', here);
+      b.onclick = () => (here ? cancelCapture() : startCapture(k, s));
+      cell.append(b);
+      if (code && !here) {
+        const x = document.createElement('button'); x.type = 'button'; x.className = 'pad-clear'; x.textContent = '✕';
+        x.title = `Take ${name(code)} off ${GB_LABEL[k]}`; x.setAttribute('aria-label', x.title);
+        x.onclick = () => setPadMap(assign(map, k, s, null, def), `${name(code)} no longer presses ${GB_LABEL[k]}.`);
+        cell.append(x);
+      }
+      box.append(cell);
+    }
+  }
+  $('pad-map-reset').disabled = isDefaultMap(map, def);
+}
+function startCapture(gb, slot) {
+  if (!pad) return;
+  if (!padInfo) { say('pad-map-note', 'No controller is playing: connect one and press a button on it (or choose it under Controller).', 'warn'); return; }
+  capturing = {gb, slot}; drawPadMap();
+  say('pad-map-note', `Press the controller button, or push the stick, for ${GB_LABEL[gb]} (Esc or click again: cancel).`, 'hint');
+  pad.capture((code, info) => {
+    capturing = null;
+    const i = info || shownPad(), name = namer(i), map = mapFor(padMaps, i), from = takenFrom(map, gb, code);
+    padMaps = saveMap(padMaps, i, assign(map, gb, slot, code, defaultMapFor(i))); drawPadMap();
+    say('pad-map-note', `${GB_LABEL[gb]}: ${name(code)}.${from.length ? ` (Moved off ${from.map(k => GB_LABEL[k]).join(' and ')}.)` : ''}`, 'hint');
+  });
+}
+function cancelCapture() { if (!capturing) return; pad?.cancelCapture(); capturing = null; drawPadMap(); say('pad-map-note', '', 'hint'); }
+addEventListener('keydown', e => { if (e.key === 'Escape') cancelCapture(); });
+$('pad-map-reset').onclick = () => { cancelCapture(); setPadMap(defaultMapFor(shownPad()), 'Back to the default buttons.'); };
 const controls = [];   // {key, ch, wrap, set(v)}
 function changed() {
   if (busy || installing()) return;
@@ -147,6 +308,7 @@ function changed() {
   sendTimer = setTimeout(() => {
     sendTimer = null;
     link.fxSet(packFx(fx)).catch(e => say('fx-status', e.message, 'bad'));
+    if (fx.reverb) writeReverb(fx.reverb).catch(e => say('fx-status', e.message, 'bad'));
   }, 80);
 }
 /* one control for one channel (ch: 0-3; a shared control uses 0) */
@@ -196,17 +358,23 @@ function buildFx() {
   $('fx-master').hidden = !fx.v3;   // FM-1_975 and newer: shared pages apart
   pagesForFx(fx, fwNum).forEach((pg, i) => {
     if (pg.v2 && !fx.v2) return;                     // the new pages need alpha 66
+    if (pg.rv && !fx.reverb) return;                 // REVERB: 0.9.97 and newer
     const card = document.createElement('div'); card.className = 'fx-card'; card.dataset.page = i;
-    const perCh = pg.knobs.some(slot => slot && perChannel(slot[1]));
+    const master = isMasterPage(fx, i, fwNum), anyCh = pg.knobs.some(slot => slot && perChannel(slot[1]));
+    /* a channel page: a column per channel (the Channels panel's heads). A shared page with a per-channel knob
+       (0.9.97: ECHO K1, the send): that knob one line per channel, named, as the Master panel is narrow. */
+    const perCh = anyCh && !master;
     if (perCh) card.classList.add('matrix');
-    card.innerHTML = `<h3>${pg.name}<span class="fx-who">${perCh ? '' : 'all channels'}</span><span class="fx-onfm1">on the FM-1's knobs</span></h3>`;
+    card.innerHTML = `<h3>${pg.name}<span class="fx-who">${anyCh ? '' : 'all channels'}</span><span class="fx-onfm1">on the FM-1's knobs</span></h3>`;
     pg.knobs.forEach((slot, k) => {
       if (!slot) return;
+      if (slot[0] === 'rvch' && !fx.reverb?.rvSend) return;   // reverb sends: 0.9.97-dev.7 and newer
       const [where, key] = slot;
       const row = document.createElement('div'); row.className = 'fx-row';
       const p = PARAM[key];
-      row.innerHTML = `<span class="knob">K${k + 1}</span><span class="fx-name">${p.name}${(where === 'comp' || where === 'echo') && perCh ? ' <small>(all)</small>' : ''}</span>`;
+      row.innerHTML = `<span class="knob">K${k + 1}</span><span class="fx-name">${p.name}${(where === 'comp' || where === 'echo') && anyCh ? ' <small>(all)</small>' : ''}</span>`;
       if (perCh && perChannel(key)) CHANNELS.forEach((n, c) => row.append(control(key, c)));
+      else if (anyCh && perChannel(key)) CHANNELS.forEach((n, c) => { const w = control(key, c); w.classList.add('chan-line'); row.append(w); });
       else { const w = control(key, 0); if (perCh) w.classList.add('shared'); row.append(w); }
       card.append(row);
     });
@@ -265,7 +433,7 @@ function refresh(hot = []) {
     d.querySelector('small').textContent = [channelSummary(fx, n), ...tags].join(' · ');
   });
   /* the column under the FM-1's cursor marked; a muted channel's column grey (still adjustable), as the FM-1 does */
-  $$('#pan-chans [data-ch]').forEach(el => {
+  $$('#pan-chans [data-ch], .fx-ctl.chan-line').forEach(el => {
     const n = +el.dataset.ch;
     el.classList.toggle('cursor', !!lastLive && n === cursorCh);
     el.classList.toggle('muted', !!((mute >> n) & 1));
@@ -350,16 +518,19 @@ addEventListener('scroll', markStageNav, {passive: true}); addEventListener('res
 /* what changed between two setups (every channel, and the shared effects) */
 function changedKeys(a, b) {
   if (!a || !b) return [];
-  return Object.keys(PARAM).filter(k => k !== 'freeze' && (PARAM[k].where !== 'q' || b.v2) &&
+  return Object.keys(PARAM).filter(k => k !== 'freeze' && (PARAM[k].where !== 'q' || b.v2) && (PARAM[k].where !== 'rv' || (a.reverb && b.reverb)) &&
+    (PARAM[k].where !== 'rvch' || (a.reverb?.rvSend && b.reverb?.rvSend)) &&
     [0, 1, 2, 3].some(c => paramGet(a, k, c) !== paramGet(b, k, c)));
 }
 async function tick() {
-  if (!link || busy || !anyVisible()) return;
+  if (!link || busy || !anyVisible() || (virtual && virtualPaused())) return;   /* a paused virtual FM-1 answers nothing */
   if (portGone()) return lost(UNPLUGGED);
   try {
     if (++ticks % 8 === 0) await followThemeSetting();
     const l = await link.live();
     const live = unpackFx(l.fx);
+    live.reverb = fx.reverb && ticks % 2 === 0 ? await readReverb()
+      : fx.reverb && {...fx.reverb, rvSend: fx.reverb.rvSend && [...fx.reverb.rvSend]};   /* every other poll */
     live.freeze = l.freeze; cursorCh = l.cursor < 4 ? l.cursor : cursorCh; bpm = l.bpm;
     fm1Page = l.page < pagesForFx(live, fwNum).length ? l.page : live.page;
     if (!isMasterPage(live, fm1Page, fwNum)) lastChPage = fm1Page;
@@ -417,7 +588,7 @@ document.querySelectorAll('#live-sec .panel[data-pop] .pop').forEach(b => {
 });
 onPopChange(() => { if (fx) refresh(); });
 $('fx-help-btn').onclick = () => $('fx-help').showModal();
-$('fx-keep').onclick = () => run('fx-status', async () => { await link.fxSet(packFx(fx)); await link.store(); say('fx-status', 'Kept on the FM-1.', 'ok'); });
+$('fx-keep').onclick = () => run('fx-status', async () => { await link.fxSet(packFx(fx)); if (fx.reverb) await writeReverb(fx.reverb); await link.store(); say('fx-status', 'Kept on the FM-1.', 'ok'); });
 
 /* ---------- songs ---------- */
 async function run(statusId, fn) {
@@ -477,6 +648,7 @@ async function romFile() {
 }
 async function fxFile() {
   const data = {format: 'lsdj-burrito-fx', version: 1, firmware: fwId, fx: await link.fxGet()};
+  await reverbWords(data);   /* 0.9.97 and newer */
   return {name: 'lsdj-burrito-effects.json', bytes: new TextEncoder().encode(JSON.stringify(data, null, 1))};
 }
 $('export').onclick = () => run('save-status', async () => {
@@ -508,8 +680,11 @@ $('import-fx').onchange = e => {
     if (!Array.isArray(words) || ![11, 17].includes(words.length)) throw new LinkError('This is not an LSDJ Burrito effects file.');
     const loaded = unpackFx(words);
     if (loaded.v3 && !fx.v3) throw new LinkError('These effects need FM-1_975 or newer firmware.');
-    await link.fxSet(words); await link.store();
-    fx = unpackFx(await link.fxGet()); buildFx();
+    if (d.reverb !== undefined) unpackReverb(d.reverb, d.reverbSends ?? null);   /* checks */
+    await link.fxSet(words);
+    await restoreReverb(d);
+    await link.store();
+    fx = unpackFx(await link.fxGet()); fx.reverb = await readReverb(); buildFx();
     say('save-status', `Loaded the effects from ${file.name} and kept them on the FM-1.`, 'ok');
   });
 };
@@ -650,6 +825,7 @@ $('backup').onclick = () => run('settings-status', async () => {
   const data = {format: 'lsdj-burrito-backup', version: 1, settings: await link.settingsGet(), fx: await link.fxGet(), theme: await link.themeGet()};
   const m = await link.midiGet(); if (m !== null) data.midi = m;
   if (features) data.features = await link.featGet();
+  await reverbWords(data);
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 1)], {type: 'application/json'})); a.download = 'lsdj-burrito-backup.json'; a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 10000);
@@ -667,11 +843,13 @@ $('restore').onchange = e => {
     if (restoredFx.v3 && !fx.v3) throw new LinkError('This effects backup requires FM-1_975 or newer firmware.');
     if (d.midi !== undefined) unpackMidi(d.midi);   /* checks */
     if (d.features !== undefined) unpackFeatures(d.features);
+    if (d.reverb !== undefined) unpackReverb(d.reverb, d.reverbSends ?? null);
     await link.themeSet(d.theme); await link.settingsSet(d.settings); await link.fxSet(d.fx);
+    await restoreReverb(d);
     if (d.midi !== undefined && midi) await link.midiSet(d.midi);
     if (d.features !== undefined && features) await link.featSet(d.features);
     await link.store();
-    settings = unpackSettings(d.settings); fx = unpackFx(await link.fxGet()); theme = d.theme;
+    settings = unpackSettings(d.settings); fx = unpackFx(await link.fxGet()); fx.reverb = await readReverb(); theme = d.theme;
     if (d.midi !== undefined && midi) midi = unpackMidi(d.midi);
     if (d.features !== undefined && features) features = unpackFeatures(d.features);
     buildSettings(); buildFx(); drawColors();

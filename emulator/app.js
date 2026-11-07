@@ -2,6 +2,8 @@
 import {getSelectedFirmware, getFirmwareSelection, installing} from '../lsdj/install-ui.js';
 import {firmwareForEmulator, loadRuntime, KEY_IDS} from './core.js';
 import {createPanel} from './panel.js';
+import {readSave, writeSave, FTL_LO, FTL_N, SECTOR} from './save-flash.js';
+import {confirmSaveImport} from '../lsdj/save-file.js';
 
 const $ = id => document.getElementById(id);
 const say = (text, cls = 'hint') => { $('emu-status').textContent = text; $('emu-status').className = cls; };
@@ -9,7 +11,29 @@ let wasm, ui, panel, panelPromise, audio, node, gain, bootTimer;
 let fileGeneration = 0;
 let generation = 0, phase = 'idle', file = null, current = null, front = true;   // flat (front) view by default
 let timing = null;
+let songs = null, songsName = '', lastFirmware = null;   // a .sav to start with; what the last start ran
+let snapshotRequest = 0; const snapshotWaiters = new Map();
 let state = {keys: new Set(), enc: new Int32Array(7), pot: 900};
+/* The virtual FM-1 for My FM-1 (lsdj/app.js): a USB cable plugged in at boot (the wasm built with
+   vendor/fm1-emu-usb.patch), and a MIDI input / output pair on it, shaped like Web MIDI ports, for the
+   page's Link. usb: this run has the cable; booted: resolves when the firmware runs. */
+let usb = false, bootedWait = null, autoPaused = false;   /* autoPaused: paused because the page was hidden */
+const virtualIn = {id: 'virtual-fm1', name: 'Virtual FM-1', state: 'disconnected', onmidimessage: null};
+const virtualOut = {id: 'virtual-fm1', name: 'Virtual FM-1', state: 'disconnected',
+  send(bytes) { if (usb && phase === 'running') send({type: 'usb', bytes: Uint8Array.from(bytes)}); }};
+function fromUsb(out) {   /* what the FM-1 sent: SysEx to its F7, anything else by its status */
+  for (let i = 0; i < out.length;) {
+    let j = i + 1;
+    if (out[i] === 0xF0) { while (j < out.length && out[j] !== 0xF7) j++; j++; }
+    else if (out[i] < 0xF8) j = i + ([0xC0, 0xD0].includes(out[i] & 0xF0) ? 2 : 3);
+    virtualIn.onmidimessage?.({data: out.subarray(i, j)}); i = j;
+  }
+}
+function virtualState(on) {
+  const was = virtualIn.state;
+  virtualIn.state = virtualOut.state = on ? 'connected' : 'disconnected';
+  if (was !== virtualIn.state) document.dispatchEvent(new CustomEvent('virtual-fm1', {detail: {connected: on}}));
+}
 const owners = new Map();
 const send = message => node?.port.postMessage(message);
 const lcdContext = $('emu-lcd').getContext('2d');
@@ -40,6 +64,9 @@ function buttons() {
   $('emu-pause').textContent = paused ? 'Resume' : 'Pause';
   $('emu-stop').disabled = phase === 'idle';
   $('emu-clock').disabled = phase !== 'idle';
+  $('emu-sav-export').disabled = phase !== 'running' && phase !== 'paused';
+  $('emu-sav-file').disabled = loading;
+  document.dispatchEvent(new CustomEvent('virtual-fm1-firmware'));   /* My FM-1's Use the virtual FM-1 */
 }
 function setKey(source, id, down) {
   if (phase !== 'running' && down) return;
@@ -75,6 +102,7 @@ const keyup = e => {
 };
 async function closeMachine() {
   clearTimeout(bootTimer); releaseAll();
+  virtualState(false); usb = false;
   send({type: 'cancel-boot'});
   if (node) { node.port.onmessage = null; node.disconnect(); node.port.close(); node = null; }
   gain?.disconnect(); gain = null;
@@ -83,6 +111,7 @@ async function closeMachine() {
 }
 async function stop(message = 'Stopped. Virtual songs/settings were discarded; no physical device was changed.', cls = 'hint') {
   const seq = ++generation; ++fileGeneration; phase = 'idle'; buttons();
+  bootedWait?.reject(Error(message)); bootedWait = null;
   try { await closeMachine(); }
   catch (error) { if (seq === generation) say(`Emulator shutdown failed: ${error.message}`, 'bad'); return; }
   if (seq === generation) say(message, cls);
@@ -93,12 +122,12 @@ async function ensurePanel() {
     if (!wasm) wasm = await loadRuntime();
     if (!ui) ui = (await WebAssembly.instantiate(wasm, {env: {fm1_jit_compile: () => 0}})).instance.exports;
     panel = await createPanel($('emu-view'), ui, {key: setKey, turn, pot, keydown, keyup, releaseAll}, fail);
-    panel.angle(Number($('emu-tilt').value), Number($('emu-yaw').value)); panel.front(front);
+    panel.angle(Number($('emu-tilt').value), Number($('emu-yaw').value)); panel.front(front); panel.lsdj($('emu-lsdj').checked);
   })().catch(error => { panelPromise = null; throw error; });
   await panelPromise;
   draw();
 }
-async function start(bytes, name) {
+async function start(bytes, name, {withUsb = false} = {}) {
   if (installing()) throw Error('Wait for the physical firmware installation to finish.');
   if (phase === 'loading') throw Error('The virtual FM-1 is already starting.');
   const checked = firmwareForEmulator(bytes);
@@ -112,6 +141,7 @@ async function start(bytes, name) {
     await audio.resume();
     if (audio.sampleRate !== 44100) throw Error('This emulator requires 44100 Hz browser audio.');
     const context = audio;
+    usb = withUsb;
     await ensurePanel();
     if (seq !== generation) return;
     await context.audioWorklet.addModule(new URL('vendor/worklet.js', import.meta.url));
@@ -128,12 +158,16 @@ async function start(bytes, name) {
       const m = e.data;
       if (seq !== generation || m.seq !== seq) return;
       if (m.type === 'error') { fail(m.message); return; }
+      if (m.type === 'snapshot') { snapshotWaiters.get(m.request)?.(m); snapshotWaiters.delete(m.request); return; }
+      if (m.type === 'usb-out') { fromUsb(m.bytes); return; }
       if (m.type === 'booted') {
         clearTimeout(bootTimer);
         if (m.board !== 0) { fail('This view supports FM-1 firmware only.'); return; }
         phase = 'running'; buttons(); send({type: 'pot', value: state.pot});
-        say(`Emulating ${current.product} from ${current.name}. This is virtual hardware, not a hardware validation.`, 'ok');
-        if (document.hidden) $('emu-pause').click();
+        if (usb) virtualState(true);
+        bootedWait?.resolve(); bootedWait = null;
+        say(`Emulating ${current.product} from ${current.name}${songs ? `, with the songs from ${songsName}` : ''}. This is virtual hardware, not a hardware validation.`, 'ok');
+        if (document.hidden) { autoPaused = usb; $('emu-pause').click(); }
         else panel.canvas.focus({preventScroll: true});
       } else if (m.type === 'frame') {
         draw(m);
@@ -151,7 +185,9 @@ async function start(bytes, name) {
       }
     };
     bootTimer = setTimeout(() => { if (seq === generation) fail('Firmware initialization timed out.'); }, 30000);
-    send({type: 'boot', seq, wasm, package: checked.bytes.buffer, mhz: Number($('emu-clock').value), jit: true});
+    lastFirmware = {bytes: checked.bytes.slice(), name};
+    send({type: 'boot', seq, wasm, package: checked.bytes.buffer, mhz: Number($('emu-clock').value), jit: true,
+      flashPatch: songs ? saveRegion(songs) : undefined, usb});
   } catch (error) { if (seq === generation) await stop(error.message, 'bad'); }
 }
 $('emu-file').onchange = e => {
@@ -183,8 +219,9 @@ $('emu-pause').onclick = async () => {
     releaseAll();
     if (pausing) await context.suspend(); else await context.resume();
     if (seq !== generation || audio !== context) return;
+    /* (the virtual FM-1 stays connected while paused: My FM-1 waits for it rather than losing it) */
     if (pausing) { phase = 'paused'; say('Paused. Virtual memory is retained until Stop or reload.'); }
-    else { timing = null; phase = 'running'; say(`Emulating ${current.product}.`, 'ok'); }
+    else { timing = null; phase = 'running'; autoPaused = false; say(`Emulating ${current.product}.`, 'ok'); }
     buttons();
   } catch (error) { if (seq === generation) fail(error); }
 };
@@ -200,7 +237,9 @@ $('emu-front').onclick = () => {
 };
 document.addEventListener('visibilitychange', () => {
   releaseAll();
-  if (document.hidden && phase === 'running') $('emu-pause').click();
+  if (document.hidden && phase === 'running') { autoPaused = usb; $('emu-pause').click(); }
+  /* the virtual FM-1 (My FM-1) carries on when the page is back; Try it waits for Resume, as before */
+  else if (!document.hidden && autoPaused && phase === 'paused') $('emu-pause').click();
 });
 window.addEventListener('blur', releaseAll);
 document.addEventListener('firmware-selection-state', buttons);
@@ -209,3 +248,110 @@ document.addEventListener('firmware-install-state', () => {
   buttons();
 });
 buttons();
+
+// ---- LSDj's buttons drawn on the keys
+$('emu-lsdj').onchange = () => panel?.lsdj($('emu-lsdj').checked);
+
+// ---- LSDj songs (.sav): start the virtual FM-1 with them, or save what it holds
+function saveRegion(save) {
+  const flash = new Uint8Array(FTL_LO + FTL_N * SECTOR).fill(0xFF);
+  writeSave(flash, save);
+  return {offset: FTL_LO, bytes: flash.slice(FTL_LO).buffer};
+}
+$('emu-sav-file').onchange = async e => {
+  const chosen = e.target.files[0];
+  e.target.value = '';
+  if (!chosen) return;
+  try {
+    if (chosen.size > 131072 + 16) throw Error(`${chosen.name} is not an LSDj save (128 KiB).`);
+    const save = confirmSaveImport(new Uint8Array(await chosen.arrayBuffer()), chosen.name,
+      text => confirm(text.replace('on the FM-1', 'in the virtual FM-1')));
+    if (!save) return;
+    songs = save; songsName = chosen.name;
+    if (phase === 'running' || phase === 'paused') {
+      if (!lastFirmware) return;
+      await start(lastFirmware.bytes, lastFirmware.name);
+    } else say(`${chosen.name} will be loaded when the virtual FM-1 starts.`);
+  } catch (error) { say(error.message, 'bad'); }
+};
+function snapshot() {
+  return new Promise((resolve, reject) => {
+    const request = ++snapshotRequest;
+    const timer = setTimeout(() => { snapshotWaiters.delete(request); reject(Error('The virtual FM-1 did not answer.')); }, 5000);
+    snapshotWaiters.set(request, m => { clearTimeout(timer); resolve(m); });
+    send({type: 'snapshot', seq: generation, request});
+  });
+}
+$('emu-sav-export').onclick = async () => {
+  try {
+    const m = await snapshot();
+    if (m.unavailable || !m.flash) throw Error(m.error || 'The virtual FM-1 is busy writing; try again in a moment.');
+    const save = readSave(new Uint8Array(m.flash));
+    if (!save) throw Error('Nothing saved yet: press SAVE on the virtual FM-1 first (LSDj saves its songs there).');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([save], {type: 'application/octet-stream'}));
+    a.download = `lsdj-burrito-virtual-${new Date().toISOString().slice(0, 10)}.sav`; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    say('Saved the songs from the virtual FM-1 (as of its last SAVE).', 'ok');
+  } catch (error) { say(error.message, 'bad'); }
+};
+
+// ---- a MIDI keyboard plays the virtual FM-1 (its MIDI input, as the TRS socket)
+const midiInputs = new Set();
+function listenMidi(access) {
+  for (const input of access.inputs.values()) {
+    if (midiInputs.has(input)) continue;
+    midiInputs.add(input);
+    input.onmidimessage = e => {
+      if (phase !== 'running' || e.data[0] === 0xFE) return;   // (active sensing: not needed)
+      send({type: 'midi', bytes: Array.from(e.data)});
+    };
+  }
+  const names = [...access.inputs.values()].map(i => i.name);
+  $('emu-midi-status').textContent = names.length ? `MIDI in: ${names.join(', ')}` : 'No MIDI keyboard found. Plug one in; it is picked up when it connects.';
+}
+if (navigator.requestMIDIAccess) {
+  $('emu-midi').hidden = false;
+  $('emu-midi').onclick = async () => {
+    try {
+      const access = await navigator.requestMIDIAccess();
+      $('emu-midi').disabled = true;
+      listenMidi(access);
+      access.onstatechange = () => listenMidi(access);
+    } catch (error) { $('emu-midi-status').textContent = `MIDI not available: ${error.message}`; }
+  };
+}
+
+// ---- the virtual FM-1 in My FM-1 (lsdj/app.js): Perform, Songs, Colours and Settings over emulated USB
+/* Start the virtual FM-1 with a USB cable (restarting one without it), with the prepared firmware, else the
+   .fwsc chosen here, else the last one run; resolves {input, output} once its firmware runs. */
+export async function startVirtual() {
+  if (usb && phase === 'running') return {input: virtualIn, output: virtualOut};
+  if (usb && phase === 'paused') { $('emu-pause').click(); return {input: virtualIn, output: virtualOut}; }
+  let fw = getFirmwareSelection() ? getSelectedFirmware() : null;
+  if (!fw && file) fw = {bytes: new Uint8Array(await file.arrayBuffer()), name: file.name};
+  if (!fw && lastFirmware) fw = lastFirmware;
+  if (!fw) throw Error('No firmware for the virtual FM-1 yet: prepare one in Install (or choose a .fwsc file in Try it).');
+  const booted = new Promise((resolve, reject) => { bootedWait = {resolve, reject}; });
+  booted.catch(() => {});
+  await start(fw.bytes, fw.name, {withUsb: true});
+  if (!usb) { bootedWait = null; throw Error('The virtual FM-1 was not restarted.'); }   /* the restart was cancelled */
+  await booted;
+  return {input: virtualIn, output: virtualOut};
+}
+export const virtualRunning = () => usb && phase === 'running';
+export const virtualPaused = () => usb && phase === 'paused';
+export const virtualFirmware = () => !!(getFirmwareSelection() || file || lastFirmware);
+/* The instrument (and the enlarged screen) shown somewhere else: Perform's Screen panel; null puts them back */
+const home = {view: null, lcd: null};
+export function mountVirtual(box) {
+  const view = $('emu-view'), lcd = $('emu-lcd');
+  if (!home.view) { home.view = view.previousElementSibling; home.lcd = lcd.previousElementSibling; }
+  view.classList.toggle('fill', !!box);
+  if (box) { box.append(view, lcd); return; }
+  home.view.after(view); home.lcd.after(lcd);
+  lcd.hidden = true; $('emu-zoom').setAttribute('aria-expanded', 'false');
+}
+export const stopVirtual = () => stop();
+/* an encoder of the virtual FM-1 turned (enc as fm1-emu numbers them: 0 SELECT, 2-5 KNOB1-4) */
+export function turnVirtual(enc, clicks) { if (phase === 'running') send({type: 'enc', enc, clicks}); }

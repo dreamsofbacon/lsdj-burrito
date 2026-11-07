@@ -1,0 +1,29 @@
+{
+  "name": "LSDJ Burrito DEV",
+  "short_name": "Burrito DEV",
+  "description": "The LSDJ Burrito dev page: test builds of the firmware and the page. The finished version is the LSDJ Burrito app.",
+  "id": "./",
+  "start_url": "./#connect",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#181c18",
+  "theme_color": "#181c18",
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

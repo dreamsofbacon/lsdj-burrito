@@ -52,4 +52,26 @@ assert.match(h, /MIX 10 FB 0/);
 assert.deepEqual(['drive', 'filter', 'lofi', 'lfo', 'echo', 'comp'].map(g => pageFor(g)), ['DRIVE', 'FILTER', 'LO-FI', 'LFO', 'ECHO', 'MASTER']);
 assert.deepEqual(['drive', 'comp'].map(g => pageFor(g, true)), ['TONE', 'TONE']);
 assert.ok(!/<text[^>]*>[^<]*["<>&][^<]*<\/text>/.test(v));             // text escaped
-console.log('PASS FX wiring directions: upright, across, phone; every block opens its page (data-go), keyboard reachable');
+/* 0.9.97: the reverb, only when the FM-1 has it; lit with its mix up; fed by each channel's reverb send (dev.7) */
+{ const f = unpackFx(words());
+  for (const layout of ['v', 'h']) for (const compact of [false, true]) assert.ok(!fxDiagram(f, {layout, compact}).includes('REVERB'), 'older firmware: none');
+  f.reverb = {rvMix: 0, rvSize: 64, rvTone: 64, rvSend: [0, 0, 0, 0]};
+  for (const [layout, compact] of [['v', false], ['h', false], ['v', true]]) {
+    let s = fxDiagram(f, {layout, compact});
+    assert.equal(count(s, /data-go="reverb"/g), 1); assert.match(s, compact ? /REVERB<\/text><text class="sub"[^>]*>off</ : /mix 0: off/); assert.ok(!/class="blk on" data-go="reverb"/.test(s));
+    assert.match(s, /reverb off, compressor/);
+    f.reverb.rvMix = 90; s = fxDiagram(f, {layout, compact});
+    assert.match(s, /class="blk on" data-go="reverb"/); assert.match(s, compact ? />MIX 90</ : /MIX 90 0\.9s/); assert.match(s, /reverb on, compressor/);
+    assert.equal(count(s, /class="send rv/g), 0, 'no sends: no send line');
+    f.reverb.rvSend = [40, 0, 0, 90]; s = fxDiagram(f, {layout, compact});
+    assert.match(s, />rev 40</); assert.match(s, />rev 90</); assert.ok(!/>rev 0</.test(s));
+    assert.ok(count(s, /class="send rv"/g) >= 1, 'the sends feed it'); assert.match(s, /reverb on \(sent to by PU1, NOI\)/);
+    assert.equal(count(s, /class="send"/g), 0, 'the echo sends untouched (none)');
+    f.reverb.rvMix = 0; s = fxDiagram(f, {layout, compact}); assert.ok(count(s, /class="send rv idle"/g) >= 1, 'the reverb silent: dashed');
+    assert.equal(count(s, /role="button" tabindex="0"/g), 19);
+    f.reverb.rvSend = [0, 0, 0, 0];
+  }
+  assert.match(fxDiagram(f, {layout: 'h'}), /viewBox="0 0 720 262"/);   /* taller: room for the sends' way round */
+  f.reverb.rvSend = null; assert.ok(fxDiagram(f).includes('REVERB'), 'dev.1-6 (no sends): the block still drawn');
+  assert.equal(pageFor('reverb'), 'REVERB'); }
+console.log('PASS FX wiring directions: upright, across, phone; every block opens its page (data-go), keyboard reachable; the reverb (0.9.97)');

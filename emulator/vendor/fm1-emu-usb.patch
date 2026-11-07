@@ -1,0 +1,66 @@
+diff --git a/crates/fm1-web/src/lib.rs b/crates/fm1-web/src/lib.rs
+index 2f0ebc1..4001cd3 100644
+--- a/crates/fm1-web/src/lib.rs
++++ b/crates/fm1-web/src/lib.rs
+@@ -941,3 +941,61 @@ mod pace_tests {
+         }
+     }
+ }
++
++// ---- USB (LSDJ Burrito): a USB cable to the page, USB-MIDI both ways (fm1_soc::usb) ----
++
++const USB_IN_CAP: usize = 8192;
++static mut USB_IN: [u8; USB_IN_CAP] = [0; USB_IN_CAP];
++static mut USB_OUT: Vec<u8> = Vec::new();
++
++/// Plug in a USB cable: the FM-1 enumerates and its USB-MIDI endpoints answer (as fm1-live --usb).
++#[no_mangle]
++pub extern "C" fn fm1_usb_plug() {
++    if let Some(m) = machine() {
++        m.soc.usb_plug();
++    }
++}
++
++/// Where JS writes one MIDI message (SysEx included) for fm1_usb_send; it holds fm1_usb_in_cap() bytes.
++#[no_mangle]
++#[allow(static_mut_refs)]
++pub extern "C" fn fm1_usb_in() -> *mut u8 {
++    unsafe { USB_IN.as_mut_ptr() }
++}
++
++#[no_mangle]
++pub extern "C" fn fm1_usb_in_cap() -> u32 {
++    USB_IN_CAP as u32
++}
++
++/// Send the `len` bytes at fm1_usb_in() to the FM-1 over USB, as one message.
++#[no_mangle]
++#[allow(static_mut_refs)]
++pub extern "C" fn fm1_usb_send(len: u32) {
++    let len = (len as usize).min(USB_IN_CAP);
++    if let Some(m) = machine() {
++        let msg = unsafe { &USB_IN[..len] };
++        m.soc.usb.midi_send(msg);
++    }
++}
++
++/// What the FM-1 sent over USB since the last call, the messages one after another; returns the
++/// byte count, the bytes at fm1_usb_out().
++#[no_mangle]
++#[allow(static_mut_refs)]
++pub extern "C" fn fm1_usb_take() -> u32 {
++    let out = unsafe { &mut USB_OUT };
++    out.clear();
++    if let Some(m) = machine() {
++        for msg in m.soc.usb.midi_take() {
++            out.extend_from_slice(&msg);
++        }
++    }
++    out.len() as u32
++}
++
++#[no_mangle]
++#[allow(static_mut_refs)]
++pub extern "C" fn fm1_usb_out() -> *const u8 {
++    unsafe { USB_OUT.as_ptr() }
++}

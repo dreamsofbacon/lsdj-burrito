@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 import assert from 'node:assert/strict';
-import {PAGES, PAGES_979, PAGES_978, LEGACY_PAGES, pagesForFx, firmwareNumber, unpackFx, packFx, paramGet, paramSet, channelSummary,
+import {unpackReverb, packReverbSends, packReverb, reverbSeconds, REVERB_PARAMS, valueText, PAGES, PAGES_997, PAGES_979, PAGES_978, LEGACY_PAGES, pagesForFx, firmwareNumber, unpackFx, packFx, paramGet, paramSet, channelSummary,
         FEATURES, FEATURE_DEFAULTS, packFeatures, unpackFeatures, MIDI_CC_MAP, THEMES, isMasterPage} from '../lsdj/fx-model.js';
 
 const setup = (layout, page, n = 17) => {
@@ -24,13 +24,43 @@ for (const pages of [PAGES, PAGES_979, PAGES_978]) {
   assert.equal(keys.length, new Set(keys).size);
 }
 assert.deepEqual(PAGES.slice(1), PAGES_979.slice(1));
+/* 0.9.97 (FM-1_997): every effect once, the per-channel ones on the channel pages. LO-FI K3 the send; ECHO time,
+   feedback, mix, tone; MASTER K3 freeze; FILTER K2 type */
+assert.deepEqual(PAGES_997.map(p => p.knobs.map(k => k?.[1] ?? null)), [
+  ['allFxOn', 'comp', 'freeze', null], ['fxOn', 'type', 'cutoff', 'reso'],
+  ['drive', 'dist', 'warm', null], ['lfoRate', 'lfoDepth', 'lfoShape', 'lfoDest'],
+  ['crush', 'decim', 'send', 'rvSend'], ['time', 'feedback', 'mix', 'tone'], ['wobble', 'sync', 'mode', null],
+  ['rvMix', 'rvSize', 'rvTone', null]
+]);
+assert.ok(PAGES_997[7].rv && isMasterPage(unpackFx(setup(2, 0)), 7));
+{ const keys = PAGES_997.filter(p => !p.rv).flatMap(p => p.knobs.filter(Boolean).map(k => k[1]));   /* every key, once */
+  assert.deepEqual([...new Set(keys)].sort(), [...new Set([...PAGES.flatMap(p => p.knobs.filter(Boolean).map(k => k[1])), 'rvSend'])].sort());
+  assert.equal(keys.length, new Set(keys).size); }
 assert.equal(firmwareNumber('FM-1_979'), 979); assert.equal(firmwareNumber('FM-1_978'), 978); assert.equal(firmwareNumber('GameDude'), 0);
 { const v3 = unpackFx(setup(2, 1));
   assert.equal(pagesForFx(v3, 979), PAGES_979); assert.equal(pagesForFx(v3, 980), PAGES); assert.equal(pagesForFx(v3, 978), PAGES_978);
-  assert.equal(pagesForFx(v3, 975), PAGES_978); assert.equal(pagesForFx(v3), PAGES); }
+  assert.equal(pagesForFx(v3, 975), PAGES_978); assert.equal(pagesForFx(v3, 996), PAGES); assert.equal(pagesForFx(v3, 997), PAGES_997);
+  assert.equal(pagesForFx(v3), PAGES_997); }
+/* 0.9.97 reverb word: mix, size, tone a byte each (the 4th, dev.1-6's INPUT, ignored); dev.7 sends word: a byte per channel */
+{ const r = unpackReverb(0x011E5A64, 0x40007F05);
+  assert.deepEqual(r, {rvMix: 100, rvSize: 90, rvTone: 30, rvSend: [5, 127, 0, 64]});
+  assert.equal(packReverb(r), 0x001E5A64); assert.equal(packReverbSends(r), 0x40007F05);
+  assert.deepEqual(unpackReverb(0x001E5A64), {rvMix: 100, rvSize: 90, rvTone: 30, rvSend: null});   /* dev.1-6: no sends */
+  for (const bad of [0x80, 0x8000, 0x800000, 0x02000000, -1, 1.5]) assert.throws(() => unpackReverb(bad));
+  for (const bad of [0x80, 0x8000, 0x80000000, -1, 1.5]) assert.throws(() => unpackReverb(0, bad));
+  assert.deepEqual(REVERB_PARAMS.map(p => p.key), ['rvMix', 'rvSize', 'rvTone']);
+  assert.ok(Math.abs(reverbSeconds(0) - 0.4) < 0.15 && Math.abs(reverbSeconds(127) - 6) < 1.5, `${reverbSeconds(0)} .. ${reverbSeconds(127)}`);
+  const fx = unpackFx(setup(2, 1)); fx.reverb = r;
+  assert.equal(paramGet(fx, 'rvSize', 0), 90); paramSet(fx, 'rvMix', 0, 5); assert.equal(fx.reverb.rvMix, 5);
+  assert.match(valueText(fx, 'rvSize', 0), / s$/);
+  assert.equal(paramGet(fx, 'rvSend', 3), 64); paramSet(fx, 'rvSend', 2, 33); assert.deepEqual(fx.reverb.rvSend, [5, 127, 33, 64]);
+  assert.equal(valueText(fx, 'rvSend', 2), '33'); fx.fxOff = 0; fx.bypass = 0; assert.match(channelSummary(fx, 2), /rev 33/);
+  fx.reverb.rvMix = 0; paramSet(fx, 'rvSend', 0, 10); assert.equal(fx.reverb.rvMix, 64, 'a send with the reverb silent sets a mix');
+  fx.reverb.rvSend = null; assert.equal(paramGet(fx, 'rvSend', 0), 0); assert.throws(() => paramSet(fx, 'rvSend', 0, 1));
+  delete fx.reverb; assert.equal(paramGet(fx, 'rvMix', 0), 0); assert.throws(() => paramSet(fx, 'rvMix', 0, 1)); }
 for (let page = 0; page < 7; page++) {
   const fx = unpackFx(setup(2, page));
-  assert.equal(pagesForFx(fx), PAGES);
+  assert.equal(pagesForFx(fx), PAGES_997);
   for (let c = 0; c < 4; c++) {
     fx.ch[c].cutoff = 80; fx.q[c].warm = 40; fx.echo.mix = 90; fx.comp = 70;
     const original = structuredClone(fx);
@@ -87,6 +117,6 @@ assert.equal(unpackFeatures(0x460001CE | 3 << 16).autosave, 2);
 assert.throws(() => unpackFeatures(0x460001CE | (THEMES.length + 1) << 9), /Unknown/);
 /* The CC map: every CC the firmware takes (firmware/lsdj_midi.h lsdj_midi_cc_num), once */
 assert.deepEqual(MIDI_CC_MAP.map(m => m[0]).sort((a, b) => a - b),
-  [70, 71, 74, 75, 76, 77, 91, 80, 81, 12, 13, 14, 15, 16, 17, 18, 19, 72, 73, 78, 79, 82, 83, 20].sort((a, b) => a - b));
+  [70, 71, 74, 75, 76, 77, 91, 80, 81, 12, 13, 14, 15, 16, 17, 18, 19, 72, 73, 78, 79, 82, 83, 20, 21, 22, 23, 92].sort((a, b) => a - b));
 assert.ok(MIDI_CC_MAP.every(m => m[2] === 'channel' || m[2] === 'shared'));
 console.log('PASS FX model: seven-page mapping (979 and 975-978), global bypass/settings roundtrip, 11/17-word legacy layouts, invalid data, feature switches, CC map');

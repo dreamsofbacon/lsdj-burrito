@@ -14,6 +14,9 @@ export async function runFxUiTests() {
   const descriptor = Object.getOwnPropertyDescriptor(navigator, 'requestMIDIAccess');
   const input = {name: 'FM-1 test'}, ops = [];
   let bytes = Array(68).fill(0), writes = 0, cursor = 0, firmware = 'FM-1_975', muteSent = null, liveMute = 0, featWord = 0x460001CE, featSets = 0;
+  let rvWord = 0x00404000, rvSets = 0;   /* 0.9.97: the reverb word */
+  let rvsWord = 0, rvsSets = 0, sendsOk = true;   /* 0.9.97-dev.7: the reverb sends (dev.1-6: none, status 1) */
+  const padSent = [];                     /* 0.9.97: PAD_SET bytes */
   bytes[36] = 5; bytes[37] = 2; bytes[42] = 0xf2; bytes[43] = 70;
   bytes[2] = 40; bytes[30] = 80; bytes[35] = 4;
   const output = {name: 'FM-1 test', send(message) {
@@ -37,6 +40,11 @@ export async function runFxUiTests() {
     if (op === OP.FEAT_GET) return firmware >= 'FM-1_979' ? send(le32(featWord)) : send([], 1);
     if (op === OP.FEAT_SET) { featWord = (args[0] | args[1] << 8 | args[2] << 16 | args[3] << 24) >>> 0; featSets++; return send(); }
     if (op === OP.MUTE_SET) { muteSent = args; return send(); }
+    if (op === OP.REVERB_GET) return firmware >= 'FM-1_997' ? send(le32(rvWord)) : send([], 1);
+    if (op === OP.PAD_SET) { if (firmware < 'FM-1_997') return send([], 1); padSent.push(args[0]); return send(); }
+    if (op === OP.REVERB_SENDS_GET) return firmware >= 'FM-1_997' && sendsOk ? send(le32(rvsWord)) : send([], 1);
+    if (op === OP.REVERB_SENDS_SET) { rvsWord = (args[0] | args[1] << 8 | args[2] << 16 | args[3] << 24) >>> 0; rvsSets++; return send(); }
+    if (op === OP.REVERB_SET) { rvWord = (args[0] | args[1] << 8 | args[2] << 16 | args[3] << 24) >>> 0; rvSets++; return send(); }
     if ([OP.STORE, OP.THEME_SET, OP.SETTINGS_SET].includes(op)) return send();
     /* the screen (FM-1_983+): every row one colour, red (RGB565 0xF800) */
     if (op === OP.SCREEN_INFO) return firmware >= 'FM-1_983' ? send([...le32(1), ...Array(36).fill(7)]) : send([], 1);
@@ -211,8 +219,132 @@ export async function runFxUiTests() {
       const sets = featSets; sel.value = '3'; sel.onchange(); $('settings-apply').onclick();
       await until(() => featSets > sets, 'screen rate sent');
       assert((featWord >>> 18 & 3) === 3, `989: 30 a second: ${featWord.toString(16)}`); }
+    assert(!ops.includes(OP.REVERB_GET), 'before 0.9.97: the reverb never asked');
+    /* 0.9.97 (FM-1_997): the send on LO-FI K3 (a column per channel), ECHO = time, feedback, mix, tone; REVERB the 4th
+       master card, sent on its own */
+    firmware = 'FM-1_997';
+    await $('connect-btn').onclick();
+    assert([...document.querySelectorAll('#fx-master-pages .fx-card')].map(c => c.dataset.page).join() === '0,5,6,7', `997: MASTER, ECHO, ECHO MOD, REVERB`);
+    { const echoCard = document.querySelector('#fx-master-pages .fx-card[data-page="5"]');
+      { const names = [...echoCard.querySelectorAll('.fx-ctl')].map(c => c.dataset.key).join();
+        assert(names === 'time,feedback,mix,tone' && !echoCard.querySelector('.chan-line'), `997: ECHO all shared: ${names}`);
+        const lofi = document.querySelector('#fx-pages .fx-card[data-page="4"]');
+        const sends = [...document.querySelectorAll('.fx-ctl[data-key="send"]')];
+        assert(lofi.classList.contains('matrix') && sends.length === 4 && sends.every(s => lofi.contains(s)) &&
+               sends.map(s => s.dataset.chn).join() === 'PU1,PU2,WAV,NOI', '997: the sends on LO-FI, a column per channel');
+        lofi.querySelector('.fx-ctl[data-key="send"][data-ch="1"] input').value = 33;
+        lofi.querySelector('.fx-ctl[data-key="send"][data-ch="1"] input').dispatchEvent(new Event('input'));
+        await until(() => read().ch[1].send === 33 && read().ch[0].send !== 33, '997: PU2\'s send sent'); }
+      /* every effect on one card only: no control twice (per channel: four, one card) */
+      { const n = {}; document.querySelectorAll('#fx-pages .fx-ctl, #fx-master-pages .fx-ctl').forEach(c => { const k = c.dataset.key + '/' + (c.dataset.ch ?? '-'); n[k] = (n[k] || 0) + 1; });
+        const twice = Object.entries(n).filter(([, v]) => v > 1).map(([k]) => k);
+        assert(!twice.length, `997: on two cards: ${twice.join(' ')}`); }
+      const names = [...document.querySelectorAll('#fx-master-pages .fx-card[data-page="7"] .fx-name')].map(n => n.textContent).join();
+      assert(names === 'Reverb mix,Size,Tone', `997: the REVERB card: ${names}`);
+      /* dev.7: each channel's reverb send on LO-FI K4, a column per channel; WAV's moved -> its byte sent */
+      { const rs = [...document.querySelectorAll('#fx-pages .fx-card[data-page="4"] .fx-ctl[data-key="rvSend"]')];
+        assert(rs.map(s => s.dataset.chn).join() === 'PU1,PU2,WAV,NOI', `997: the reverb sends on LO-FI: ${rs.length}`);
+        const ss = rvsSets; rs[2].querySelector('input').value = 50; rs[2].querySelector('input').dispatchEvent(new Event('input'));
+        await until(() => rvsSets > ss && rvsWord === 50 << 16, `997: WAV's reverb send sent: ${rvsWord.toString(16)}`);
+        assert((rvWord & 255) === 64, `997: a send with the reverb silent: mix 64 too (${rvWord.toString(16)})`);
+        rvsWord = 0x7F000000;   /* moved on the FM-1 (NOI 127): the panel follows */
+        await until(() => rs[3].querySelector('input').value === '127' && rs[2].querySelector('input').value === '0', '997: the panel follows the FM-1\'s sends', 120);
+        rvsWord = 0; }
+      const mix = document.querySelector('.fx-ctl[data-key="rvMix"] input[type="range"]'), sets = rvSets, fxWrites = writes;
+      mix.value = '90'; mix.oninput();
+      await until(() => rvSets > sets, '997: the reverb sent');
+      assert((rvWord & 255) === 90 && (rvWord >>> 8 & 255) === 64, `997: reverb mix 90 sent, size kept: ${rvWord.toString(16)}`);
+      assert(writes > fxWrites, '997: the 17 effects words sent as before');
+      rvWord = 0x01204070;   /* moved on the FM-1: the panel follows */
+      await until(() => document.querySelector('.fx-ctl[data-key="rvSize"] input[type="range"]').value === '64' &&
+                        document.querySelector('.fx-ctl[data-key="rvMix"] input[type="range"]').value === '112', '997: the panel follows the FM-1\'s reverb', 120);
+      /* dev.1-6 (no sends op): no reverb send controls, the reverb card as it is */
+      sendsOk = false; await $('connect-btn').onclick();
+      assert(!document.querySelector('.fx-ctl[data-key="rvSend"]') && document.querySelector('.fx-ctl[data-key="rvMix"]'), '997 dev.1-6: no reverb sends');
+      sendsOk = true; await $('connect-btn').onclick(); }
+    /* 0.9.97: a game controller on the page: A held -> PAD_SET 1, again while held, 0 on release; older firmware: a note */
+    { const gp = {id: 'Xbox Wireless Controller (STANDARD GAMEPAD Vendor: 045e Product: 0b13)', connected: true, mapping: 'standard', axes: [0, 0],
+                  buttons: Array.from({length: 17}, () => ({pressed: false, value: 0}))};
+      const had = Object.getOwnPropertyDescriptor(Navigator.prototype, 'getGamepads');
+      let padList2 = null;
+      Object.defineProperty(navigator, 'getGamepads', {configurable: true, value: () => padList2 || [gp]});
+      await sleep(300); padSent.length = 0;   /* (anything a real device on the test machine sent before) */
+      try {
+        await until(() => /Xbox Wireless Controller\. It plays LSDj/.test($('pad-status').textContent) && !$('pad-status').hidden, `997: the controller named: ${$('pad-status').textContent}`);
+        assert(!padSent.length, `997: nothing held, nothing sent (${padSent.join()})`);
+        gp.buttons[0] = {pressed: true, value: 1};
+        await until(() => padSent.includes(1), '997: A sent');
+        await sleep(450);
+        assert(padSent.filter(b => b === 1).length >= 2, `997: A again while held (${padSent.filter(b => b === 1).length})`);
+        gp.buttons[0] = {pressed: false, value: 0};
+        await until(() => padSent.at(-1) === 0, '997: the release sent');
+        /* Controller buttons: START's second slot gets RB (button 5) by pressing it; RB then sends START; Reset */
+        assert(!$('pad-map-box').hidden, '997: Controller buttons shown');
+        assert($('settings-sec').contains($('pad-map-box')) && $('settings-sec').contains($('pad-pick')) && !$('pan-screen').querySelector('[id^="pad-"]'),
+          '997: the controller in Settings, the Screen panel only the screen');
+        const slot = () => document.querySelector('#pad-map button[data-gb="START"][data-slot="1"]');
+        assert(slot().textContent === '+ add' && document.querySelector('#pad-map button[data-gb="START"][data-slot="0"]').textContent === 'Menu / Start / Options',
+          `997: START's slots: ${slot().textContent}`);
+        slot().click();
+        await until(() => slot().textContent === 'Press a button…', '997: waiting for a button');
+        const sentBefore = padSent.length;
+        gp.buttons[5] = {pressed: true, value: 1};
+        await until(() => slot().textContent === 'RB / R1', `997: RB taken for START (${slot().textContent})`);
+        /* while choosing nothing is pressed; once RB is START, the RB still held is START */
+        assert(padSent.slice(sentBefore).every(b => b === 0 || b === 8), `997: nothing else sent while choosing (${padSent.slice(sentBefore)})`);
+        await until(() => padSent.at(-1) === 8, '997: RB now presses START');
+        assert(/RB \/ R1/.test($('pad-held').textContent), `997: pressed now: ${$('pad-held').textContent}`);
+        assert($('pad-raw').querySelector('.pad-b.on')?.textContent === '6' && /Axis 1: 0\.00/.test($('pad-raw').textContent), `997: raw input: ${$('pad-raw').textContent}`);
+        gp.buttons[5] = {pressed: false, value: 0};
+        await until(() => padSent.at(-1) === 0, '997: RB let go');
+        assert(/"b5"/.test(localStorage.getItem('lsdj-burrito-pad-maps') || ''), '997: kept in the browser');
+        $('pad-map-reset').click();
+        await until(() => slot().textContent === '+ add' && !localStorage.getItem('lsdj-burrito-pad-maps'), '997: Reset to default');
+        /* moving: the bottom button to B's first slot takes it off A */
+        const bSlot = () => document.querySelector('#pad-map button[data-gb="B"][data-slot="0"]');
+        bSlot().click(); await until(() => bSlot().textContent === 'Press a button…', '997: waiting for B');
+        gp.buttons[0] = {pressed: true, value: 1};
+        await until(() => bSlot().textContent === 'A / Cross (bottom)', `997: bottom taken for B (${bSlot().textContent})`);
+        assert(/Moved off A/.test($('pad-map-note').textContent), `997: moved note: ${$('pad-map-note').textContent}`);
+        assert(document.querySelector('#pad-map button[data-gb="A"][data-slot="0"]').textContent === 'Y / Triangle (top)', '997: A keeps only the top button');
+        await until(() => padSent.at(-1) === 2, '997: bottom presses B only');
+        gp.buttons[0] = {pressed: false, value: 0}; await until(() => padSent.at(-1) === 0, '997: bottom let go');
+        $('pad-map-reset').click();
+        /* a second controller without the standard layout: listed, plays too, chosen alone, its own buttons */
+        const joy = {id: 'USB Gamepad (Vendor: 0079 Product: 0011)', index: 1, connected: true, mapping: '', axes: [0, 0, 0, 0, 0, 0, 0, 0, 0, 9 / 7],
+                     buttons: Array.from({length: 12}, () => ({pressed: false, value: 0}))};
+        gp.index = 0; padList2 = [gp, joy];
+        await until(() => [...$('pad-pick').options].some(o => o.value === joy.id), '997: the second controller listed');
+        assert(!$('pad-pick-row').hidden, '997: Controller list shown');
+        $('pad-pick').value = joy.id; $('pad-pick').dispatchEvent(new Event('change'));
+        await until(() => /USB Gamepad\. It plays LSDj/.test($('pad-status').textContent), `997: chosen: ${$('pad-status').textContent}`);
+        assert(/USB Gamepad \(no standard layout/.test($('pad-map-for').textContent), `997: its buttons: ${$('pad-map-for').textContent}`);
+        joy.axes[9] = -1; await until(() => padSent.at(-1) === 64, '997: its d-pad up');
+        joy.axes[9] = 9 / 7; await until(() => padSent.at(-1) === 0, '997: let go');
+        gp.buttons[0] = {pressed: true, value: 1}; await sleep(200);
+        assert(padSent.at(-1) === 0, '997: the Xbox one is not used while the other is chosen');
+        gp.buttons[0] = {pressed: false, value: 0};
+        $('pad-pick').value = ''; $('pad-pick').dispatchEvent(new Event('change')); padList2 = null;
+        localStorage.removeItem('lsdj-burrito-pad-pick');
+        firmware = 'FM-1_996';
+        await $('connect-btn').onclick();
+        assert(/needs LSDJ Burrito 0\.9\.97/.test($('pad-status').textContent), `996: ${$('pad-status').textContent}`);
+        assert($('pad-sec').hidden, '996 (the released firmware): no game controller section');
+        /* 996: the 0.9.96 pages (MASTER echo mix/time, the send on FILTER K2, filter type on LO-FI K3), no reverb */
+        assert([...document.querySelectorAll('#fx-master-pages .fx-card')].map(c => c.dataset.page).join() === '0,5,6', '996: MASTER, ECHO, ECHO MOD');
+        assert(!document.querySelector('.fx-ctl[data-key="rvMix"], .fx-ctl[data-key="rvSend"]'), '996: no reverb controls');
+        { const keys = p => [...document.querySelectorAll(`.fx-card[data-page="${p}"] .fx-ctl`)].map(c => c.dataset.key);
+          assert(keys(0).join() === 'allFxOn,comp,mix,time', `996 MASTER: ${keys(0)}`);
+          assert(keys(1).includes('send') && keys(4).includes('type') && !keys(4).includes('send'), `996 FILTER ${keys(1)} / LO-FI ${keys(4)}`); }
+        const n = padSent.length; gp.buttons[0] = {pressed: true, value: 1}; await sleep(300);
+        assert(padSent.length === n, '996: no PAD_SET');
+      } finally {
+        delete navigator.getGamepads;
+        if (had && !navigator.getGamepads) Object.defineProperty(Navigator.prototype, 'getGamepads', had);
+      }
+    }
     firmware = 'FM-1_975';
-    return 'PASS FX browser: matching pages (975-978, 979, 980 echo on MASTER, 981 echo in Master), FM-1 screen (983, 985 sync, note before), autosave, screen rate (989), one master switch, four channel columns (a slider changes its own channel), the cursor column, LIVE state, 17/11-word backups, old firmware gating, FX and lights, FX colours, wiring, muted column, battery';
+    return 'PASS FX browser: matching pages (975-978, 979, 980 echo on MASTER, 981 echo in Master, 997 echo send on LO-FI, REVERB and its per-channel sends, 997 game controller), FM-1 screen (983, 985 sync, note before), autosave, screen rate (989), one master switch, four channel columns (a slider changes its own channel), the cursor column, LIVE state, 17/11-word backups, old firmware gating, FX and lights, FX colours, wiring, muted column, battery';
   } finally {
     if (descriptor) Object.defineProperty(navigator, 'requestMIDIAccess', descriptor);
     else delete navigator.requestMIDIAccess;
