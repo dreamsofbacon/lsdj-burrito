@@ -11,7 +11,7 @@ const FILES = [
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png', 'icons/apple-touch-icon.png', 'icons/favicon-32.png',
   'licenses/Apache-2.0.txt', 'licenses/GPL-3.0.txt', 'licenses/MIT-Peanut-GB.txt',
   'lsdj/app.js', 'lsdj/fx-diagram.js', 'lsdj/fx-model.js', 'lsdj/gamepad.js', 'lsdj/install-ui.js', 'lsdj/install.js', 'lsdj/link.js',
-  'lsdj/lsdj-app.js', 'lsdj/lsdj-firmware.js', 'lsdj/lsdj-rom.js', 'lsdj/page-theme.js', 'lsdj/popout.js', 'lsdj/pwa.js',
+  'lsdj/lsdj-app.js', 'lsdj/lsdj-firmware.js', 'lsdj/lsdj-rom.js', 'lsdj/midiclock.js', 'lsdj/page-theme.js', 'lsdj/popout.js', 'lsdj/pwa.js',
   'lsdj/save-file.js', 'lsdj/screen.js', 'lsdj/ui.js', 'lsdj/zip.js',
   'lsdj/template.json', 'lsdj/versions.json', 'lsdj/fm1-lsdj-template.fwsc', 'lsdj/fm1-lsdj-template-source.zip',
   'vendor/fm1ota.js', 'vendor/fm1pkg.js',
