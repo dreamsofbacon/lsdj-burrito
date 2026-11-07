@@ -4,6 +4,7 @@
 // pulling one not in use changes only the list, a pulled cable reconnects to the same FM-1 only, and Follow
 // switches to the FM-1 being played, but stays while the one in use is played or two others are at once.
 import {OP, le32} from '../lsdj/link.js';
+import {unpackSettings, packSettings} from '../lsdj/fx-model.js';
 
 const $ = id => document.getElementById(id);
 const assert = (v, message) => { if (!v) throw Error(message); };
@@ -13,7 +14,7 @@ async function until(check, message, ms = 8000) {
   throw Error(message);
 }
 function fm1(n, title) {
-  const d = {n, title, page: 1, lives: 0, infos: 0, fxSets: [], silent: false};
+  const d = {n, title, page: 1, lives: 0, infos: 0, fxSets: [], silent: false, settings: 0x5a000000, screens: 0, themes: 0, delay: 0};
   const fx = Array(68).fill(0);
   fx[36] = 5; fx[37] = 2; fx[42] = 0xf2; fx[43] = 70; fx[38] = 1;
   d.input = {id: `in-${n}`, name: 'FM-1', state: 'connected', onmidimessage: null};
@@ -21,7 +22,7 @@ function fm1(n, title) {
     if (this.state !== 'connected') throw new DOMException('The port is not connected', 'InvalidStateError');
     if (d.silent) return;
     const op = message[4];
-    const send = (data = [], status = 0) => queueMicrotask(() => d.input.onmidimessage?.({
+    const send = (data = [], status = 0) => (d.delay ? f => setTimeout(f, d.delay) : queueMicrotask)(() => d.input.onmidimessage?.({
       data: [0xf0, 0x7d, 0x47, 0x53, op, status, ...data.flatMap(b => [b & 127, b >> 7]), 0xf7]}));
     if (op === OP.INFO) {
       d.infos++; const info = Array(35).fill(0); info[0] = 1;
@@ -31,8 +32,9 @@ function fm1(n, title) {
     }
     if (op === OP.FX_GET) return send(fx);
     if (op === OP.FX_SET) { d.fxSets.push(message); return send(); }
-    if (op === OP.SETTINGS_GET) return send(le32(0x5a000000));
-    if (op === OP.THEME_GET) return send(Array(16).fill(0));
+    if (op === OP.SETTINGS_GET) return send(le32(d.settings));
+    if (op === OP.THEME_GET) { d.themes++; return send(Array(16).fill(0)); }
+    if (op >= OP.SCREEN_INFO && op <= OP.SCREEN_FRAME) d.screens++;
     if (op === OP.LIVE) { d.lives++; return send([d.page, 1, 120, 0, 0, 0, 0, ...fx]); }
     return send([], 1);
   }};
@@ -54,7 +56,7 @@ export async function runDevicesUiTests() {
   const using = d => document.body.classList.contains('connected') && device().includes(d.title);
   const options = () => [...$('dev-pick').options].filter(o => o.value !== '').map(o => o.textContent);
   const pick = d => { const s = $('stage-pick'); s.value = [...s.options].find(o => o.textContent.includes(d.title)).value; s.dispatchEvent(new Event('change')); };
-  try { localStorage.removeItem('lsdj-burrito-follow'); } catch {}
+  try { localStorage.removeItem('lsdj-burrito-follow'); localStorage.removeItem('lsdj-burrito-screens'); } catch {}
   try {
     Object.defineProperty(navigator, 'requestMIDIAccess', {configurable: true, value: async () => access});
     await $('connect-btn').onclick();
@@ -119,7 +121,29 @@ export async function runDevicesUiTests() {
     A.page = A.page === 1 ? 2 : 1;
     await until(() => using(A), `then only A played: followed to A: ${device()}`, 4000);
     $('stage-follow').click();
-    return 'PASS several FM-1s: listed (paired by who answers), switching (pending effect to the right one), plug/pull of others, reconnect to the same one only, Follow (and its tolerance)';
+
+    // 7. switching back: what the page knew shows at once (no THEME_GET first), then it is read again: A's
+    // theme changed meanwhile on the FM-1 shows
+    pick(B); await until(() => using(B), `to B: ${device()}`);
+    const s = unpackSettings(A.settings); s.theme = (s.theme + 1) % 4; A.settings = packSettings(s);
+    const themesBefore = A.themes; A.delay = 60;   /* as a real FM-1 answers (~50 ms) */
+    pick(A); await until(() => using(A), `back to A: ${device()}`);
+    assert(A.themes === themesBefore, 'back on A before reading its colours again');
+    await until(() => document.querySelector('#settings-form select[data-key="theme"]')?.value === String(s.theme), "A's new theme read again"); A.delay = 0;
+
+    // 8. All screens: a tile per FM-1, the one in use lit; the others' screens asked over their own links; a click switches
+    $('screens-all').click();
+    await until(() => document.querySelectorAll('#screens-grid .screen-tile').length === 3 && !$('screens-grid').hidden, 'three tiles');
+    assert(document.querySelectorAll('#screens-grid .screen-tile.on').length === 1 && document.querySelector('.screen-tile.on').textContent.includes(A.title), 'A lit');
+    const b0 = B.screens, c1 = C.screens;
+    await until(() => B.screens > b0 && C.screens > c1, `B and C screens asked: ${B.screens - b0}, ${C.screens - c1}`);
+    [...document.querySelectorAll('.screen-tile')].find(t => t.textContent.includes(C.title)).click();
+    await until(() => using(C) && document.querySelector('.screen-tile.on')?.textContent.includes(C.title), `a click on C's screen: ${device()}`);
+    $('screens-all').click();
+    assert($('screens-grid').hidden, 'back to one screen');
+    await sleep(800); const a2 = A.screens, b2 = B.screens; await sleep(1500);
+    assert(A.screens === a2 && B.screens === b2, `the others' screens no longer asked: ${A.screens - a2}, ${B.screens - b2}`);
+    return 'PASS several FM-1s: listed (paired by who answers), switching (pending effect to the right one), plug/pull of others, reconnect to the same one only, Follow (and its tolerance), switching back at once (read again after), All screens (tiles, the others screens, click to switch)';
   } finally {
     try { localStorage.removeItem('lsdj-burrito-follow'); } catch {}
     if (descriptor) Object.defineProperty(navigator, 'requestMIDIAccess', descriptor);
