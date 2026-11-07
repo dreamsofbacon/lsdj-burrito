@@ -60,6 +60,7 @@ details{margin:10px 0 0}
 details>summary{cursor:pointer;color:var(--muted);font-size:13px;width:max-content;max-width:100%}
 details[open]>summary{margin-bottom:6px}
 details .hint,details p{font-size:13px;color:var(--muted)}
+.pad-targets{display:grid;gap:6px;margin:6px 0;font-size:14px}.pad-targets select{margin-left:6px;max-width:100%}
 .pad-map{display:grid;grid-template-columns:max-content 1fr 1fr;gap:4px 8px;align-items:center;font-size:13px;margin:6px 0}
 .pad-map .pad-slot{display:flex;gap:2px;min-width:0}
 .pad-map .pad-slot button:first-child{flex:1;min-width:0;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -581,6 +582,7 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <p class="hint">A game controller connected to this computer or phone (USB, or Bluetooth paired to it) plays LSDj on the FM-1 through this page, from any tab (0.9.97 and newer). Its buttons are kept in this browser, per controller.</p>
 <p id="pad-status" class="hint" role="status" hidden></p>
 <p id="pad-pick-row" hidden><label>Controller <select id="pad-pick"></select></label></p>
+<div id="pad-targets" class="pad-targets" hidden></div>
 <div id="pad-map-box" hidden>
 <p class="hint">Click a slot, then press the controller button. Each button does one thing; using it again moves it.</p>
 <p id="pad-held" class="hint mono" role="status">Pressed now: (no controller playing)</p>

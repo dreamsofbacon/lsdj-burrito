@@ -13,8 +13,8 @@ async function until(check, message, ms = 8000) {
   for (const end = Date.now() + ms; Date.now() < end;) { if (check()) return; await sleep(50); }
   throw Error(message);
 }
-function fm1(n, title) {
-  const d = {n, title, page: 1, lives: 0, infos: 0, fxSets: [], silent: false, settings: 0x5a000000, screens: 0, themes: 0, delay: 0};
+function fm1(n, title, fw = 'FM-1_981') {
+  const d = {n, title, page: 1, lives: 0, infos: 0, fxSets: [], silent: false, settings: 0x5a000000, screens: 0, themes: 0, delay: 0, pads: []};
   const fx = Array(68).fill(0);
   fx[36] = 5; fx[37] = 2; fx[42] = 0xf2; fx[43] = 70; fx[38] = 1;
   d.input = {id: `in-${n}`, name: 'FM-1', state: 'connected', onmidimessage: null};
@@ -26,7 +26,7 @@ function fm1(n, title) {
       data: [0xf0, 0x7d, 0x47, 0x53, op, status, ...data.flatMap(b => [b & 127, b >> 7]), 0xf7]}));
     if (op === OP.INFO) {
       d.infos++; const info = Array(35).fill(0); info[0] = 1;
-      [...'FM-1_981'].forEach((c, i) => info[1 + i] = c.charCodeAt(0));
+      [...fw].forEach((c, i) => info[1 + i] = c.charCodeAt(0));
       [...title].forEach((c, i) => info[9 + i] = c.charCodeAt(0));
       return send(info);
     }
@@ -35,6 +35,7 @@ function fm1(n, title) {
     if (op === OP.SETTINGS_GET) return send(le32(d.settings));
     if (op === OP.THEME_GET) { d.themes++; return send(Array(16).fill(0)); }
     if (op >= OP.SCREEN_INFO && op <= OP.SCREEN_FRAME) d.screens++;
+    if (op === OP.PAD_SET) { const m = message[5] | (message[6] & 1) << 7; d.pads.push(m); if (m) d.page = d.page === 1 ? 2 : 1; return send(); }   /* LSDj moves: its LIVE changes */
     if (op === OP.LIVE) { d.lives++; return send([d.page, 1, 120, 0, 0, 0, 0, ...fx]); }
     return send([], 1);
   }};
@@ -146,6 +147,67 @@ export async function runDevicesUiTests() {
     return 'PASS several FM-1s: listed (paired by who answers), switching (pending effect to the right one), plug/pull of others, reconnect to the same one only, Follow (and its tolerance), switching back at once (read again after), All screens (tiles, the others screens, click to switch)';
   } finally {
     try { localStorage.removeItem('lsdj-burrito-follow'); } catch {}
+    if (descriptor) Object.defineProperty(navigator, 'requestMIDIAccess', descriptor);
+    else delete navigator.requestMIDIAccess;
+  }
+}
+
+/* Two controllers, two FM-1s (0.9.97): each controller plays the FM-1 chosen for it. One on "the FM-1 in use" moves
+   with a switch (the one left gets 0); one on a fixed FM-1 stays, and its presses there do not make Follow switch;
+   its FM-1 pulled: it plays nothing. */
+export async function runPadTargetsUiTests() {
+  assert(['localhost', '127.0.0.1'].includes(location.hostname), 'Use a fresh local preview, never a real device');
+  const descriptor = Object.getOwnPropertyDescriptor(navigator, 'requestMIDIAccess');
+  const hadPads = Object.getOwnPropertyDescriptor(Navigator.prototype, 'getGamepads');
+  const A = fm1(1, 'LSDj-AAA', 'FM-1_997'), B = fm1(2, 'LSDj-BBB', 'FM-1_997');
+  const access = new EventTarget();
+  access.inputs = new Map([['a', A.input], ['b', B.input]]); access.outputs = new Map([['a', A.output], ['b', B.output]]);
+  const gp = (index, id) => ({index, id, connected: true, mapping: 'standard', axes: [0, 0, 0, 0],
+    buttons: Array.from({length: 17}, () => ({pressed: false, value: 0}))});
+  const P0 = gp(0, 'Pad One (STANDARD GAMEPAD)'), P1 = gp(1, 'Pad Two (STANDARD GAMEPAD)');
+  const press = (p, b, on) => { p.buttons[b] = {pressed: on, value: on ? 1 : 0}; };
+  const device = () => $('device').textContent;
+  const using = d => document.body.classList.contains('connected') && device().includes(d.title);
+  const plug = (d, state) => {
+    d.input.state = d.output.state = state;
+    for (const port of [d.input, d.output]) { const e = new Event('statechange'); e.port = port; access.dispatchEvent(e); }
+  };
+  try { localStorage.removeItem('lsdj-burrito-follow'); localStorage.removeItem('lsdj-burrito-screens'); localStorage.removeItem('lsdj-burrito-pad-pick'); } catch {}
+  try {
+    Object.defineProperty(navigator, 'requestMIDIAccess', {configurable: true, value: async () => access});
+    Object.defineProperty(navigator, 'getGamepads', {configurable: true, value: () => [P0, P1]});
+    await $('connect-btn').onclick();
+    assert(using(A), `on A: ${device()}`);
+    await until(() => !$('pad-targets').hidden && $('pad-targets').querySelectorAll('select').length === 2, 'a Plays choice per controller');
+    const [s0, s1] = $('pad-targets').querySelectorAll('select');
+    assert(s0.value === 'current' && s1.value === 'current', 'both on the FM-1 in use at first');
+    s1.value = [...s1.options].find(o => o.textContent.includes(B.title)).value; s1.dispatchEvent(new Event('change'));
+    // 1. each its own FM-1
+    press(P0, 0, true); press(P1, 12, true);
+    await until(() => A.pads.includes(1) && B.pads.includes(64), `A gets A (1), B gets UP (64): ${A.pads} | ${B.pads}`);
+    assert(!A.pads.includes(64) && !B.pads.includes(1), 'nothing crossed over');
+    // 2. a switch: the one on "the FM-1 in use" moves to B (A let go), the fixed one stays on B
+    const s = $('stage-pick'); s.value = [...s.options].find(o => o.textContent.includes(B.title)).value; s.dispatchEvent(new Event('change'));
+    await until(() => using(B), `on B: ${device()}`);
+    await until(() => A.pads.at(-1) === 0 && B.pads.at(-1) === 65, `A let go, B gets A+UP: ${A.pads.slice(-3)} | ${B.pads.slice(-3)}`);
+    press(P0, 0, false); press(P1, 12, false);
+    await until(() => B.pads.at(-1) === 0, 'let go');
+    // 3. Follow on, on B; the second controller set to A plays there: no switch to A
+    $('stage-follow').click();
+    $('pad-targets').querySelectorAll('select')[1].value = [...s1.options].find(o => o.textContent.includes(A.title)).value;
+    $('pad-targets').querySelectorAll('select')[1].dispatchEvent(new Event('change'));
+    await sleep(1800);
+    for (let i = 0; i < 6; i++) { press(P1, 12, true); await sleep(250); press(P1, 12, false); await sleep(250); }
+    assert(using(B) && A.pads.filter(m => m === 64).length >= 3, `stays on B while a controller here plays A: ${device()} (${A.pads.length} presses)`);
+    $('stage-follow').click();
+    // 4. A pulled: that controller plays nothing
+    plug(A, 'disconnected');
+    await until(() => $('pad-targets').hidden || $('pad-targets').querySelectorAll('select')[1]?.value === 'none', 'its FM-1 gone: Nothing', 5000);
+    return 'PASS controllers on several FM-1s: a Plays choice each, each to its own FM-1, "the FM-1 in use" moves with a switch (the old one let go), a fixed one stays and does not make Follow switch, its FM-1 pulled: nothing';
+  } finally {
+    try { localStorage.removeItem('lsdj-burrito-follow'); } catch {}
+    delete navigator.getGamepads;
+    if (hadPads && !navigator.getGamepads) Object.defineProperty(Navigator.prototype, 'getGamepads', hadPads);
     if (descriptor) Object.defineProperty(navigator, 'requestMIDIAccess', descriptor);
     else delete navigator.requestMIDIAccess;
   }

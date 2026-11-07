@@ -49,9 +49,11 @@ async function connectOnce(input, output, how, fast) {
   await scanning;   /* a search for FM-1s borrows their inputs: let it finish */
   await flushSend();   /* an effect moved a moment ago goes to the FM-1 it was moved for */
   remember();
-  stopPoll(); pad?.(); pad = null; lostAt = 0; missed = 0; lastKey = null;
+  /* (the controllers keep going: those on "the FM-1 in use" move with it, the old one gets 0) */
+  stopPoll(); lostAt = 0; missed = 0; lastKey = null;
   if (virtual && how !== VIRTUAL) pauseVirtual();
   for (const d of [...watchers.keys()]) if (d.input === input || d.output === output) unwatch(d);
+  for (const d of [...padLinks.keys()]) if (d.input === input || d.output === output) closePadLink(d);
   connected = false; current = null;
   mirror?.stop(); mirror = null;
   showVirtual(how === VIRTUAL);
@@ -105,7 +107,8 @@ function lost(message) {
   if (!connected || installing()) return;
   if (virtual) { message = 'The virtual FM-1 stopped. Press Use the virtual FM-1 to start it again.'; showVirtual(false); }
   connected = false; lostAt = virtual ? 0 : Date.now(); missed = 0;
-  stopPoll(); mirror?.stop(); mirror = null; pad?.(); pad = null; link?.close();
+  stopPoll(); mirror?.stop(); mirror = null; link?.close();
+  if (![...padTargets.values()].some(v => v !== 'current' && v !== 'none')) { pad?.(); pad = null; }   /* none plays another FM-1 */
   soloAtLoss = devices.filter(d => !sameDev(d, current)).length === 0;
   current = null; syncWatchers(); drawDevPick();
   enable(false); say('device', message, 'warn');
@@ -216,12 +219,13 @@ async function scan() {
   if (!ports?.access || connecting || busy || installing()) return devices;
   if (scanning) return scanning;
   scanning = (async () => {
-    const known = [...(connected && current ? [current] : []), ...watchers.keys()];
+    const known = [...(connected && current ? [current] : []), ...watchers.keys(), ...padLinks.keys()];
     /* an FM-1 found again keeps its entry: what the page remembers of it, its screen tile, its watcher */
     devices = (await findFm1s(ports.access, {known})).map(f => {
       const old = devices.find(o => sameDev(o, f));
       return old ? Object.assign(old, {info: f.info}) : f;
     }).sort((a, b) => portKey(a).localeCompare(portKey(b)));
+    for (const d of [...padLinks.keys()]) if (!devices.includes(d)) closePadLink(d);
     drawDevPick(); syncWatchers();
     return devices;
   })().catch(() => devices).finally(() => { scanning = null; });
@@ -301,6 +305,7 @@ function drawGrid() {
 }
 function watch(d) {
   if (watchers.has(d) || sameDev(d, current)) return;
+  closePadLink(d);   /* the watcher's link carries a controller's presses too */
   const w = {link: new Link(d.input, d.output), base: null, at: 0, missed: 0, mode: watchMode(), mirror: null};
   watchers.set(d, w);
   const canvas = gridOn() && tiles.get(d)?.canvas;
@@ -314,7 +319,8 @@ function watch(d) {
     if (follow && !busy && !installing() && !connecting && anyVisible()) {
       try {
         const key = liveKey(await w.link.live()); w.missed = 0;
-        if (w.base !== null && key !== w.base) { w.at = Date.now(); maybeFollow(d); }
+        /* played, unless by a controller on this page (that is not someone at the FM-1) */
+        if (w.base !== null && key !== w.base && Date.now() - (padAt.get(portKey(d)) || 0) > QUIET_MS) { w.at = Date.now(); maybeFollow(d); }
         w.base = key;
       } catch { if (++w.missed >= LOST_POLLS) { unwatch(d); scanSoon(); return; } }
     }
@@ -356,7 +362,7 @@ function maybeFollow(d) {
 }
 function devLabel(d, i) { return `FM-1 ${i + 1}: ${d.info.title || 'no LSDj'} · ${d.info.firmware} (${d.name})`; }
 function drawDevPick() {
-  drawGrid();
+  drawGrid(); drawPadTargets();
   const choices = devices.map((d, i) => [String(i), devLabel(d, i)]);
   if (virtual) choices.push(['virtual', 'The virtual FM-1']);
   const now = virtual ? 'virtual' : connected ? String(devices.findIndex(d => sameDev(d, current))) : '';
@@ -438,15 +444,75 @@ const GB_LABEL = {UP: 'Up', DOWN: 'Down', LEFT: 'Left', RIGHT: 'Right', A: 'A', 
 const shownPad = () => padInfo || padList.find(p => p.id === padPick) || {id: '', name: 'Game controller', standard: true, hat: -1};
 const namer = info => (info?.standard === false ? c => inputName(c, false) : c => inputName(c));
 function startPad() {
-  pad?.(); pad = null; capturing = null; padInfo = null;
+  const any = fwNum >= 997 || devices.some(d => firmwareNumber(d.info.firmware) >= 997);
   $('pad-status').hidden = false;
-  $('pad-pick-row').hidden = $('pad-map-box').hidden = fwNum < 997;
-  if (fwNum < 997) { say('pad-status', `Game controller: needs LSDJ Burrito 0.9.97 or newer on the FM-1 (this one has ${fwId}).`); return; }
-  pad = startGamepad({send: m => link.padSet(m), canSend: () => connected && !busy && !installing(), status: t => say('pad-status', t),
-                      getPick: () => padPick, getMap: info => mapFor(padMaps, info),
-                      onPads: (list, used) => { padList = list; padInfo = used; drawPadPick(); if (!capturing) drawPadMap(); },
-                      onHeld: (codes, info) => drawPadHeld(codes, info), onRaw: raw => drawPadRaw(raw)});
-  drawPadPick(); drawPadMap();
+  $('pad-pick-row').hidden = $('pad-map-box').hidden = !any;
+  if (!any) {
+    pad?.(); pad = null; capturing = null; padInfo = null; drawPadTargets();
+    say('pad-status', `Game controller: needs LSDJ Burrito 0.9.97 or newer on the FM-1 (this one has ${fwId}).`); return;
+  }
+  if (!pad) {   /* (it keeps running across switches: controllers on "the FM-1 in use" move with it) */
+    capturing = null; padInfo = null;
+    pad = startGamepad({send: padSend, canSend: k => !busy && !installing() && !connecting && !!padLinkFor(k),
+                        status: t => say('pad-status', t), getPick: () => padPick, getMap: info => mapFor(padMaps, info), getTarget: padTarget,
+                        onPads: (list, used) => { padList = list; padInfo = used; drawPadPick(); drawPadTargets(); if (!capturing) drawPadMap(); },
+                        onHeld: (codes, info) => drawPadHeld(codes, info), onRaw: raw => drawPadRaw(raw)});
+  }
+  drawPadPick(); drawPadMap(); drawPadTargets();
+}
+/* Which FM-1 each controller plays: 'current' (the one in use; the default), an FM-1 of the list (its port key), or
+   'none'. By the controller's index|id (two alike share an id); this visit only (list places change on a replug).
+   One on a fixed FM-1 stays there through switches and Follow, and its presses do not count for Follow. */
+const padTargets = new Map(), padLinks = new Map(), padAt = new Map();
+const padKey = info => `${info.index}|${info.id}`;
+const curKey = () => !connected ? null : virtual ? 'virtual' : current ? portKey(current) : null;
+function padTarget(info) {
+  const v = padTargets.get(padKey(info)) || 'current';
+  if (v === 'current') return curKey();
+  if (v === 'none') return null;
+  if (devices.some(d => portKey(d) === v)) return v;
+  padTargets.set(padKey(info), 'none'); queueMicrotask(drawPadTargets);   /* its FM-1 was pulled: it plays nothing */
+  return null;
+}
+/* a target's link: the one in use, else its watcher's, else a small one of its own (0.9.97 and newer only) */
+function padLinkFor(key) {
+  if (key == null) return null;
+  if (key === curKey()) return connected && fwNum >= 997 ? link : null;
+  const d = devices.find(x => portKey(x) === key);
+  if (!d || firmwareNumber(d.info.firmware) < 997) return null;
+  const w = watchers.get(d);
+  if (w) return w.link;
+  let l = padLinks.get(d);
+  if (!l) { l = new Link(d.input, d.output); padLinks.set(d, l); }
+  return l;
+}
+function closePadLink(d) { const l = padLinks.get(d); if (l) { padLinks.delete(d); l.close(); } }
+async function padSend(mask, key) {
+  const l = padLinkFor(key);
+  if (!l) throw new LinkError('That FM-1 is not available.');
+  if (key !== curKey()) padAt.set(key, Date.now());
+  await l.padSet(mask);
+}
+function drawPadTargets() {
+  const box = $('pad-targets');
+  const show = !!pad && devices.length >= 2 && padList.length > 0;
+  box.hidden = !show;
+  if (!show) return;
+  const twin = id => padList.filter(p => p.id === id).length > 1;
+  box.replaceChildren(...padList.map(info => {
+    const row = document.createElement('label'), sel = document.createElement('select');
+    sel.append(new Option('The FM-1 in use', 'current'));
+    devices.forEach((d, i) => {
+      const o = new Option(devLabel(d, i), portKey(d));
+      if (firmwareNumber(d.info.firmware) < 997) { o.disabled = true; o.textContent += ' (needs 0.9.97)'; }
+      sel.append(o);
+    });
+    sel.append(new Option('Nothing', 'none'));
+    sel.value = padTargets.get(padKey(info)) || 'current';
+    sel.onchange = () => { padTargets.set(padKey(info), sel.value); pad?.refresh(); };
+    row.append(`${info.name}${twin(info.id) ? ` (${info.index + 1})` : ''} plays`, sel);
+    return row;
+  }));
 }
 function drawPadPick() {
   const sel = $('pad-pick'), opts = [['', 'Any controller']], seen = new Set();
