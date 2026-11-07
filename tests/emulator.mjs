@@ -6,7 +6,7 @@ import {firmwareForEmulator, loadRuntime, KEY_IDS} from '../emulator/core.js';
 import {jitImports} from '../emulator/vendor/jit.js';
 import {prepareLsdjFirmware} from '../lsdj/lsdj-firmware.js';
 import {listKits, planRom, BANK, SLOT_HEADER} from '../lsdj/lsdj-rom.js';
-import {scanControls, LAYOUTS, hitTest, LSDJ_KEYS, LSDJ_BUTTONS, LSDJ_KNOBS, FX_MUTES, PAGE_LIGHTS, ledLevel, BUTTONS} from '../emulator/face.js';
+import {scanControls, LAYOUTS, hitTest, LSDJ_KEYS, LSDJ_BUTTONS, buttonJob, productVersion, LSDJ_KNOBS, FX_MUTES, PAGE_LIGHTS, ledLevel, BUTTONS} from '../emulator/face.js';
 import {readSave, writeSave, FTL_LO, FTL_N, SECTOR} from '../emulator/save-flash.js';
 
 const base = new URL('../emulator/', import.meta.url);
@@ -45,9 +45,11 @@ assert.equal(KEY_IDS.KeyX, 40); assert.equal(KEY_IDS.ArrowLeft, 14);
   // LSDj's buttons on the keys: the keyboard shortcuts press keys that carry the same tag.
   const tagOf = {ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down', KeyZ: 'B', KeyX: 'A', Enter: 'START', ShiftLeft: 'SELECT'};
   for (const [code, label] of Object.entries(tagOf)) assert.equal(LSDJ_KEYS[KEY_IDS[code] - 14], label, code);
-  // Every button and knob says what it does; SEL, ENV and LFO are the only unused ones.
+  // Every button and knob says what it does; ENV and LFO are the only unused ones (SELECT from 0.9.97 picks the effects channel).
   assert.deepEqual(Object.keys(LSDJ_BUTTONS).map(Number), [...BUTTONS.keys()]);
-  assert.deepEqual(Object.entries(LSDJ_BUTTONS).filter(([, t]) => !t).map(([i]) => BUTTONS[i]), ['SEL', 'ENV', 'LFO']);
+  assert.deepEqual(Object.entries(LSDJ_BUTTONS).filter(([, t]) => !t).map(([i]) => BUTTONS[i]), ['SELECT', 'ENV', 'LFO']);
+  assert.equal(buttonJob(3), 'FX CHANNEL'); assert.equal(buttonJob(3, 997), 'FX CHANNEL'); assert.equal(buttonJob(3, 996), '');
+  assert.equal(productVersion('FM-1_537000997'), 997); assert.equal(productVersion('FM-1_5370995'), 0);
   assert.equal(LSDJ_BUTTONS[12], 'START'); assert.equal(LSDJ_BUTTONS[13], 'SELECT');
   assert.equal(Object.keys(LSDJ_KNOBS).length, 8);
   // FX mutes on the white keys C4..F4, page lights on black keys

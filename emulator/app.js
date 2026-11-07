@@ -2,6 +2,7 @@
 import {getSelectedFirmware, getFirmwareSelection, installing} from '../lsdj/install-ui.js';
 import {firmwareForEmulator, loadRuntime, KEY_IDS} from './core.js';
 import {createPanel} from './panel.js';
+import {productVersion} from './face.js';
 import {readSave, writeSave, FTL_LO, FTL_N, SECTOR} from './save-flash.js';
 import {confirmSaveImport} from '../lsdj/save-file.js';
 
@@ -151,6 +152,7 @@ async function start(bytes, name, {withUsb = false} = {}) {
     node.connect(gain); gain.connect(context.destination);
     node.onprocessorerror = () => { if (seq === generation) fail('Audio/emulator processor failed. Stop and retry.'); };
     current = {product: checked.product, name};
+    panel.version(productVersion(checked.product));
     state = {keys: new Set(), enc: new Int32Array(7), pot: 900}; owners.clear(); draw();
     $('emu-stats').textContent = ''; delete $('emu-view').dataset.emulatedMs;
     timing = null;
