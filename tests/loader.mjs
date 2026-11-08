@@ -126,8 +126,8 @@ const template = new Uint8Array(readFileSync(new URL('../lsdj/fm1-lsdj-template.
 const templateBefore = template.slice();
 await assert.rejects(prepareLsdjFirmware(rom, [26, 40], template, metadata), /consent/);
 const result = await prepareLsdjFirmware(rom, [26, 40], template, metadata, {experimental: true});
-assert.equal(checkPackage(result.bytes).product, 'FM-1_537000997');
-{ const c = checkPackage(result.bytes); assert.ok(c.burrito && c.version === 997 && c.release === '0.9.97', 'FM-1_537 + MMmmpp: LSDJ Burrito 0.9.97, version 997, newer than 996'); }
+assert.equal(checkPackage(result.bytes).product, 'FM-1_537000998');
+{ const c = checkPackage(result.bytes); assert.ok(c.burrito && c.version === 998 && c.release === '0.9.98', 'FM-1_537 + MMmmpp: LSDJ Burrito 0.9.98, version 998, newer than 997'); }
 await assert.rejects(prepareLsdjFirmware(rom, [], template, {...metadata, product: 'FM-1_972'}, {experimental: true}), /Unsupported/);
 assert.deepEqual(template, templateBefore);
 const p = new Package(result.bytes);
