@@ -437,8 +437,8 @@ function drawSync(note) {
   $('sync-play').setAttribute('aria-pressed', String(!!clock?.running));
   const n = syncSet.size;
   $('sync-note').textContent = typeof note === 'string' ? note
-    : syncMode === 'page' ? `${clock?.running ? 'Playing' : 'Stopped'} · clock to ${n} FM-1${n === 1 ? '' : 's'}. On each: LSDj PROJECT › SYNC = MIDI, GLO › MIDI › CLOCK IN = ALL or USB; TRANSPORT ON lets Play and Stop start it.`
-    : leader ? `${n} FM-1${n === 1 ? '' : 's'} follow${n === 1 ? 's' : ''} the leader, one SYNC DELAY behind. The leader: LSDj SYNC = LSDJ, CLOCK OUT = USB; the others: SYNC = MIDI, CLOCK IN = ALL or USB.`
+    : syncMode === 'page' ? `${clock?.running ? 'Playing' : 'Stopped'} · clock to ${n} FM-1${n === 1 ? '' : 's'}. On each: LSDj PROJECT › SYNC = MIDI (or KEYBD with 0.9.97-dev.9: the FM-1 sets MIDI at Play, KEYBD again at Stop), GLO › MIDI › CLOCK IN = ALL or USB; TRANSPORT ON lets Play and Stop start it.`
+    : leader ? `${n} FM-1${n === 1 ? '' : 's'} follow${n === 1 ? 's' : ''} the leader, one SYNC DELAY behind. The leader: LSDj SYNC = LSDJ, CLOCK OUT = USB; the others: SYNC = MIDI (or KEYBD with 0.9.97-dev.9), CLOCK IN = ALL or USB.`
     : '';
 }
 /* the FM-1s plugged in changed: the clock's targets follow; a leader pulled: Off */
@@ -695,6 +695,23 @@ function control(key, ch) {
   controls.push(item);
   return wrap;
 }
+/* A channel page as four blocks, PU1 PU2 WAV NOI side by side, its rows still lined up across them: each row's
+   cells go on the card's grid (--r, --c) over a box per channel (marked for the cursor and mutes as the
+   controls are); knobs shared by all channels come after the boxes. Narrow screens keep the rows (CSS). */
+function channelBlocks(card) {
+  const rows = [...card.querySelectorAll(':scope > .fx-row')];
+  const shared = r => !!r.querySelector('.fx-ctl.shared');
+  const per = rows.filter(r => !shared(r));
+  [...per, ...rows.filter(shared)].forEach((r, i) => { r.style.setProperty('--r', i + 2); card.append(r); });
+  card.querySelectorAll('.fx-ctl[data-ch]').forEach(w => w.style.setProperty('--c', +w.dataset.ch + 3));
+  const first = card.querySelector(':scope > .fx-row');
+  CHANNELS.forEach((name, c) => {
+    const b = document.createElement('div'); b.className = 'fx-chbox'; b.dataset.ch = c; b.setAttribute('aria-hidden', 'true');
+    b.style.setProperty('--c', c + 3); b.style.setProperty('--n', per.length);
+    card.insertBefore(b, first);
+  });
+  card.classList.add('blocks');
+}
 function buildFx() {
   controls.length = 0;
   const box = $('fx-pages'); box.replaceChildren();
@@ -722,6 +739,7 @@ function buildFx() {
       else { const w = control(key, 0); if (perCh) w.classList.add('shared'); row.append(w); }
       card.append(row);
     });
+    if (perCh) channelBlocks(card);
     (isMasterPage(fx, i, fwNum) ? masterBox : box).append(card);
   });
   const mutes = $('fx-mutes'); mutes.replaceChildren();

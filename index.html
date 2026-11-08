@@ -218,6 +218,22 @@ table.fx th,table.fx td{padding:3px 6px;border-bottom:1px solid var(--line);text
 .fx-ctl.chan-line.cursor::before{color:var(--accent)}
 .fx-ctl.chan-line.muted{filter:grayscale(1);opacity:.45}
 .fx-pages.one .fx-card.matrix{padding:6px 8px}
+/* a channel page as four blocks (app.js channelBlocks): a box per channel behind its column, the rows lined up */
+.fx-card.matrix.blocks{display:grid;grid-template-columns:2.2em minmax(5em,8em) repeat(4,minmax(0,1fr));gap:6px 16px;align-items:center}
+.fx-pages .fx-card.matrix.blocks{padding-bottom:12px}
+.fx-card.blocks>h3{grid-column:1/-1;grid-row:1}
+.fx-card.blocks>.fx-row{display:contents}
+.fx-card.blocks>.fx-row>*{grid-row:var(--r)}
+.fx-card.blocks .fx-row .knob{grid-column:1}
+.fx-card.blocks .fx-row .fx-name{grid-column:2}
+.fx-card.blocks .fx-row .fx-ctl{grid-column:var(--c);position:relative;z-index:1}
+.fx-card.blocks .fx-row .fx-ctl.shared{grid-column:3/-1}
+.fx-card.blocks .fx-ctl.cursor{background:none}
+.fx-card.blocks .fx-row.hot>*{animation:fxhot 1.6s ease-out}
+.fx-chbox{grid-column:var(--c);grid-row:2/span var(--n);align-self:stretch;margin:-5px -7px;border:1px solid var(--line);border-radius:9px;background:var(--card)}
+.fx-chbox.cursor{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
+.fx-chbox.muted{filter:grayscale(1);opacity:.6}
+#fx-channels{column-gap:16px;padding:0 9px}
 #fx-help{max-width:min(720px,92vw);border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--ink)}
 #fx-help::backdrop{background:rgb(0 0 0/.45)}
 #fx-help p{font-size:14px}
@@ -265,6 +281,7 @@ body:not(.connected) .pop-body{opacity:.5;pointer-events:none}
   body.perform .fx-row{padding:2px}
   body.perform button,body.perform select{padding:5px 10px}
   body.perform .fx-card.matrix .fx-row{padding:clamp(3px,1.5vmin,18px) 2px}
+  body.perform .fx-card.matrix.blocks{row-gap:clamp(6px,3vmin,36px)}
   /* panels in their own windows: the others take the room */
   body.perform.pop-screen #live-sec{grid-template-areas:"head head" "wire master" "wire chans" "wire chans"}
   body.perform.pop-wire #live-sec{grid-template-areas:"head head" "screen master" "screen chans" "screen chans"}
@@ -279,6 +296,14 @@ body:not(.connected) .pop-body{opacity:.5;pointer-events:none}
   .fx-card.matrix .fx-row .knob,.chan-head>div:nth-child(-n+2){display:none}
   .fx-card.matrix .fx-row .fx-name,.fx-card.matrix .fx-row .fx-ctl.shared{grid-column:1/-1}
   .fx-card.matrix .fx-ctl[data-chn]::before{content:attr(data-chn);font:600 11px ui-monospace,monospace;color:var(--muted)}
+  .fx-card.matrix.blocks{display:block}
+  .fx-card.blocks>.fx-row{display:grid}
+  .fx-card.blocks>.fx-row>*{grid-row:auto}
+  .fx-card.blocks .fx-row .fx-ctl{grid-column:auto}
+  .fx-card.blocks .fx-row .fx-name,.fx-card.blocks .fx-row .fx-ctl.shared{grid-column:1/-1}
+  .fx-card.blocks .fx-ctl.cursor{background:color-mix(in srgb,var(--accent) 9%,transparent)}
+  .fx-chbox{display:none}
+  #fx-channels{padding:0}
   .panel-head .pop,#stage-full{display:none}}
 /* perform on a phone (by size, not touch, so a phone asking for the desktop site gets the desktop
    page): no site bar, a sticky head of fixed height (messages float under it, so nothing below
@@ -648,9 +673,10 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <p id="wiz-backup-status" role="status" hidden></p></div>
 <label class="check"><input id="rom-experimental" type="checkbox" disabled><span>I understand this firmware is experimental and may not start or sound right, and I have backed up my songs.</span></label>
 <div class="row"><button id="rom-build" type="button" class="primary" aria-describedby="rom-next" disabled>Prepare firmware</button><span class="hint">Builds the file on this computer. Nothing is installed yet.</span></div>
-<details><summary>What's in this version (0.9.97-dev.8)</summary>
-<p>New in 0.9.97-dev.8 (a test build): the SELECT button picks the channel the effects act on, on any LSDj screen: PU1, PU2, WAV, NOI, then back to following LSDj's cursor. Its light is on while a channel is picked; moving the cursor on the SONG screen lets go, and the pick is not saved. Knobs and the page act on the picked channel. Also: going back to M-VAVE's V16 from an FM-1 that had V15 now works, and FM-1s with the newer flash chip (UC25HQ80) are recognised.</p>
-<p>New on this page: MIDI sync (Perform, Master: Clock). This page: a tempo, and Play / Stop that start and stop every FM-1 plugged in together, with the clock to each. Or one FM-1 leads: its clock and Start / Stop go on to the others (they play one SYNC DELAY behind it). On each FM-1: LSDj PROJECT › SYNC = MIDI and GLO › MIDI › CLOCK IN = ALL or USB (TRANSPORT ON lets Play and Stop start it); the leader: SYNC = LSDJ and CLOCK OUT = USB. Works with 0.9.96 too. And each game controller can play its own FM-1 (Settings › Game controller › plays).</p>
+<details><summary>What's in this version (0.9.97-dev.9)</summary>
+<p>New in 0.9.97-dev.9 (a test build): MIDI sync and note mode together. With LSDj's SYNC on KEYBD (or OFF), a MIDI Start sets it to MIDI so LSDj follows the clock, and MIDI Stop sets KEYBD again, so the FM-1's keys and MIDI notes play LSDj between runs (not while it runs to the clock: LSDj takes one or the other). SYNC = LSDJ is left alone. A screen on the FM-1 while it installs: a progress bar, what it's doing, and DO NOT UNPLUG. The firmware is built smaller, so there's more room for LSDj's kits. On this page: Perform's Channels panel shows PU1, PU2, WAV and NOI as four blocks side by side (the rows still line up; phones keep the list).</p>
+<p>From 0.9.97-dev.8: the SELECT button picks the channel the effects act on, on any LSDj screen: PU1, PU2, WAV, NOI, then back to following LSDj's cursor. Its light is on while a channel is picked; moving the cursor on the SONG screen lets go, and the pick is not saved. Knobs and the page act on the picked channel. Also: going back to M-VAVE's V16 from an FM-1 that had V15 now works, and FM-1s with the newer flash chip (UC25HQ80) are recognised.</p>
+<p>New on this page: MIDI sync (Perform, Master: Clock). This page: a tempo, and Play / Stop that start and stop every FM-1 plugged in together, with the clock to each. Or one FM-1 leads: its clock and Start / Stop go on to the others (they play one SYNC DELAY behind it). On each FM-1: LSDj PROJECT › SYNC = MIDI (or KEYBD with 0.9.97-dev.9) and GLO › MIDI › CLOCK IN = ALL or USB (TRANSPORT ON lets Play and Stop start it); the leader: SYNC = LSDJ and CLOCK OUT = USB. Works with 0.9.96 too. And each game controller can play its own FM-1 (Settings › Game controller › plays).</p>
 <p>New on this page: several FM-1s plugged in at once. Connect lists them all, and the list in My FM-1 and in Perform switches between them (one at a time); switching back to one is quick (the page remembers it and reads it again just after). All screens (Perform, Screen panel) shows up to four FM-1s' screens at once, the one in use lit; click one to use it. Follow the one played (Follow in Perform) switches by itself to the FM-1 you play: a knob, a page, a mute, the cursor, start / stop. It stays put while the one in use is played too, or two others at once, and keeps a switch for a few seconds. A pulled cable reconnects to the same FM-1 only. Installing still needs just one FM-1 plugged in. Pause in Try it works again; a virtual FM-1 paused by switching tabs carries on when you come back.</p>
 <p>New on this page: the virtual FM-1 in My FM-1. With no FM-1 to hand, press Use the virtual FM-1: it runs your prepared firmware in the emulator on this page, and Perform, Songs, Colours and Settings work on it as on a real one (over a USB cable inside the emulator). The Screen panel shows the virtual FM-1 itself, to play there, or only its screen. It changes only the virtual FM-1. The emulator is a newer build of Joakim Eriksson's fm1-emu, built here with a USB port for the page; it also runs a little faster.</p>
 <p>New on this page: every game controller plays, not only ones with the browser's standard layout (generic USB pads, arcade sticks, adapters too; a stick that rests off centre holds nothing). One without the standard layout starts with a guess for its buttons: check them in Settings › Game controller, where Pressed now shows what it sends.</p>
@@ -761,7 +787,7 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 </section>
 </div>
 
-<p class="hint foot">The firmware is free software (GPL-3.0), based on <a href="https://github.com/ChanceTheMaker/gamedude-fm1-smk" target="_blank" rel="noopener">GameDude</a>. Source: <a href="https://github.com/dreamsofbacon/lsdj-burrito-src" target="_blank" rel="noopener">lsdj-burrito-src</a>; <a href="lsdj/fm1-lsdj-template-source.zip" download>matching 0.9.97-dev.8 template source</a>. Not affiliated with M-VAVE or <a href="https://www.littlesounddj.com/" target="_blank" rel="noopener">LSDj's author, Johan Kotlinski</a>.</p>
+<p class="hint foot">The firmware is free software (GPL-3.0), based on <a href="https://github.com/ChanceTheMaker/gamedude-fm1-smk" target="_blank" rel="noopener">GameDude</a>. Source: <a href="https://github.com/dreamsofbacon/lsdj-burrito-src" target="_blank" rel="noopener">lsdj-burrito-src</a>; <a href="lsdj/fm1-lsdj-template-source.zip" download>matching 0.9.97-dev.9 template source</a>. Not affiliated with M-VAVE or <a href="https://www.littlesounddj.com/" target="_blank" rel="noopener">LSDj's author, Johan Kotlinski</a>.</p>
 </main>
 <script type="module" src="lsdj/ui.js"></script>
 <script type="module" src="lsdj/lsdj-app.js"></script>
