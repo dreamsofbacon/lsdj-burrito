@@ -4,7 +4,7 @@ import {loadTemplate, prepareLsdjFirmware} from './lsdj-firmware.js';
 import {selectFirmware, installing, clearPreparedFirmware, setPreparingFirmware} from './install-ui.js';
 import {kitButtons, emptySlotTools} from './kits-ui.js';
 import {usageByBank, currentUsage, kitLabel} from './songs-ui.js';
-import {kitSlots} from './lsdj-kit.js';
+import {kitSlots, putKit} from './lsdj-kit.js';
 import {romFit} from './lsdj-usage.js';
 
 const $ = id => document.getElementById(id);
@@ -201,6 +201,17 @@ document.addEventListener('install-this-rom', e => {
   $('rom').value = '';
   location.hash = '#install';
   chooseRom(new File([e.detail.rom], e.detail.name));
+});
+/* Songs & kits › Your LSDj files and kits › Load (sets-ui.js): a saved .kit into the first empty kit slot of the
+   LSDj chosen here (a new copy, as Add a .kit does) */
+document.addEventListener('install-this-kit', e => {
+  location.hash = '#install';
+  if (busy || installing() || reading) return say('Busy: try again when the LSDj has finished loading.', 'bad');
+  if (!rom) return say(`Choose your LSDj here first, then Load ${e.detail.name} again.`, 'bad');
+  const slot = kitSlots(rom).find(s => s.empty);
+  if (!slot) return say(`No empty kit slot for ${e.detail.name}: clear or replace a kit below.`, 'bad');
+  try { replaceRom(putKit(rom, slot.bank, e.detail.bytes), `Added ${e.detail.name} in bank ${slot.bank.toString(16).toUpperCase().padStart(2, '0')}.`); }
+  catch (err) { say(err.message, 'bad'); }
 });
 $('rom-cancel').onclick = () => reading?.abort();
 $('rom-device').onclick = async () => {

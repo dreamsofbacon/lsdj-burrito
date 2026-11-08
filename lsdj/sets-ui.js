@@ -129,6 +129,8 @@ function drawLibrary(box) {
   for (const r of state.roms) list.append(el('li', {}, `${r.name}: LSDj ${S.versionText(S.lsdjVersion(r.rom))}, ${plural(r.slots.filter(s => !s.empty).length, 'kit')} `,
     el('button', {type: 'button', textContent: 'Forget', onclick: () => guard(async () => { await removeFromLibrary(r.id); })})));
   for (const k of state.kitFiles) list.append(el('li', {}, `${k.name}: kit ${parseKit(k.bank).name} `,
+    el('button', {type: 'button', textContent: 'Load', title: 'Put this kit in an empty kit slot of the LSDj chosen in Install',
+      onclick: () => document.dispatchEvent(new CustomEvent('install-this-kit', {detail: {bytes: k.bank, name: k.name}}))}), ' ',
     el('button', {type: 'button', textContent: 'Forget', onclick: () => guard(async () => { await removeFromLibrary(k.id); })})));
   box.append(el('h4', {textContent: 'Your LSDj files and kits'}),
     el('p', {className: 'hint', textContent: 'Kept in this browser on this computer only, so you don\'t have to pick them again. Every LSDj chosen on this page is added. Add the LSDj each song was made with.'}),
