@@ -178,7 +178,7 @@ export function paramSet(fx, key, c, v) {
     if (!fx.reverb) throw Error('The reverb needs 0.9.97 or newer firmware.');
     fx.reverb[key] = v; break;
   case 'rvch':   /* a send turned up with the reverb silent sets a mix, as the FM-1's knob does */
-    if (!fx.reverb?.rvSend) throw Error('Reverb sends need 0.9.97-dev.7 or newer firmware.');
+    if (!fx.reverb?.rvSend) throw Error('Reverb sends need 0.9.97 or newer firmware.');
     fx.reverb.rvSend[c] = v; if (v && !fx.reverb.rvMix) fx.reverb.rvMix = 64; break;
   case 'master':
     if (!fx.v3) throw Error('All FX requires FM-1_975 or newer firmware.');

@@ -438,8 +438,8 @@ function drawSync(note) {
   $('sync-play').setAttribute('aria-pressed', String(!!clock?.running));
   const n = syncSet.size;
   $('sync-note').textContent = typeof note === 'string' ? note
-    : syncMode === 'page' ? `${clock?.running ? 'Playing' : 'Stopped'} · clock to ${n} FM-1${n === 1 ? '' : 's'}. On each: LSDj PROJECT › SYNC = MIDI (or KEYBD with 0.9.97-dev.9: the FM-1 sets MIDI at Play, KEYBD again at Stop), GLO › MIDI › CLOCK IN = ALL or USB; TRANSPORT ON lets Play and Stop start it.`
-    : leader ? `${n} FM-1${n === 1 ? '' : 's'} follow${n === 1 ? 's' : ''} the leader, one SYNC DELAY behind. The leader: LSDj SYNC = LSDJ, CLOCK OUT = USB; the others: SYNC = MIDI (or KEYBD with 0.9.97-dev.9), CLOCK IN = ALL or USB.`
+    : syncMode === 'page' ? `${clock?.running ? 'Playing' : 'Stopped'} · clock to ${n} FM-1${n === 1 ? '' : 's'}. On each: LSDj PROJECT › SYNC = MIDI (or KEYBD with 0.9.97: the FM-1 sets MIDI at Play, KEYBD again at Stop), GLO › MIDI › CLOCK IN = ALL or USB; TRANSPORT ON lets Play and Stop start it.`
+    : leader ? `${n} FM-1${n === 1 ? '' : 's'} follow${n === 1 ? 's' : ''} the leader, one SYNC DELAY behind. The leader: LSDj SYNC = LSDJ, CLOCK OUT = USB; the others: SYNC = MIDI (or KEYBD with 0.9.97), CLOCK IN = ALL or USB.`
     : '';
 }
 /* the FM-1s plugged in changed: the clock's targets follow; a leader pulled: Off */
