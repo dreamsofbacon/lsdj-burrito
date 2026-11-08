@@ -44,12 +44,15 @@ function sendUntimed(targets, data) {
 }
 const asMap = targets => new Map([...targets].map(t => [t, {timed: true}]));
 
-/* The page as the clock. Returns {start, stop, cont, setTempo, addTarget, removeTarget, running, bpm, ticks, close}.
-   now: the clock Web MIDI timestamps use (performance.now); timer(f, ms) -> cancel (workerTimer). */
+/* The page as the clock. Returns {start, stop, cont, setTempo, bend, phase, addTarget, removeTarget, running, bpm,
+   ticks, close}. now: the clock Web MIDI timestamps use (performance.now); timer(f, ms) -> cancel (workerTimer).
+   The DJ layout runs one per deck: start(at) starts on a given moment (a master's next bar), bend(f) plays f times
+   the tempo until bend(1) (nudge, Sync's catch-up), phase(t) is the position in clocks since Start. */
 export function startClock({bpm = 120, targets = [], now = () => performance.now(), timer = workerTimer,
                             lookahead = LOOKAHEAD_MS, onState = () => {}} = {}) {
   const outs = asMap(targets);
-  let tempo = clampBpm(bpm), running = false, nextAt = 0, ticks = 0, closed = false;
+  let tempo = clampBpm(bpm), factor = 1, running = false, nextAt = 0, ticks = 0, closed = false;
+  const period = () => 60000 / (tempo * factor * PPQN);
   let due = [];   /* [at, byte] scheduled for the timed targets, not yet sent to the untimed ones */
   const flush = t => {
     let i = 0;
@@ -59,23 +62,28 @@ export function startClock({bpm = 120, targets = [], now = () => performance.now
   const emit = (byte, at) => { sendAll(outs, [byte], at); due.push([at, byte]); };
   const pump = () => {
     if (!running || closed) return;
-    const t = now(), period = clockMs(tempo);
-    if (nextAt < t - period) { nextAt = t; }   /* the page was frozen: carry on from now, never a burst of clocks */
-    while (nextAt < t + lookahead) { emit(CLOCK, nextAt); nextAt += period; ticks++; }
+    const t = now(), p = period();
+    if (nextAt < t - p) { nextAt = t; }   /* the page was frozen: carry on from now, never a burst of clocks */
+    while (nextAt < t + lookahead) { emit(CLOCK, nextAt); nextAt += p; ticks++; }
     flush(t);
   };
   const cancel = timer(pump, WAKE_MS);
-  const begin = byte => {
+  const begin = (byte, when) => {
     if (closed) return;
-    const at = now() + START_LEAD_MS;
+    const at = Math.max(now() + START_LEAD_MS, Number.isFinite(when) ? when : 0);
     if (byte === START) ticks = 0;
     running = true; nextAt = at;
     emit(byte, at);
     pump(); onState(true);
   };
   return {
-    start() { if (!running) begin(START); },
+    start(at) { if (!running) begin(START, at); },   /* at: a later moment to start on (never sooner than the lead) */
     cont() { if (!running) begin(CONTINUE); },
+    /* f times the tempo from the next clock scheduled (clamped 0.5..2); bend(1) back */
+    bend(f = 1) { factor = Math.min(2, Math.max(0.5, Number.isFinite(+f) ? +f : 1)); return factor; },
+    /* clocks since Start at time t (fractional; before the first clock: negative), null when stopped */
+    phase(t = now()) { return running ? ticks - (nextAt - t) / period() : null; },
+    get factor() { return factor; },
     stop() {
       if (closed) return;
       const was = running; running = false; due = [];

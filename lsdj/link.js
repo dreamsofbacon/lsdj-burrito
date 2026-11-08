@@ -10,7 +10,7 @@ export const OP = {INFO: 0x01, READ: 0x02, BEGIN: 0x03, CHUNK: 0x04, COMMIT: 0x0
   STORE: 0x16, MIDI_GET: 0x17, MIDI_SET: 0x18, FEAT_GET: 0x19, FEAT_SET: 0x1A, LIVE: 0x20,
   CART_INFO: 0x22, CART_READ: 0x23, MUTE_SET: 0x24, SCREEN_INFO: 0x25, SCREEN_ROW: 0x26,
   SCREEN_SYNC: 0x27, SCREEN_PIXELS: 0x28, SCREEN_FRAME: 0x29, REVERB_GET: 0x2A, REVERB_SET: 0x2B, PAD_SET: 0x2C,
-  REVERB_SENDS_GET: 0x2D, REVERB_SENDS_SET: 0x2E};
+  REVERB_SENDS_GET: 0x2D, REVERB_SENDS_SET: 0x2E, VOLUME_SET: 0x2F, SEQ_SET: 0x30, SONG_ROWS: 0x31};
 export const STATUS = ['ok', 'bad request', 'wrong state', 'checksum mismatch', 'flash error'];
 export const CHUNK = 128;
 export const SAVE_SIZE = 131072;
@@ -213,10 +213,32 @@ export class Link {
   }
   async live() {
     const {data: d} = await this.req(OP.LIVE, [], {timeout: 800});
-    const words = (d.length - 7) >> 2;   // 17 (11 before alpha 66); FM-1_979: a battery byte after them
-    return {page: d[0], cursor: d[1], bpm: rd16(d, 2), mute: d[4], freeze: d[5], playing: d[6],
-            fx: Array.from({length: words}, (_, i) => rd32(d, 7 + 4 * i)), battery: battery(d[7 + 4 * words])};
+    const words = d.length >= 7 + 4 * 17 ? 17 : 11;   // 11 before alpha 66; FM-1_979: a battery byte after them
+    const l = {page: d[0], cursor: d[1], bpm: rd16(d, 2), mute: d[4], freeze: d[5], playing: d[6],
+               fx: Array.from({length: words}, (_, i) => rd32(d, 7 + 4 * i)), battery: battery(d[7 + 4 * words])};
+    return Object.assign(l, liveDj(d.slice(8 + 4 * words)));
   }
+  /* 0.9.98 (the DJ layout): false before (status 1), or when this FM-1 doesn't know LSDj's addresses */
+  async volumeSet(level) {   /* 0..127, times the MASTER knob; not saved */
+    return !(await this.req(OP.VOLUME_SET, [Math.max(0, Math.min(127, Math.round(level)))], {retries: 1, allow: [0, 1]})).status;
+  }
+  async seqSet(live) { return !(await this.req(OP.SEQ_SET, [live ? 1 : 0], {retries: 2, allow: [0, 1]})).status; }
+  /* 16 song rows from row (each: 4 chains, null empty), or null */
+  async songRows(row) {
+    const r = await this.req(OP.SONG_ROWS, [row & 255], {retries: 2, allow: [0, 1], accept: r => r.status || r.data[0] === (row & 255)});
+    if (r.status || r.data.length !== 65) return null;
+    return Array.from({length: 16}, (_, i) => [...r.data.slice(1 + 4 * i, 5 + 4 * i)].map(c => c === 0xFF ? null : c));
+  }
+}
+
+/* LIVE's 0.9.98 bytes after the battery (none before): {rows, songRows (per channel), sync ('off' | 'lsdj' |
+   'midi' | 'keybd'), live (SEQ live mode), level (page volume)}; unknown: null */
+const SYNCS = {0: 'off', 1: 'lsdj', 3: 'midi', 5: 'keybd'};
+export function liveDj(e) {
+  if (e.length < 11) return {rows: null, songRows: null, sync: null, live: null, level: null};
+  const k = b => b === 0xFF ? null : b;
+  return {rows: [...e.slice(0, 4)].map(k), songRows: [...e.slice(4, 8)].map(k), sync: SYNCS[e[8]] ?? null,
+          live: e[9] === 0xFF ? null : !!e[9], level: k(e[10])};
 }
 
 /* LIVE's battery byte: 0..3 bars of 3, +0x80 on USB power; 0xFF (or none: before FM-1_979) unknown */

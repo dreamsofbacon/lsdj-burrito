@@ -115,4 +115,25 @@ assert.ok(near(clockMs(120), 500 / PPQN));   /* 24 a beat: 20.83 ms at 120 */
   const c = calls; await new Promise(r => setTimeout(r, 60)); assert.equal(calls, c);
 }
 
-console.log('PASS midiclock: the page as the clock (Start, 24 a beat ahead, tempo, Stop, Continue, frozen page, targets, untimed), the relay, the timer');
+/* the DJ layout's deck clocks: start on a given moment, bend the tempo for a while, read the position */
+{
+  const f = fake(), a = out();
+  const c = startClock({bpm: 120, targets: [a], now: f.now, timer: f.timer});
+  assert.equal(c.phase(), null, 'stopped: no position');
+  c.start(1500);                                           /* the master's next bar, 400 ms from now */
+  assert.deepEqual(a.log[0], [START, 1500]);
+  assert.ok(near(c.phase(1500), 0) && near(c.phase(1500 + clockMs(120) * 12), 12), 'position in clocks from Start');
+  assert.ok(c.phase(1400) < 0, 'before Start: negative');
+  f.run(1000);                                             /* t = 2000 */
+  assert.ok(near(c.phase(), 500 / clockMs(120), 1e-6));
+  assert.equal(c.bend(1.04), 1.04); assert.equal(c.factor, 1.04);
+  const n = a.log.length; f.run(500);
+  const ts = a.log.slice(n + 1).map(([, t]) => t);
+  for (let i = 1; i < ts.length; i++) assert.ok(near(ts[i] - ts[i - 1], clockMs(120) / 1.04), 'bent: 4 % faster');
+  assert.equal(c.bpm, 120, 'the tempo itself stays');
+  assert.equal(c.bend(9), 2); assert.equal(c.bend(0), 0.5); assert.equal(c.bend('x'), 1, 'clamped; nonsense: none');
+  c.stop(); c.start(0); assert.ok(a.log.at(-1)[1] >= f.t + START_LEAD_MS, 'a moment in the past: as soon as it can');
+  c.close();
+}
+
+console.log('PASS midiclock: the page as the clock (Start, 24 a beat ahead, tempo, Stop, Continue, frozen page, targets, untimed), the relay, the timer, deck clocks (start on a moment, bend, position)');

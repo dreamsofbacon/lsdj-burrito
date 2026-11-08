@@ -13,6 +13,7 @@ import {CHANNELS, pagesForFx, PARAM, paramGet, paramSet, valueText, channelSumma
 import {fxDiagram, pageFor} from './fx-diagram.js';
 import {zipStore} from './zip.js';
 import {startClock, startRelay, clampBpm} from './midiclock.js';
+import {mountDj, setDjHooks, djShown, djDevicesChanged} from './dj-ui.js';
 import {romFromSlot} from './lsdj-rom.js';
 import {ScreenMirror} from './screen.js';
 import {popOut, onPopChange, isOut, docs, seen, anyVisible, visibleWindow} from './popout.js';
@@ -364,7 +365,7 @@ function maybeFollow(d) {
 }
 function devLabel(d, i) { return `FM-1 ${i + 1}: ${d.info.title || 'no LSDj'} · ${d.info.firmware} (${d.name})`; }
 function drawDevPick() {
-  drawGrid(); drawPadTargets(); refreshSync();
+  drawGrid(); drawPadTargets(); refreshSync(); djDevicesChanged();
   const choices = devices.map((d, i) => [String(i), devLabel(d, i)]);
   if (virtual) choices.push(['virtual', 'The virtual FM-1']);
   const now = virtual ? 'virtual' : connected ? String(devices.findIndex(d => sameDev(d, current))) : '';
@@ -1123,6 +1124,41 @@ setSongsHooks({
   cartInfo: () => exclusive(l => l.cartridgeInfo()),
 });
 mountSongsUi($('songtools'));
+/* ---------- Perform's DJ layout (lsdj/dj-ui.js) ----------
+   Effects | DJ at the top of Perform (kept in this browser). The DJ layout clocks its decks itself, so Perform ›
+   Clock goes off when a deck starts. Its FM-1s: the one in use, or another plugged in (its watcher's link, or a
+   small link of its own, as a game controller's). */
+function djLinkFor(key) {
+  if (key == null) return null;
+  if (key === curKey() && !virtual) return connected ? link : null;
+  const d = devices.find(x => portKey(x) === key);
+  if (!d) return null;
+  const w = watchers.get(d);
+  if (w) return w.link;
+  let l = padLinks.get(d);
+  if (!l) { l = new Link(d.input, d.output); padLinks.set(d, l); }
+  return l;
+}
+setDjHooks({
+  devices: () => devices.map((d, i) => ({key: portKey(d), label: `FM-1 ${i + 1}: ${d.info.title || 'no LSDj'}`, fw: d.info.firmware})),
+  linkFor: djLinkFor,
+  outputFor: key => devices.find(x => portKey(x) === key)?.output || null,
+  access: () => ports?.access || null,
+  takeClock: () => { if (syncMode !== 'off') { setSync('off'); drawSync('The DJ layout clocks the FM-1s now: Clock here is off.'); } },
+});
+mountDj($('dj-root'));
+let stageMode = 'fx';
+try { if (localStorage.getItem('lsdj-burrito-stage') === 'dj') stageMode = 'dj'; } catch { /* Effects */ }
+function setStageMode(m) {
+  stageMode = m === 'dj' ? 'dj' : 'fx';
+  try { localStorage.setItem('lsdj-burrito-stage', stageMode); } catch { /* this visit only */ }
+  document.body.classList.toggle('dj', stageMode === 'dj');
+  $$('#stage-mode [data-mode]').forEach(b => { const on = b.dataset.mode === stageMode; b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); });
+  djShown(stageMode === 'dj');
+  queueFit();
+}
+$$('#stage-mode [data-mode]').forEach(b => { b.onclick = () => setStageMode(b.dataset.mode); });
+setStageMode(stageMode);
 /* The three exports (each its own file): songs, the installed LSDj (read back from the FM-1:
    FM-1_974 and newer web-installed builds), the effects setup. Nothing is written to the FM-1. */
 async function songsFile() {
