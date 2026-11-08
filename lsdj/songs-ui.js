@@ -9,6 +9,7 @@
 import {parseSav, songBytes, buildSav, readLsdsng, writeLsdsng, nameBytes, nameText, SavError, SAV_SIZE, SLOTS, BLOCK_COUNT} from './lsdj-sav.js';
 import {kitSlots} from './lsdj-kit.js';
 import {kitUsage, usageAcross, romFit, bestRom} from './lsdj-usage.js';
+import {mountSetsUi, rememberRom} from './sets-ui.js';
 
 const $ = id => document.getElementById(id);
 const el = (tag, props = {}, ...kids) => { const e = Object.assign(document.createElement(tag), props); e.append(...kids.filter(k => k != null)); return e; };
@@ -221,10 +222,14 @@ export function mountSongsUi(root) {
     return i;
   };
   const savIn = file('.sav', false, async ([f]) => openSave(new Uint8Array(await f.arrayBuffer()), f.name));
-  const romIn = file('.gb,.gbc', true, async fs => probeRoms(await Promise.all(fs.map(async f => {
-    if (f.size % 0x4000 || f.size > 0x200000) throw new SavError(`${f.name} isn't an LSDj ROM (.gb).`);
-    return {name: f.name, rom: new Uint8Array(await f.arrayBuffer())};
-  }))));
+  const romIn = file('.gb,.gbc', true, async fs => {
+    const roms = await Promise.all(fs.map(async f => {
+      if (f.size % 0x4000 || f.size > 0x200000) throw new SavError(`${f.name} isn't an LSDj ROM (.gb).`);
+      return {name: f.name, rom: new Uint8Array(await f.arrayBuffer())};
+    }));
+    probeRoms(roms);
+    for (const r of roms) if (kitSlots(r.rom).length) await rememberRom(r.rom, r.name);
+  });
   const songIn = file('.lsdsng', true, addLsdsng);
   const b = (text, fn, props = {}) => el('button', {type: 'button', textContent: text, onclick: () => guard(fn), ...props});
   root.replaceChildren(
@@ -242,11 +247,13 @@ export function mountSongsUi(root) {
       }, {id: 'st-send', disabled: true})),
     el('div', {className: 'row'},
       b('Choose your LSDj (.gb)…', () => romIn.click(), {title: 'Pick one, or several: the one that fits these songs best is used'}), romIn,
-      b('Read LSDj from the FM-1', async () => { say('Reading the installed LSDj from the FM-1 (no writes)…'); useRom(await withProgress(hooks.readRom), 'the LSDj on the FM-1'); say('Kit names read from the FM-1.', 'ok'); })),
+      b('Read LSDj from the FM-1', async () => { say('Reading the installed LSDj from the FM-1 (no writes)…'); const rom = await withProgress(hooks.readRom); useRom(rom, 'the LSDj on the FM-1'); await rememberRom(rom, 'LSDj read from the FM-1'); say('Kit names read from the FM-1.', 'ok'); })),
     el('p', {id: 'st-rom', className: 'hint'}),
     el('progress', {id: 'st-progress', value: 0, max: 1, hidden: true}),
     el('p', {id: 'st-status', className: 'hint', role: 'status'}),
-    el('div', {id: 'st-report'}));
+    el('div', {id: 'st-report'}),
+    el('div', {id: 'st-sets', className: 'sets'}));
+  mountSetsUi($('st-sets'));
   document.addEventListener('install-rom', e => { if (e.detail?.rom && !state.romChosen) useRom(e.detail.rom, `the LSDj chosen in Install (${e.detail.name})`, false); });
   draw();
 }

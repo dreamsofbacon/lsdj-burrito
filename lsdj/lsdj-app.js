@@ -195,6 +195,13 @@ $('rom').onchange = e => {
   if (busy || installing() || reading) return;
   return chooseRom(e.target.files[0]);
 };
+/* Songs & kits › a song set (sets-ui.js): its LSDj, as if chosen here (all its kits ticked) */
+document.addEventListener('install-this-rom', e => {
+  if (busy || installing() || reading) return;
+  $('rom').value = '';
+  location.hash = '#install';
+  chooseRom(new File([e.detail.rom], e.detail.name));
+});
 $('rom-cancel').onclick = () => reading?.abort();
 $('rom-device').onclick = async () => {
   if (busy || installing() || reading) return;
