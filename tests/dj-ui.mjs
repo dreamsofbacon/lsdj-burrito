@@ -19,7 +19,7 @@ async function until(check, message, ms = 8000) {
   throw Error(message);
 }
 function fm1(n, title, fw = 'FM-1_997') {
-  const d = {n, title, midi: [], fxSets: [], mutes: [], levels: [], seqs: [], screens: 0, level: 127, seq: 0,
+  const d = {n, title, midi: [], fxSets: [], mutes: [], levels: [], seqs: [], mapReads: [], screens: 0, level: 127, seq: 0,
     settings: packSettings({...unpackSettings(0x5a000000), theme: n % PRESETS.length})};   /* each its own theme */
   const fx = Array(68).fill(0);
   fx[36] = 5; fx[37] = 2; fx[42] = 0xf2; fx[38] = 1;
@@ -41,6 +41,7 @@ function fm1(n, title, fw = 'FM-1_997') {
     if (op === OP.LIVE) return send([1, 1, 120, 0, d.mutes.at(-1) || 0, 0, 0, ...fx, ...dj]);
     if (fw >= 'FM-1_998' && op === OP.VOLUME_SET) { d.levels.push(body[0]); d.level = body[0]; return send(); }
     if (fw >= 'FM-1_998' && op === OP.SEQ_SET) { d.seqs.push(body[0]); d.seq = body[0]; return send(); }
+    if (fw >= 'FM-1_998' && op === OP.SONG_ROWS) { d.mapReads.push(body[0]); return send([body[0], ...Array.from({length: 64}, (_, i) => i % 4 ? 0xFF : (body[0] + i / 4) & 0x3F)]); }
     return send([], 1);
   }};
   return d;
@@ -62,7 +63,7 @@ export async function runDjUiTests() {
   const access = new EventTarget();
   access.inputs = new Map([['a', A.input], ['b', B.input], ['t', T.input]]);
   access.outputs = new Map([['a', A.output], ['b', B.output], ['t', T.output]]);
-  for (const k of ['lsdj-burrito-stage', 'dj-mixer', 'dj-mixer-in', 'dj-mixer-out', 'dj-mixer-map', 'dj-bpm', 'dj-learned']) try { localStorage.removeItem(k); } catch {}
+  for (const k of ['lsdj-burrito-stage', 'dj-mixer', 'dj-mixer-in', 'dj-mixer-out', 'dj-mixer-map', 'dj-bpm', 'dj-learned', 'dj-view-0', 'dj-view-1']) try { localStorage.removeItem(k); } catch {}
   try {
     Object.defineProperty(navigator, 'requestMIDIAccess', {configurable: true, value: async () => access});
     await $('connect-btn').onclick();
@@ -135,7 +136,7 @@ export async function runDjUiTests() {
     assert([...document.querySelectorAll('.dj-deck')][0].querySelector('button[title="Needs 0.9.98 on the FM-1"]')?.disabled, 'A (0.9.97): Hold off, with a note');
     hold.click();
     await until(() => B.seqs.at(-1) === 1, `Hold: SEQ_SET live: ${B.seqs}`);
-    assert(!document.querySelector('.dj-map, .dj-maprow'), 'no song row map');
+    assert(!document.querySelector('.dj-map, .dj-maprow') && !B.mapReads.length, 'Screen first: no row map, SONG_ROWS not read');
 
     // 4c. each deck: its own FM-1's screen, asked on that FM-1's link (these fakes have none: the deck says so),
     // and its own FM-1's theme colours
@@ -146,6 +147,22 @@ export async function runDjUiTests() {
     await until(() => decksEl.every(e => e.classList.contains('themed')), 'both decks themed', 4000);
     assert(decksEl[0].style.getPropertyValue('--accent') === accent(A) && decksEl[1].style.getPropertyValue('--accent') === accent(B) && accent(A) !== accent(B),
       `each deck in its FM-1's colours: ${decksEl.map(e => e.style.getPropertyValue('--accent'))} want ${accent(A)} ${accent(B)}`);
+
+    // 4d. Screen | Rows: A (0.9.97) has no Rows; B shows its song row map, a click cues that row; back to Screen
+    const viewBtn = (e, t) => [...e.querySelectorAll('.dj-view button')].find(b => b.textContent === t);
+    assert(viewBtn(decksEl[0], 'Rows')?.disabled && viewBtn(decksEl[0], 'Screen')?.classList.contains('on'), 'A (0.9.97): Rows off, Screen on');
+    viewBtn(decksEl[1], 'Rows').click();
+    await until(() => decksEl[1].querySelectorAll('.dj-maprow').length === 16, 'B: Rows shows the song row map, 16 rows', 4000);
+    assert(viewBtn(decksEl[1], 'Rows').classList.contains('on') && !decksEl[1].querySelector('.dj-screen'), 'B: Rows on, no screen');
+    const rowsShown = [...decksEl[1].querySelectorAll('.dj-maprow')];
+    assert(/^00 00 -- -- --/.test(rowsShown[0].textContent.replace(/(..)(?=.)/g, '$1 ')), `row 00: chain 00 in PU1: ${rowsShown[0].textContent}`);
+    B.midi.length = 0;
+    rowsShown[2].click();
+    assert(B.midi.some(m => m[0] === 0xc0 && m[1] === 2), `a click on row 02 cues it (program change 2): ${B.midi}`);
+    viewBtn(decksEl[1], 'Screen').click();
+    const reads = B.mapReads.length, shots = B.screens;
+    await sleep(1200);
+    assert(!decksEl[1].querySelector('.dj-maprow') && B.mapReads.length === reads && B.screens > shots, `back to Screen: no rows read (${B.mapReads.length - reads}), the screen asked again (${B.screens - shots})`);
     B.midi.length = 0;
 
     // 5. the TX-6: its track 1 button stops deck A; the crossfader sets its channel 1 and 2 volumes
@@ -171,7 +188,7 @@ export async function runDjUiTests() {
     assert(!document.body.classList.contains('dj') && getComputedStyle($('pan-chans')).display !== 'none', 'Effects layout back');
     await until(() => B.level === 127, `the Effects layout: B at full volume: ${B.levels}`);
     djState().decks.forEach(d => d.clock?.stop());
-    return 'PASS DJ layout: switch, decks on FM-1s, Start and clocks per deck, the next bar, its own tempo, Sync, stem kill, DJ filter, Perform › Clock off, 0.9.98 (crossfader to FM-1 volume, Hold), each deck its FM-1 screen and colours, TX-6 button and crossfader, fader mirrored, full volume after';
+    return 'PASS DJ layout: switch, decks on FM-1s, Start and clocks per deck, the next bar, its own tempo, Sync, stem kill, DJ filter, Perform › Clock off, 0.9.98 (crossfader to FM-1 volume, Hold), each deck its FM-1 colours and Screen | Rows (screen, song row map, click to cue), TX-6 button and crossfader, fader mirrored, full volume after';
   } finally {
     if (descriptor) Object.defineProperty(navigator, 'requestMIDIAccess', descriptor); else delete navigator.requestMIDIAccess;
   }

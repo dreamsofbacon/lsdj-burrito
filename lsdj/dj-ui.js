@@ -14,7 +14,8 @@
 //   VOLUME_SET, times the MASTER knob; put back to full when the deck is emptied, the mixer changes or the layout
 //   closes). 0.9.98 also gives: Hold (LSDj's live mode: each channel loops its chain), a SYNC check, and beat lights
 //   from the FM-1's own phrase rows when this page isn't clocking it.
-//   Each FM-1 deck shows its FM-1's screen (as Perform › Screen; FM-1_983 and newer), on that FM-1's link.
+//   Each FM-1 deck shows, as chosen (Screen | Rows): its FM-1's screen (as Perform › Screen; FM-1_983 and newer),
+//   on that FM-1's link, or (0.9.98) the song row map: click a row to cue it.
 import {startClock, clampBpm, PPQN, CLOCK, START, CONTINUE, STOP} from './midiclock.js';
 import {BAR, BEAT, NUDGE, position, offset, syncBend, nextOn, crossfade, CURVES, djFilter, tapper, clockMeter} from './dj.js';
 import {PRESETS, preset, readMidi, actionFor, out, learnRule, saveLearned, loadLearned} from './mixers.js';
@@ -37,7 +38,8 @@ const mixer = {id: store.get('dj-mixer', 'none'), inId: store.get('dj-mixer-in',
   xfader: 0.5, curve: store.get('dj-curve', 'smooth'), faders: {}, input: null, note: ''};
 const decks = [0, 1].map(i => ({i, key: '', kind: '', bpm: master.bpm, clock: null, live: null, fx: null, rv: null, base: null,
   kill: 0, killOnBar: store.get('dj-killbar', '0') === '1', filter: 0, filterBy: 'fm1', throwBy: 'fm1', row: 0, sendTimer: 0, ui: null,
-  level: null, levelSent: 127, levelBusy: false, scr: null, scrLink: null, scrOk: true}));
+  level: null, levelSent: 127, levelBusy: false, scr: null, scrLink: null, scrOk: true,
+  view: store.get(`dj-view-${i}`, 'screen'), map: null, mapFrom: -1, mapAt: 0}));
 let root = null, ticker = 0, polling = 0, shown = false;
 /* the deck's FM-1 firmware number (998: 0.9.98), 0 for other gear */
 const fwOf = d => d.kind === 'fm1' ? firmwareNumber(hooks.devices().find(x => x.key === d.key)?.fw) || 0 : 0;
@@ -108,7 +110,7 @@ async function assign(d, value) {
   d.clock?.stop(); d.clock?.close(); d.clock = null;
   if (d.kind === 'fm1' && d.levelSent !== 127) void fullVolume(d.key);   /* the FM-1 leaving the deck: full volume again */
   d.key = ''; d.kind = ''; d.live = null; d.fx = null; d.rv = null; d.base = null; d.kill = 0; d.filter = 0;
-  d.level = null; d.levelSent = 127; d.scrOk = true; d.themeAt = 0;
+  d.level = null; d.levelSent = 127; d.scrOk = true; d.themeAt = 0; d.map = null; d.mapFrom = -1;
   paintDeck(d, null);
   if (value) { const [kind, ...k] = value.split(':'); d.kind = kind; d.key = k.join(':'); }
   draw();
@@ -263,10 +265,28 @@ function paintDeck(d, vars) {
 /* each FM-1 deck's screen, while the DJ layout shows: a mirror on the deck's FM-1 link, started again when that
    link changes (another FM-1 taken into use, a watcher started or ended), stopped when the deck is emptied */
 function deckScreen(d) {
-  const want = shown && d.kind === 'fm1' && d.ui?.screen ? hooks.linkFor(d.key) : null;
+  const want = shown && d.kind === 'fm1' && deckView(d) === 'screen' && d.ui?.screen ? hooks.linkFor(d.key) : null;
   if (want === d.scrLink && (!want || d.scr || !d.scrOk)) return;   /* (no screen on its firmware: not asked again) */
   d.scr?.stop(); d.scr = null; d.scrLink = want;
+  if (want && !d.scrOk) { d.scrOk = true; drawDeck(d); }   /* a new try: the canvas on the page again (it draws only when seen) */
   if (want) d.scr = hooks.screen(d.key, want, d.ui.screen, ok => { if (d.scrOk !== ok) { d.scrOk = ok; drawDeck(d); } });
+}
+/* a deck shows its FM-1's screen or its song row map (Rows, 0.9.98), as chosen (kept in this browser) */
+const hasRows = d => fwOf(d) >= 998;
+const deckView = d => d.view === 'rows' && hasRows(d) ? 'rows' : 'screen';
+function setView(d, v) {
+  d.view = v; store.set(`dj-view-${d.i}`, v);
+  drawDeck(d); deckScreen(d);
+  if (v === 'rows') { const l = hooks.linkFor(d.key); if (l) void readMap(d, l).then(() => drawMap(d), () => {}); }
+}
+/* 0.9.98: 16 song rows around where the deck plays, read again when it moves on or every few seconds */
+async function readMap(d, l) {
+  const rows = (d.live?.songRows || []).filter((r, c) => r != null && (d.live.playing >> c) & 1);
+  const at = rows.length ? Math.min(...rows) : d.row;
+  const from = Math.max(0, Math.min(240, at - 4));
+  if (d.map && Math.abs(from - d.mapFrom) < 6 && now() - d.mapAt < 4000) return;
+  const map = await l.songRows(from);
+  if (map) { d.map = map; d.mapFrom = from; d.mapAt = now(); }
 }
 /* each FM-1 deck's LIVE, a few times a second: its own tempo, what plays, its mutes (0.9.98: rows, SYNC, mode) */
 async function poll() {
@@ -280,6 +300,7 @@ async function poll() {
       if (d.live.level != null && !d.levelBusy) d.levelSent = d.live.level;
       if (d.live.level != null && d.levelSent !== (d.level ?? 127)) void sendLevel(d);   /* power cycled, or another page */
       if (now() - (d.themeAt || 0) > 8000) await deckTheme(d, l);
+      if (deckView(d) === 'rows') { await readMap(d, l); drawMap(d); }   /* (read only while the rows show) */
     } catch { d.live = null; }
   }
 }
@@ -420,12 +441,36 @@ function drawDeck(d) {
     u.body.append(el('div', {className: 'dj-row'}, el('label', {}, 'Row ', row), btn('Cue row', () => cueRow(d), {title: 'Plays that song row at the next bar (FM-1: PC CUE on)'}),
       u.hold = btn(held ? 'Held' : 'Hold', () => void deckHold(d), {disabled: !has98, className: held ? 'on' : '',
         title: has98 ? 'LSDj live mode: each channel loops its chain until you cue another. Again: song mode.' : 'Needs 0.9.98 on the FM-1'}),
-      has98 ? null : el('span', {className: 'hint', textContent: 'Hold needs 0.9.98.'})));
-    u.body.append(d.scrOk ? el('div', {className: 'dj-screen-box'}, u.screen)
+      has98 ? null : el('span', {className: 'hint', textContent: 'Hold and Rows need 0.9.98.'})));
+    /* Screen | Rows: the FM-1's screen, or the song row map (click a row to cue it) */
+    const view = deckView(d);
+    const viewBtn = (v, text, title, disabled = false) => btn(text, () => setView(d, v),
+      {className: view === v ? 'on' : '', disabled, title, ariaPressed: String(view === v)});
+    u.body.append(el('div', {className: 'seg dj-view', role: 'group', ariaLabel: `Deck ${NAMES[d.i]}: show`},
+      viewBtn('screen', 'Screen', "The FM-1's screen"),
+      viewBtn('rows', 'Rows', has98 ? 'The song rows: click one to cue it at the next bar' : 'Needs 0.9.98 on the FM-1', !has98)));
+    u.map = null;
+    if (view === 'rows') { u.map = el('div', {className: 'dj-map mono', role: 'group', ariaLabel: `Deck ${NAMES[d.i]} song rows`}); u.body.append(u.map); drawMap(d); }
+    else u.body.append(d.scrOk ? el('div', {className: 'dj-screen-box'}, u.screen)
       : el('p', {className: 'hint', textContent: fw >= 983 ? 'This FM-1 did not send its screen. Choose the deck again to retry.' : `This FM-1's screen shows here with FM-1_983 or newer (it runs ${fw ? `FM-1_${fw}` : 'older firmware'}).`}));
     u.info = el('p', {className: 'hint dj-info'});
     u.body.append(u.info);
   }
+}
+/* the song row map: 16 rows, a chain per channel (-- empty); the rows playing marked; a click cues that row
+   (a program change: rows 00-7F only) */
+function drawMap(d) {
+  const u = d.ui;
+  if (!u?.map) return;
+  if (!d.map) { u.map.replaceChildren(el('span', {className: 'hint', textContent: 'Reading the song…'})); return; }
+  const at = d.live?.songRows || [], playing = d.live?.playing || 0;
+  u.map.replaceChildren(...d.map.map((chains, i) => {
+    const r = d.mapFrom + i, here = chains.map((c, ch) => (playing >> ch) & 1 && at[ch] === r);
+    const b = btn('', () => { d.row = r; cueRow(d); drawDeck(d); }, {className: `dj-maprow${here.some(Boolean) ? ' here' : ''}${r === d.row ? ' cued' : ''}`,
+      disabled: r > 127, title: r > 127 ? 'A program change cues rows 00–7F only' : `Cue row ${hex2(r)}`});
+    b.append(el('b', {textContent: hex2(r)}), ...chains.map((c, ch) => el('span', {className: here[ch] ? 'on' : '', textContent: c == null ? '--' : hex2(c)})));
+    return b;
+  }));
 }
 function drawMixer() {
   if (!root) return;
@@ -531,7 +576,7 @@ export function mountDj(box) {
   };
   box.replaceChildren(el('div', {className: 'dj-grid'}, deckBox(decks[0]), el('section', {className: 'dj-mixer', ariaLabel: 'Master and mixer'}), deckBox(decks[1])),
     statusEl,
-    el('p', {className: 'hint', textContent: 'Each deck follows this page\'s clock at its own tempo. On each FM-1: LSDj PROJECT › SYNC = MIDI (or KEYBD with 0.9.97), GLO › MIDI › CLOCK IN = ALL or USB, TRANSPORT ON; for Cue row, PC CUE ON. The audio goes through your mixer as usual; without one, the crossfader sets each FM-1\'s volume (0.9.98).'}));
+    el('p', {className: 'hint', textContent: 'Each deck follows this page\'s clock at its own tempo. On each FM-1: LSDj PROJECT › SYNC = MIDI (or KEYBD with 0.9.97), GLO › MIDI › CLOCK IN = ALL or USB, TRANSPORT ON; for Cue row and Rows, PC CUE ON. The audio goes through your mixer as usual; without one, the crossfader sets each FM-1\'s volume (0.9.98).'}));
   if (mixer.inId) setMixerIn(mixer.inId);
   draw();
 }
