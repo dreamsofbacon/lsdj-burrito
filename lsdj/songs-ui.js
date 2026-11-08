@@ -19,7 +19,7 @@ const hex = n => n.toString(16).toUpperCase().padStart(2, '0');
 const state = {sav: null, from: '', items: [], edited: false, slots: null, romFrom: '', romChosen: false};
 /* app.js: readSave(progress) -> .sav bytes, sendSave(bytes, progress), readRom(progress) -> ROM bytes (each fails
    with a clear message when no FM-1 is connected or another operation is running) */
-let hooks = {readSave: null, sendSave: null, readRom: null};
+let hooks = {readSave: null, sendSave: null, readRom: null, cartInfo: null};
 export function setSongsHooks(h) { hooks = {...hooks, ...h}; }
 export const songsState = () => state;
 
@@ -144,6 +144,8 @@ function draw() {
   drawNeed();
   for (const id of ['st-add', 'st-download', 'st-send']) $(id).disabled = !state.sav;
   if (!state.sav) return;
+  if (state.needs) box.append(el('p', {className: 'warn', textContent: `These are ${state.needs.title}'s songs. Their kits are in ${state.needs.title}'s LSDj, not in the .sav: ` +
+    `install ${state.needs.title}'s LSDj on the FM-1 first, then press Send to the FM-1 (it checks the FM-1 has that LSDj).`}));
   drawSongs(box); drawKits(box);
 }
 /* asks for the LSDj the songs were made with when it's needed: none chosen yet, or the one chosen lacks kits
@@ -186,13 +188,36 @@ function announce() {
 }
 
 /* ---- opening ---- */
-export function openSave(bytes, from) {
+/* needs: for a song set's .sav, {title, dataCrc: async () -> the set LSDj's slot data CRC} (sets-ui.js) */
+export function openSave(bytes, from, needs = null) {
   if (bytes.length === SAV_SIZE + 16) bytes = bytes.subarray(0, SAV_SIZE);   /* (as Songs › Import, which asks first) */
   const sav = parseSav(bytes.slice());
-  Object.assign(state, {sav, from, items: itemsOf(sav), edited: false});
+  Object.assign(state, {sav, from, items: itemsOf(sav), edited: false, needs});
   announce();
   const bad = state.items.filter(s => !s.song).length;
   say(`Opened ${from}: ${sav.songs.length} song${sav.songs.length === 1 ? '' : 's'}` + (bad ? `, ${bad} damaged.` : '.'), bad ? 'warn' : 'ok');
+}
+/* "Send to the FM-1": asks first; a set's songs (needs: {title, dataCrc}, sets-ui.js) only after checking the
+   FM-1 has that set's LSDj, which holds their kits (a .sav holds no samples) */
+export async function sendOpenSave() {
+  if (!state.sav) throw new SavError('Open a .sav first.');
+  if (!confirm('Replace the songs on the FM-1 with these? Export them first (Songs › Back up) if you want to keep them.')) return false;
+  const n = state.needs;
+  if (n) {
+    let info = null, why = '';
+    try { say('Checking which LSDj the FM-1 has…'); info = await hooks.cartInfo(); } catch (e) { why = e.message; }
+    if (!info || info.dataCrc !== await n.dataCrc()) {
+      const text = info ? `The FM-1 has a different LSDj installed, not ${n.title}'s.` : `Couldn't check which LSDj the FM-1 has (${why}).`;
+      say(`${text} ${n.title}'s songs play the kits in ${n.title}'s LSDj (a .sav holds no samples): install it first ` +
+        `(Install ${n.title}'s LSDj, then Install on the FM-1), then send the songs.`, 'bad');
+      if (!confirm(`${text}\n\n${n.title}'s songs play the kits in ${n.title}'s own LSDj; a .sav holds no samples. ` +
+        `With another LSDj their kit notes play the wrong samples or none.\n\nSend the songs anyway?`)) return false;
+    }
+  }
+  say('Sending songs to the FM-1…');
+  await withProgress(pr => hooks.sendSave(state.sav.bytes, pr));
+  say('Sent. LSDj restarted with these songs.', 'ok');
+  return true;
 }
 /* chosen: picked here (a file or the FM-1's), which a ROM chosen later in Install doesn't replace */
 export function useRom(rom, from, chosen = true) {
@@ -239,12 +264,7 @@ export function mountSongsUi(root) {
       b('Read songs from the FM-1', async () => { say('Reading songs from the FM-1…'); openSave(await withProgress(hooks.readSave), 'the FM-1'); }),
       b('Add .lsdsng songs…', () => songIn.click(), {id: 'st-add', disabled: true}), songIn,
       b('Download .sav', () => download(state.sav.bytes, 'lsdj.sav'), {id: 'st-download', disabled: true}),
-      b('Send to the FM-1', async () => {
-        if (!confirm('Replace the songs on the FM-1 with these? Export them first (Songs › Back up) if you want to keep them.')) return;
-        say('Sending songs to the FM-1…');
-        await withProgress(pr => hooks.sendSave(state.sav.bytes, pr));
-        say('Sent. LSDj restarted with these songs.', 'ok');
-      }, {id: 'st-send', disabled: true})),
+      b('Send to the FM-1', sendOpenSave, {id: 'st-send', disabled: true})),
     el('div', {className: 'row'},
       b('Choose your LSDj (.gb)…', () => romIn.click(), {title: 'Pick one, or several: the one that fits these songs best is used'}), romIn,
       b('Read LSDj from the FM-1', async () => { say('Reading the installed LSDj from the FM-1 (no writes)…'); const rom = await withProgress(hooks.readRom); useRom(rom, 'the LSDj on the FM-1'); await rememberRom(rom, 'LSDj read from the FM-1'); say('Kit names read from the FM-1.', 'ok'); })),

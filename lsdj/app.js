@@ -1098,6 +1098,7 @@ setSongsHooks({
   readSave: pr => exclusive(l => l.exportSave(pr)),
   sendSave: (bytes, pr) => exclusive(l => l.importSave(bytes, pr)),
   readRom: async pr => romFromSlot(await readInstalledCartridge(pr)),
+  cartInfo: () => exclusive(l => l.cartridgeInfo()),
 });
 mountSongsUi($('songtools'));
 /* The three exports (each its own file): songs, the installed LSDj (read back from the FM-1:

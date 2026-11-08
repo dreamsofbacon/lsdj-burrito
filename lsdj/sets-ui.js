@@ -9,7 +9,8 @@ import {kitSlots, parseKit, isKitBank, BANK} from './lsdj-kit.js';
 import * as S from './lsdj-sets.js';
 import {libraryFiles, addToLibrary, removeFromLibrary, clearLibrary, hashOf} from './kit-library.js';
 import {zipStore} from './zip.js';
-import {songsState, openSave} from './songs-ui.js';
+import {songsState, openSave, sendOpenSave} from './songs-ui.js';
+import {buildSlot} from './lsdj-rom.js';
 
 const el = (tag, props = {}, ...kids) => { const e = Object.assign(document.createElement(tag), props); e.append(...kids.filter(k => k != null)); return e; };
 const hex = n => n.toString(16).toUpperCase().padStart(2, '0');
@@ -170,9 +171,27 @@ function setCard(b, i, plan, ctx) {
   for (const w of b.warnings) card.append(el('p', {className: 'warn', textContent: w}));
   card.append(el('div', {className: 'row'},
     el('button', {type: 'button', textContent: `Download ${title} (.zip)`, onclick: () => guard(() => download(zipOf([[b, i]], ctx), `lsdj-set-${i + 1}.zip`))}),
-    el('button', {type: 'button', textContent: 'Report', onclick: () => guard(() => download(new TextEncoder().encode(S.setReport(b, title, ctx)), `lsdj-set-${i + 1}.txt`))}),
-    el('button', {type: 'button', textContent: `Install ${title} on the FM-1`, disabled: !b.plan.fits, onclick: () => guard(() => installSet(b, i))})));
+    el('button', {type: 'button', textContent: 'Report', onclick: () => guard(() => download(new TextEncoder().encode(S.setReport(b, title, ctx)), `lsdj-set-${i + 1}.txt`))})),
+    el('p', {className: 'hint', textContent: `On the FM-1, two steps: the kits are in ${title}'s LSDj, the songs in its .sav. ` +
+      'Sending only the songs keeps the LSDj already on the FM-1, so their kit notes would play the wrong samples or none.'}),
+    el('div', {className: 'row'},
+      el('button', {type: 'button', textContent: `1. Install ${title}'s LSDj…`, disabled: !b.plan.fits, onclick: () => guard(() => installSet(b, i))}),
+      el('button', {type: 'button', textContent: `2. Send ${title}'s songs`, onclick: () => guard(async () => {
+        openSave(b.sav, `${title} (made here)`, needsOf(b, i));
+        await sendOpenSave();
+      })})));
   return card;
+}
+/* what the FM-1 must have for a set's songs: its LSDj, as Install builds it with all its kits (the slot data CRC
+   the FM-1 reports, lsdj-rom.js buildSlot) */
+function needsOf(b, i) {
+  return {title: setTitle(i), dataCrc: async () => {
+    if (b.dataCrc == null) {
+      const {slot} = await buildSlot(b.rom, kitSlots(b.rom).filter(s => !s.empty).map(s => s.bank), state.capacity);
+      b.dataCrc = new DataView(slot.buffer).getUint32(16, true);
+    }
+    return b.dataCrc;
+  }};
 }
 function zipOf(list, ctx) {
   const enc = new TextEncoder(), files = [];
@@ -192,9 +211,10 @@ function zipOf(list, ctx) {
 }
 async function installSet(b, i) {
   state.built.add(await hashOf(b.rom));
-  openSave(b.sav, `${setTitle(i)} (made here)`);
+  openSave(b.sav, `${setTitle(i)} (made here)`, needsOf(b, i));
   document.dispatchEvent(new CustomEvent('install-this-rom', {detail: {rom: b.rom, name: `lsdj-set-${i + 1}.gb`}}));
-  say(`${setTitle(i)}'s LSDj is in Install, with all its kits ticked: install it there. Then come back to Songs & kits and press "Send to the FM-1" to send ${setTitle(i)}'s songs (they are open above now).`, 'ok');
+  say(`${setTitle(i)}'s LSDj is in Install, with all its kits ticked: install it there (leave every kit ticked). ` +
+    `Then come back here and press "2. Send ${setTitle(i)}'s songs".`, 'ok');
 }
 
 function draw() {
