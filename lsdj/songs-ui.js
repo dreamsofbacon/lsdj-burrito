@@ -19,8 +19,18 @@ const hex = n => n.toString(16).toUpperCase().padStart(2, '0');
 const state = {sav: null, from: '', items: [], edited: false, slots: null, romFrom: '', romChosen: false};
 /* app.js: readSave(progress) -> .sav bytes, sendSave(bytes, progress), readRom(progress) -> ROM bytes (each fails
    with a clear message when no FM-1 is connected or another operation is running) */
-let hooks = {readSave: null, sendSave: null, readRom: null, cartInfo: null};
+let hooks = {readSave: null, sendSave: null, readRom: null, cartInfo: null, pickDevice: null};
 export function setSongsHooks(h) { hooks = {...hooks, ...h}; }
+/* The FM-1 the buttons here use (app.js fills it: choices [[value, label]], now: the one in use, or '').
+   'scan' asks Web MIDI again and searches; picking one switches the page to it, as in My FM-1. */
+export function drawSongsDevices(choices, now) {
+  const s = $('st-dev');
+  if (!s) return;
+  const has = choices.some(([v]) => v === now);
+  s.replaceChildren(...(has ? [] : [new Option(choices.length ? 'Choose an FM-1…' : 'No FM-1 connected', '')]),
+    ...choices.map(([v, t]) => new Option(t, v)), new Option('Search for FM-1s (USB)', 'scan'));
+  s.value = has ? now : '';
+}
 export const songsState = () => state;
 
 /* a progress bar for one FM-1 operation; hidden again afterwards */
@@ -301,8 +311,16 @@ export function mountSongsUi(root) {
   });
   const songIn = file('.lsdsng', true, addLsdsng);
   const b = (text, fn, props = {}) => el('button', {type: 'button', textContent: text, onclick: () => guard(fn), ...props});
+  const dev = el('select', {id: 'st-dev', ariaLabel: 'The FM-1 to read from and send to', title: 'The FM-1 to read from and send to'});
+  dev.onchange = () => guard(async () => {
+    const v = dev.value;
+    if (v === 'scan') say('Looking for FM-1s over USB…');
+    const label = await hooks.pickDevice?.(v);
+    if (label) say(`Reading and sending use ${label}.`, 'ok');
+  });
   root.replaceChildren(
     el('p', {className: 'hint', textContent: 'Which kit samples your songs play, and which songs play each sample; save songs one by one, add, rename or delete them. Works on a .sav file without the FM-1. Nothing is uploaded.'}),
+    el('div', {className: 'row'}, el('label', {className: 'row'}, 'FM-1 ', dev)),
     el('div', {className: 'row'},
       b('Open a .sav…', () => savIn.click()), savIn,
       b('Read songs from the FM-1', async () => { say('Reading songs from the FM-1…'); openSave(await withProgress(hooks.readSave), 'the FM-1'); }),
@@ -317,6 +335,7 @@ export function mountSongsUi(root) {
     el('p', {id: 'st-status', className: 'hint', role: 'status'}),
     el('div', {id: 'st-report'}),
     el('div', {id: 'st-sets', className: 'sets'}));
+  drawSongsDevices([], '');
   mountSetsUi($('st-sets'));
   document.addEventListener('firmware-installed', () => guard(sendPending));
   document.addEventListener('install-rom', e => { if (e.detail?.rom && !state.romChosen) useRom(e.detail.rom, `the LSDj chosen in Install (${e.detail.name})`, false); });

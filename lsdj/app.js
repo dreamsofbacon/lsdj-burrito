@@ -4,7 +4,7 @@
 import {startGamepad, loadMaps, mapFor, saveMap, loadPick, savePick, assign, takenFrom, isDefaultMap, defaultMapFor, inputName, GB_ORDER, SLOTS} from './gamepad.js';
 import {Link, midiPorts, findFm1s, LinkError, SAVE_SIZE} from './link.js';
 import {confirmSaveImport} from './save-file.js';
-import {mountSongsUi, setSongsHooks} from './songs-ui.js';
+import {mountSongsUi, setSongsHooks, drawSongsDevices} from './songs-ui.js';
 import {showDeviceTheme, setMatching, matching} from './page-theme.js';
 import {setBeforeInstall, installing, usbMidiUnavailable} from './install-ui.js';
 import {CHANNELS, pagesForFx, PARAM, paramGet, paramSet, valueText, channelSummary, unpackFx, packFx, unpackReverb, packReverb, packReverbSends, PRESETS, THEMES, COLOR_NAMES, toHex, fromHex,
@@ -376,6 +376,7 @@ function drawDevPick() {
     s.replaceChildren(...(has ? [] : [new Option('Choose an FM-1…', '')]), ...choices.map(([v, t]) => new Option(t, v)));
     s.value = has ? now : '';
   }
+  drawSongsDevices(choices, now);   /* Songs & kits: shown with one FM-1 too, and its Search entry */
   for (const id of ['follow-btn', 'stage-follow']) {
     const b = $(id);
     b.hidden = devices.length < 2 && !(virtual && devices.length);
@@ -1081,6 +1082,21 @@ async function connectUsbQuietly({again = false} = {}) {
     else if (!again && !found.length && ports.input && ports.output) await connectTo(ports.input, ports.output);
   } catch { /* MIDI blocked or unavailable: the message below says what to do */ }
 }
+/* Songs & kits › FM-1 › Search: asks Web MIDI, lists every FM-1 plugged in, and uses the one found when there's
+   only one (or the one used before). Several: the list says choose. */
+async function searchFm1s() {
+  const unavailable = usbMidiUnavailable();
+  if (unavailable) throw new LinkError(unavailable);
+  try { ports = await midiPorts(); }
+  catch (e) { throw new LinkError(e.name === 'SecurityError' || e.name === 'NotAllowedError' ? 'MIDI access was blocked. Allow it (with SysEx) for this page.' : e.message); }
+  const found = await scan();
+  if (!found.length) { drawDevPick(); throw new LinkError('No FM-1 found over USB. Turn it on with LSDJ Burrito running, plug it in with a data cable, then search again.'); }
+  if (!connected) { const d = choose(found); if (d) await connectTo(d.input, d.output); }
+  drawDevPick();
+  if (connected) return virtual ? VIRTUAL : devLabel(current, devices.indexOf(current));
+  say('device', `${found.length} FM-1s found: choose one.`, 'warn');
+  throw new LinkError(`${found.length} FM-1s found: choose one in the FM-1 list.`);
+}
 export async function readInstalledCartridge(progress, signal) {
   await connectUsbQuietly();
   if (!link || !connected) throw new LinkError('No FM-1 found over USB. Turn it on and plug it in with a data cable, or connect to the running FM-1 in My FM-1 (choose its MIDI port; with several plugged in, choose the one to read), then try Read from my FM-1 again.');
@@ -1112,7 +1128,9 @@ const stamp = () => new Date().toISOString().slice(0, 10);
 async function exclusive(fn) {
   if (installing()) throw new LinkError('Wait for the firmware installation to finish.');
   await connectUsbQuietly();
-  if (!link || !connected) throw new LinkError('No FM-1 connected: connect it in My FM-1, or open a .sav file instead.');
+  if (!link || !connected) throw new LinkError(devices.length > 1
+    ? 'Several FM-1s are plugged in: choose one in the FM-1 list above, then try again.'
+    : 'No FM-1 connected: choose Search for FM-1s in the FM-1 list above (or connect in My FM-1), or open a .sav file instead.');
   if (busy) throw new LinkError('Another FM-1 operation is running. Wait for it to finish.');
   busy = true;
   try { return await fn(link); } finally { busy = false; }
@@ -1122,8 +1140,31 @@ setSongsHooks({
   sendSave: (bytes, pr) => exclusive(l => l.importSave(bytes, pr)),
   readRom: async pr => romFromSlot(await readInstalledCartridge(pr)),
   cartInfo: () => exclusive(l => l.cartridgeInfo()),
+  /* the FM-1 list in Songs & kits: returns the label of the FM-1 now in use */
+  pickDevice: async v => {
+    if (installing()) throw new LinkError('Wait for the firmware installation to finish.');
+    if (busy) { drawDevPick(); throw new LinkError('Another FM-1 operation is running. Wait for it to finish.'); }
+    if (v === 'scan') return searchFm1s();
+    const d = devices[+v];
+    if (v === '' || v === 'virtual' || !d) { drawDevPick(); return null; }
+    await switchTo(d);
+    drawDevPick();
+    if (!connected || !sameDev(d, current)) throw new LinkError('That FM-1 did not answer. Check it is on with LSDJ Burrito running, then choose it again.');
+    return devLabel(d, devices.indexOf(d));
+  },
 });
 mountSongsUi($('songtools'));
+/* Songs & kits opened while not connected: look for FM-1s by itself when MIDI is already allowed (no prompt).
+   One found (or the one used before): it's used; several: the FM-1 list there shows them. */
+async function songsAutoConnect() {
+  if (location.hash !== '#songtools' || connected || busy || installing() || usbMidiUnavailable()) return;
+  try { if ((await navigator.permissions?.query({name: 'midi', sysex: true}))?.state !== 'granted') return; } catch { return; }
+  await connectUsbQuietly();
+  drawDevPick();
+}
+addEventListener('hashchange', () => void songsAutoConnect());
+void songsAutoConnect();
+
 /* ---------- Perform's DJ layout (lsdj/dj-ui.js) ----------
    Effects | DJ at the top of Perform (kept in this browser). The DJ layout clocks its decks itself, so Perform ›
    Clock goes off when a deck starts. Its FM-1s: the one in use, or another plugged in (its watcher's link, or a

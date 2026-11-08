@@ -13,7 +13,7 @@ async function until(check, message, ms = 8000) {
   for (const end = Date.now() + ms; Date.now() < end;) { if (check()) return; await sleep(50); }
   throw Error(message);
 }
-function fm1(n, title, fw = 'FM-1_981') {
+export function fm1(n, title, fw = 'FM-1_981') {
   const d = {n, title, page: 1, lives: 0, infos: 0, fxSets: [], silent: false, settings: 0x5a000000, screens: 0, themes: 0, delay: 0, pads: [], midi: []};
   const fx = Array(68).fill(0);
   fx[36] = 5; fx[37] = 2; fx[42] = 0xf2; fx[43] = 70; fx[38] = 1;
