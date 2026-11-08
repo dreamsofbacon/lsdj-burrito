@@ -9,7 +9,7 @@ import {kitSlots, parseKit, isKitBank, BANK} from './lsdj-kit.js';
 import * as S from './lsdj-sets.js';
 import {libraryFiles, addToLibrary, removeFromLibrary, clearLibrary, hashOf} from './kit-library.js';
 import {zipStore} from './zip.js';
-import {songsState, openSave, sendOpenSave, sendAfterInstall} from './songs-ui.js';
+import {songsState, openSave, sendOpenSave, sendAfterInstall, playButton} from './songs-ui.js';
 import {buildSlot} from './lsdj-rom.js';
 
 const el = (tag, props = {}, ...kids) => { const e = Object.assign(document.createElement(tag), props); e.append(...kids.filter(k => k != null)); return e; };
@@ -124,14 +124,30 @@ function drawSongs(box, result) {
   }
   box.append(t);
 }
+/* "Listen": each kit's samples with a ▶, drawn when opened (an LSDj can have dozens of kits) */
+function listen(kits) {
+  const d = el('details', {className: 'sets-listen'}, el('summary', {textContent: 'Listen'}));
+  d.ontoggle = () => {
+    if (!d.open || d.childElementCount > 1) return;
+    for (const {bank, name, number} of kits) {
+      const kit = parseKit(bank);
+      const line = el('div', {}, el('b', {textContent: `${number == null ? '' : hex(number) + ' '}${kit.name || name}: `}));
+      kit.samples.forEach(s => { const n = s.name.replace(/-+$/, '') || `#${s.index + 1}`; line.append(el('span', {className: 'smp'}, playButton(bank, s.index, n), n), ' '); });
+      d.append(line);
+    }
+  };
+  return d;
+}
 function drawLibrary(box) {
   const list = el('ul', {className: 'sets-lib'});
   for (const r of state.roms) list.append(el('li', {}, `${r.name}: LSDj ${S.versionText(S.lsdjVersion(r.rom))}, ${plural(r.slots.filter(s => !s.empty).length, 'kit')} `,
-    el('button', {type: 'button', textContent: 'Forget', onclick: () => guard(async () => { await removeFromLibrary(r.id); })})));
+    el('button', {type: 'button', textContent: 'Forget', onclick: () => guard(async () => { await removeFromLibrary(r.id); })}),
+    listen(r.slots.filter(s => !s.empty).map(s => ({bank: r.rom.subarray(s.bank * BANK, (s.bank + 1) * BANK), name: `Kit ${hex(s.number)}`, number: s.number})))));
   for (const k of state.kitFiles) list.append(el('li', {}, `${k.name}: kit ${parseKit(k.bank).name} `,
     el('button', {type: 'button', textContent: 'Load', title: 'Put this kit in an empty kit slot of the LSDj chosen in Install',
       onclick: () => document.dispatchEvent(new CustomEvent('install-this-kit', {detail: {bytes: k.bank, name: k.name}}))}), ' ',
-    el('button', {type: 'button', textContent: 'Forget', onclick: () => guard(async () => { await removeFromLibrary(k.id); })})));
+    el('button', {type: 'button', textContent: 'Forget', onclick: () => guard(async () => { await removeFromLibrary(k.id); })}),
+    listen([{bank: k.bank, name: k.name}])));
   box.append(el('h4', {textContent: 'Your LSDj files and kits'}),
     el('p', {className: 'hint', textContent: 'Kept in this browser on this computer only, so you don\'t have to pick them again. Every LSDj chosen on this page is added. Add the LSDj each song was made with.'}),
     state.roms.length || state.kitFiles.length ? list : el('p', {className: 'warn', textContent: 'None yet: add your LSDj .gb files (and any .kit files).'}));

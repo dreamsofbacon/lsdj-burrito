@@ -7,7 +7,7 @@
 // FM-1. Nothing is uploaded; works without an FM-1. Install's kit list shows the same ('songs-usage' event).
 // The parsing is lsdj-sav.js, lsdj-kit.js, lsdj-usage.js (tested in node).
 import {parseSav, songBytes, buildSav, readLsdsng, writeLsdsng, nameBytes, nameText, SavError, SAV_SIZE, SLOTS, BLOCK_COUNT} from './lsdj-sav.js';
-import {kitSlots} from './lsdj-kit.js';
+import {kitSlots, kitSampleNibbles, BANK} from './lsdj-kit.js';
 import {kitUsage, usageAcross, romFit, bestRom} from './lsdj-usage.js';
 import {mountSetsUi, rememberRom} from './sets-ui.js';
 
@@ -41,6 +41,21 @@ export function sampleLabel(slots, n, i) {
   const smp = slots?.[n]?.kit?.samples.find(x => x.index === i);
   return smp ? smp.name.replace(/-+$/, '') || `#${i + 1}` : `#${i + 1}`;
 }
+/* ▶ for one kit sample: plays it as stored, at LSDj's 11468 Hz (no note pitch, loop or effects). None for an
+   empty sample. Also used by the kit library (sets-ui.js). */
+export function playButton(bank, index, name) {
+  const word = k => bank[2 * k] | bank[2 * k + 1] << 8;
+  if (word(index + 1) <= word(index)) return null;
+  return el('button', {type: 'button', className: 'play', textContent: '▶', title: `Play ${name}`, ariaLabel: `Play ${name}`,
+    onclick: () => guard(async () => (await import('./wav-kit.js')).playNibbles(kitSampleNibbles(bank, index)))});
+}
+/* a sample's name with its ▶ when the chosen LSDj has the sample */
+function sampleChip(k, i) {
+  const s = state.slots?.[k], label = sampleLabel(state.slots, k, i);
+  const has = state.rom && s?.kit?.samples.some(x => x.index === i);
+  return el('span', {className: 'smp'}, has ? playButton(state.rom.subarray(s.bank * BANK, (s.bank + 1) * BANK), i, label) : null, label);
+}
+const chips = (k, list) => list.flatMap((i, n) => n ? [', ', sampleChip(k, i)] : [sampleChip(k, i)]);
 /* the songs the report covers: every readable song, and the working song when no saved song is open */
 export function reportSongs(sav, items) {
   const list = items.filter(s => s.song).map(s => ({name: s.name, song: s.song}));
@@ -114,10 +129,9 @@ function samplesCell(song) {
   const cell = el('td'), slots = state.slots, {kits} = kitUsage(song);
   if (!kits.size) cell.append(el('span', {className: 'hint', textContent: 'none'}));
   for (const [k, u] of [...kits].sort((a, b) => a[0] - b[0])) {
-    const sure = [...u.samples].sort((a, b) => a - b).map(i => sampleLabel(slots, k, i));
-    const maybe = [...u.maybe].sort((a, b) => a - b).map(i => sampleLabel(slots, k, i));
-    cell.append(el('div', {}, el('b', {textContent: kitLabel(slots, k) + ': '}), sure.join(', '),
-      maybe.length ? el('span', {className: 'hint', textContent: `${sure.length ? '; ' : ''}maybe ${maybe.join(', ')}`}) : null));
+    const sure = [...u.samples].sort((a, b) => a - b), maybe = [...u.maybe].sort((a, b) => a - b);
+    cell.append(el('div', {}, el('b', {textContent: kitLabel(slots, k) + ': '}), ...chips(k, sure),
+      maybe.length ? el('span', {className: 'hint'}, `${sure.length ? '; ' : ''}maybe `, ...chips(k, maybe)) : null));
   }
   return cell;
 }
@@ -127,7 +141,7 @@ function drawKits(box) {
   kt.append(el('tr', {}, el('th', {textContent: 'Kit'}), el('th', {textContent: 'Sample'}), el('th', {textContent: 'Songs that play it'})));
   for (const [k, m] of [...across].sort((a, b) => a[0] - b[0]))
     [...m].sort((a, b) => a[0] - b[0]).forEach(([i, e], row) => kt.append(el('tr', {},
-      el('td', {textContent: row ? '' : kitLabel(slots, k)}), el('td', {textContent: sampleLabel(slots, k, i)}),
+      el('td', {textContent: row ? '' : kitLabel(slots, k)}), el('td', {}, sampleChip(k, i)),
       el('td', {}, [...e.songs].join(', '), e.maybe.size ? el('span', {className: 'hint', textContent: `${e.songs.size ? '; ' : ''}maybe ${[...e.maybe].join(', ')}`}) : null))));
   if (across.size) box.append(el('h3', {className: 'subhead', textContent: 'Samples and the songs that play them'}), kt);
   if (slots) {
@@ -135,7 +149,9 @@ function drawKits(box) {
     if (unused.length) box.append(el('p', {className: 'hint', textContent: `Kits none of these songs play: ${unused.join(', ')}. ` +
       'Install can leave them out to make room (songs you keep elsewhere may still need them).'}));
   }
-  box.append(el('p', {className: 'hint', textContent: '"Maybe": a chain transpose or the instrument\'s table can change which sample plays.'}));
+  box.append(el('p', {className: 'hint', textContent: '"Maybe": a chain transpose or the instrument\'s table can change which sample plays. ' +
+    (state.rom ? '▶ plays a sample on this computer as it is stored in the LSDj, without the song\'s pitch, loop or effects.' :
+      'To hear the samples (▶), choose the LSDj the songs were made with: a .sav holds no samples.')}));
 }
 function draw() {
   const box = $('st-report');
@@ -249,7 +265,7 @@ async function sendPending() {
 }
 /* chosen: picked here (a file or the FM-1's), which a ROM chosen later in Install doesn't replace */
 export function useRom(rom, from, chosen = true) {
-  state.slots = rom ? kitSlots(rom) : null; state.romFrom = from; state.romChosen = chosen;
+  state.rom = rom ?? null; state.slots = rom ? kitSlots(rom) : null; state.romFrom = from; state.romChosen = chosen;
   announce();
 }
 export async function addLsdsng(files) {
