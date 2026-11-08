@@ -39,7 +39,7 @@ const mixer = {id: store.get('dj-mixer', 'none'), inId: store.get('dj-mixer-in',
 const decks = [0, 1].map(i => ({i, key: '', kind: '', bpm: master.bpm, clock: null, live: null, fx: null, rv: null, base: null,
   kill: 0, killOnBar: store.get('dj-killbar', '0') === '1', filter: 0, filterBy: 'fm1', throwBy: 'fm1', row: 0, sendTimer: 0, ui: null,
   level: null, levelSent: 127, levelBusy: false, scr: null, scrLink: null, scrOk: true,
-  view: store.get(`dj-view-${i}`, 'screen'), map: null, mapFrom: -1, mapAt: 0}));
+  view: store.get(`dj-view-${i}`, 'screen'), map: null, mapFrom: -1, mapAt: 0, mapFill: null}));
 let root = null, ticker = 0, polling = 0, shown = false;
 /* the deck's FM-1 firmware number (998: 0.9.98), 0 for other gear */
 const fwOf = d => d.kind === 'fm1' ? firmwareNumber(hooks.devices().find(x => x.key === d.key)?.fw) || 0 : 0;
@@ -110,7 +110,7 @@ async function assign(d, value) {
   d.clock?.stop(); d.clock?.close(); d.clock = null;
   if (d.kind === 'fm1' && d.levelSent !== 127) void fullVolume(d.key);   /* the FM-1 leaving the deck: full volume again */
   d.key = ''; d.kind = ''; d.live = null; d.fx = null; d.rv = null; d.base = null; d.kill = 0; d.filter = 0;
-  d.level = null; d.levelSent = 127; d.scrOk = true; d.themeAt = 0; d.map = null; d.mapFrom = -1;
+  d.level = null; d.levelSent = 127; d.scrOk = true; d.themeAt = 0; d.map = null; d.mapFrom = -1; d.mapFill = null;
   paintDeck(d, null);
   if (value) { const [kind, ...k] = value.split(':'); d.kind = kind; d.key = k.join(':'); }
   draw();
@@ -279,14 +279,24 @@ function setView(d, v) {
   drawDeck(d); deckScreen(d);
   if (v === 'rows') { const l = hooks.linkFor(d.key); if (l) void readMap(d, l).then(() => drawMap(d), () => {}); }
 }
-/* 0.9.98: 16 song rows around where the deck plays, read again when it moves on or every few seconds */
+/* 0.9.98: MAP_ROWS song rows from just before where the deck plays (4x LSDj's screen: the page's advantage is
+   showing more, and touch), in columns of MAP_COL; read again when it moves on or every few seconds */
+const MAP_ROWS = 64, MAP_COL = 16;
 async function readMap(d, l) {
   const rows = (d.live?.songRows || []).filter((r, c) => r != null && (d.live.playing >> c) & 1);
   const at = rows.length ? Math.min(...rows) : d.row;
-  const from = Math.max(0, Math.min(240, at - 4));
-  if (d.map && Math.abs(from - d.mapFrom) < 6 && now() - d.mapAt < 4000) return;
-  const map = await l.songRows(from);
-  if (map) { d.map = map; d.mapFrom = from; d.mapAt = now(); }
+  /* kept while the playing row stays in the first column and the read is fresh; else read again, one SONG_ROWS
+     block (16 rows) a poll, so a crossfader's VOLUME_SETs never wait behind four reads */
+  const fresh = d.map && at >= d.mapFrom && at < d.mapFrom + MAP_COL - 2 && now() - d.mapAt < 4000;
+  if (!fresh && !d.mapFill) d.mapFill = {from: Math.max(0, Math.min(256 - MAP_ROWS, at - 2)), rows: []};
+  const f = d.mapFill;
+  if (!f) return;
+  const part = await l.songRows(f.from + f.rows.length);
+  if (d.mapFill !== f) return;
+  if (!part) { d.mapFill = null; return; }
+  f.rows.push(...part);
+  if (f.rows.length >= MAP_ROWS || !d.map) { d.map = f.rows.slice(); d.mapFrom = f.from; }   /* (a first read shows as it comes; a move, when whole) */
+  if (f.rows.length >= MAP_ROWS) { d.mapAt = now(); d.mapFill = null; }
 }
 /* each FM-1 deck's LIVE, a few times a second: its own tempo, what plays, its mutes (0.9.98: rows, SYNC, mode) */
 async function poll() {
@@ -449,10 +459,14 @@ function drawDeck(d) {
     u.body.append(el('div', {className: 'seg dj-view', role: 'group', ariaLabel: `Deck ${NAMES[d.i]}: show`},
       viewBtn('screen', 'Screen', "The FM-1's screen"),
       viewBtn('rows', 'Rows', has98 ? 'The song rows: click one to cue it at the next bar' : 'Needs 0.9.98 on the FM-1', !has98)));
-    u.map = null;
-    if (view === 'rows') { u.map = el('div', {className: 'dj-map mono', role: 'group', ariaLabel: `Deck ${NAMES[d.i]} song rows`}); u.body.append(u.map); drawMap(d); }
-    else u.body.append(d.scrOk ? el('div', {className: 'dj-screen-box'}, u.screen)
-      : el('p', {className: 'hint', textContent: fw >= 983 ? 'This FM-1 did not send its screen. Choose the deck again to retry.' : `This FM-1's screen shows here with FM-1_983 or newer (it runs ${fw ? `FM-1_${fw}` : 'older firmware'}).`}));
+    /* one fixed-size box for both views (index.html .dj-view-box: its size and shape are CSS variables), so the
+       deck never changes size when switching */
+    const box = el('div', {className: `dj-view-box ${view}`});
+    u.map = null; u.rowIn = row;
+    if (view === 'rows') { u.map = el('div', {className: 'dj-map mono', role: 'group', ariaLabel: `Deck ${NAMES[d.i]} song rows`}); box.append(u.map); drawMap(d); }
+    else box.append(d.scrOk ? u.screen
+      : el('p', {className: 'hint dj-view-note', textContent: fw >= 983 ? 'This FM-1 did not send its screen. Choose the deck again to retry.' : `This FM-1's screen shows here with FM-1_983 or newer (it runs ${fw ? `FM-1_${fw}` : 'older firmware'}).`}));
+    u.body.append(box);
     u.info = el('p', {className: 'hint dj-info'});
     u.body.append(u.info);
   }
@@ -466,7 +480,9 @@ function drawMap(d) {
   const at = d.live?.songRows || [], playing = d.live?.playing || 0;
   u.map.replaceChildren(...d.map.map((chains, i) => {
     const r = d.mapFrom + i, here = chains.map((c, ch) => (playing >> ch) & 1 && at[ch] === r);
-    const b = btn('', () => { d.row = r; cueRow(d); drawDeck(d); }, {className: `dj-maprow${here.some(Boolean) ? ' here' : ''}${r === d.row ? ' cued' : ''}`,
+    /* a tap cues it; only the map is redrawn (its scroll stays) */
+    const b = btn('', () => { d.row = r; cueRow(d); if (u.rowIn) u.rowIn.value = hex2(r); drawMap(d); },
+      {className: `dj-maprow${here.some(Boolean) ? ' here' : ''}${r === d.row ? ' cued' : ''}${chains.every(c => c == null) ? ' empty' : ''}`,
       disabled: r > 127, title: r > 127 ? 'A program change cues rows 00–7F only' : `Cue row ${hex2(r)}`});
     b.append(el('b', {textContent: hex2(r)}), ...chains.map((c, ch) => el('span', {className: here[ch] ? 'on' : '', textContent: c == null ? '--' : hex2(c)})));
     return b;

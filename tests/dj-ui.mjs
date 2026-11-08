@@ -53,6 +53,8 @@ function tx6() {
   t.play = bytes => { const e = new Event('midimessage'); e.data = Uint8Array.from(bytes); t.input.dispatchEvent(e); };
   return t;
 }
+/* Rows: row 10 (hex) starts the second column, level with row 00 */
+const rowsShown0Top = map => { const r = [...map.querySelectorAll('.dj-maprow')]; return Math.abs(r[0].getBoundingClientRect().top - r[16].getBoundingClientRect().top) < 2 && r[16].getBoundingClientRect().left > r[0].getBoundingClientRect().left; };
 const choose = (select, value) => { select.value = value; select.dispatchEvent(new Event('change')); };
 const clocks = d => d.midi.filter(m => m[0] === 0xf8).length;
 
@@ -151,8 +153,16 @@ export async function runDjUiTests() {
     // 4d. Screen | Rows: A (0.9.97) has no Rows; B shows its song row map, a click cues that row; back to Screen
     const viewBtn = (e, t) => [...e.querySelectorAll('.dj-view button')].find(b => b.textContent === t);
     assert(viewBtn(decksEl[0], 'Rows')?.disabled && viewBtn(decksEl[0], 'Screen')?.classList.contains('on'), 'A (0.9.97): Rows off, Screen on');
+    /* the view box and the deck keep their size whichever view shows (Perform shown, to measure) */
+    location.hash = '#live-sec'; await sleep(300);
+    const boxSize = e => { const r = e.querySelector('.dj-view-box').getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height), Math.round(e.getBoundingClientRect().height)].join(); };
+    const sizeScreen = boxSize(decksEl[1]);
     viewBtn(decksEl[1], 'Rows').click();
-    await until(() => decksEl[1].querySelectorAll('.dj-maprow').length === 16, 'B: Rows shows the song row map, 16 rows', 4000);
+    await until(() => decksEl[1].querySelectorAll('.dj-maprow').length === 64, 'B: Rows shows 64 song rows (4 blocks, one a poll)', 6000);
+    assert(B.mapReads.join().startsWith('0,16,32,48'), `one 16-row block a request, in order: ${B.mapReads}`);
+    assert(boxSize(decksEl[1]) === sizeScreen, `the same size on Rows as on Screen (box w,h, deck h): ${boxSize(decksEl[1])} vs ${sizeScreen}`);
+    const map = decksEl[1].querySelector('.dj-map');
+    assert(map.scrollWidth > map.clientWidth && rowsShown0Top(map), 'columns of 16 rows, more sideways');
     assert(viewBtn(decksEl[1], 'Rows').classList.contains('on') && !decksEl[1].querySelector('.dj-screen'), 'B: Rows on, no screen');
     const rowsShown = [...decksEl[1].querySelectorAll('.dj-maprow')];
     assert(/^00 00 -- -- --/.test(rowsShown[0].textContent.replace(/(..)(?=.)/g, '$1 ')), `row 00: chain 00 in PU1: ${rowsShown[0].textContent}`);
