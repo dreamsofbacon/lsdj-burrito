@@ -9,7 +9,7 @@ import {kitSlots, parseKit, isKitBank, BANK} from './lsdj-kit.js';
 import * as S from './lsdj-sets.js';
 import {libraryFiles, addToLibrary, removeFromLibrary, clearLibrary, hashOf} from './kit-library.js';
 import {zipStore} from './zip.js';
-import {songsState, openSave, sendOpenSave} from './songs-ui.js';
+import {songsState, openSave, sendOpenSave, sendAfterInstall} from './songs-ui.js';
 import {buildSlot} from './lsdj-rom.js';
 
 const el = (tag, props = {}, ...kids) => { const e = Object.assign(document.createElement(tag), props); e.append(...kids.filter(k => k != null)); return e; };
@@ -174,11 +174,11 @@ function setCard(b, i, plan, ctx) {
   card.append(el('div', {className: 'row'},
     el('button', {type: 'button', textContent: `Download ${title} (.zip)`, onclick: () => guard(() => download(zipOf([[b, i]], ctx), `lsdj-set-${i + 1}.zip`))}),
     el('button', {type: 'button', textContent: 'Report', onclick: () => guard(() => download(new TextEncoder().encode(S.setReport(b, title, ctx)), `lsdj-set-${i + 1}.txt`))})),
-    el('p', {className: 'hint', textContent: `On the FM-1, two steps: the kits are in ${title}'s LSDj, the songs in its .sav. ` +
-      'Sending only the songs keeps the LSDj already on the FM-1, so their kit notes would play the wrong samples or none.'}),
+    el('p', {className: 'hint', textContent: `The kits are in ${title}'s LSDj, the songs in its .sav: Install puts the LSDj on the FM-1, then the songs are sent by themselves. ` +
+      `Send only the songs when ${title}'s LSDj is already installed (the page checks; with another LSDj their kit notes play the wrong samples or none).`}),
     el('div', {className: 'row'},
-      el('button', {type: 'button', textContent: `1. Install ${title}'s LSDj…`, disabled: !b.plan.fits, onclick: () => guard(() => installSet(b, i))}),
-      el('button', {type: 'button', textContent: `2. Send ${title}'s songs`, onclick: () => guard(async () => {
+      el('button', {type: 'button', textContent: `Install ${title} on the FM-1 (LSDj + songs)…`, disabled: !b.plan.fits, onclick: () => guard(() => installSet(b, i))}),
+      el('button', {type: 'button', textContent: `Send only ${title}'s songs`, onclick: () => guard(async () => {
         openSave(b.sav, `${title} (made here)`, needsOf(b, i));
         await sendOpenSave();
       })})));
@@ -212,11 +212,14 @@ function zipOf(list, ctx) {
   return zipStore(files);
 }
 async function installSet(b, i) {
+  const t = setTitle(i);
+  if (!confirm(`Install ${t} on the FM-1?\n\nIts LSDj goes to Install: install it there as usual (leave every kit ticked). ` +
+    `When the install is done, this page sends ${t}'s songs by itself, replacing the songs on the FM-1. ` +
+    'Back up your songs first (Songs › Back up) if you want to keep them.')) return;
   state.built.add(await hashOf(b.rom));
-  openSave(b.sav, `${setTitle(i)} (made here)`, needsOf(b, i));
+  sendAfterInstall(b.sav, `${t} (made here)`, needsOf(b, i));
   document.dispatchEvent(new CustomEvent('install-this-rom', {detail: {rom: b.rom, name: `lsdj-set-${i + 1}.gb`}}));
-  say(`${setTitle(i)}'s LSDj is in Install, with all its kits ticked: install it there (leave every kit ticked). ` +
-    `Then come back here and press "2. Send ${setTitle(i)}'s songs".`, 'ok');
+  say(`${t}'s LSDj is in Install with all its kits ticked. Install it there; its songs follow by themselves when it's done.`, 'ok');
 }
 
 function draw() {

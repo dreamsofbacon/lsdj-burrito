@@ -113,6 +113,7 @@ $('fw-install').onclick = async () => {
     });
     bar.value = bar.max;
     say(`Installed: the FM-1 now runs ${id}.`, 'ok');
+    document.dispatchEvent(new CustomEvent('firmware-installed', {detail: {id}}));   /* songs-ui.js: a set's songs follow */
   } catch (err) {
     log('Stopped: ' + err.message);
     say(err.message, err.resumable ? 'warn' : 'bad');

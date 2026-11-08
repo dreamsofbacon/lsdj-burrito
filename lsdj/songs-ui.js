@@ -208,8 +208,8 @@ export async function sendOpenSave() {
     try { say('Checking which LSDj the FM-1 has…'); info = await hooks.cartInfo(); } catch (e) { why = e.message; }
     if (!info || info.dataCrc !== await n.dataCrc()) {
       const text = info ? `The FM-1 has a different LSDj installed, not ${n.title}'s.` : `Couldn't check which LSDj the FM-1 has (${why}).`;
-      say(`${text} ${n.title}'s songs play the kits in ${n.title}'s LSDj (a .sav holds no samples): install it first ` +
-        `(Install ${n.title}'s LSDj, then Install on the FM-1), then send the songs.`, 'bad');
+      say(`${text} ${n.title}'s songs play the kits in ${n.title}'s LSDj (a .sav holds no samples): install it first: ` +
+        `Songs & kits › "Install ${n.title} on the FM-1 (LSDj + songs)" does both.`, 'bad');
       if (!confirm(`${text}\n\n${n.title}'s songs play the kits in ${n.title}'s own LSDj; a .sav holds no samples. ` +
         `With another LSDj their kit notes play the wrong samples or none.\n\nSend the songs anyway?`)) return false;
     }
@@ -218,6 +218,34 @@ export async function sendOpenSave() {
   await withProgress(pr => hooks.sendSave(state.sav.bytes, pr));
   say('Sent. LSDj restarted with these songs.', 'ok');
   return true;
+}
+/* A set's songs that follow its LSDj: after the next successful install (install-ui.js 'firmware-installed') they
+   are sent by themselves, once the restarted FM-1 answers and reports that set's LSDj. The user agreed to replace
+   the FM-1's songs when starting (sets-ui.js). Anything else installed: nothing is sent. */
+let pending = null;
+export function sendAfterInstall(bytes, from, needs) {
+  openSave(bytes, from, needs);
+  pending = {bytes: bytes.slice(), needs};
+}
+const wait = ms => new Promise(r => setTimeout(r, ms));
+async function sendPending() {
+  if (!pending) return;
+  const {bytes, needs} = pending;
+  pending = null;
+  location.hash = '#songtools';
+  say(`Installed. Waiting for the FM-1 to start, then sending ${needs.title}'s songs…`);
+  const want = await needs.dataCrc();
+  let info = null, why = '';
+  for (let n = 0; n < 20 && !info; n++) {
+    try { info = await hooks.cartInfo(); } catch (e) { why = e.message; await wait(1500); }
+  }
+  if (!info) return say(`Couldn't reach the FM-1 after the install (${why}). Press "2. Send ${needs.title}'s songs" when it's connected.`, 'warn');
+  if (info.dataCrc !== want) return say(`The FM-1 now has a different LSDj, not ${needs.title}'s (kits unticked in Install, or another file), so its songs were not sent.`, 'warn');
+  let done = false;
+  for (let n = 0; n < 5 && !done; n++) {
+    try { await withProgress(pr => hooks.sendSave(bytes, pr)); done = true; } catch (e) { why = e.message; await wait(1500); }
+  }
+  say(done ? `Done: ${needs.title}'s LSDj and songs are on the FM-1.` : `Installed, but sending the songs failed (${why}). Press "2. Send ${needs.title}'s songs" to try again.`, done ? 'ok' : 'bad');
 }
 /* chosen: picked here (a file or the FM-1's), which a ROM chosen later in Install doesn't replace */
 export function useRom(rom, from, chosen = true) {
@@ -274,6 +302,7 @@ export function mountSongsUi(root) {
     el('div', {id: 'st-report'}),
     el('div', {id: 'st-sets', className: 'sets'}));
   mountSetsUi($('st-sets'));
+  document.addEventListener('firmware-installed', () => guard(sendPending));
   document.addEventListener('install-rom', e => { if (e.detail?.rom && !state.romChosen) useRom(e.detail.rom, `the LSDj chosen in Install (${e.detail.name})`, false); });
   draw();
 }
