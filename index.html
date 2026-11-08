@@ -234,6 +234,21 @@ table.fx th,table.fx td{padding:3px 6px;border-bottom:1px solid var(--line);text
 .fx-chbox.cursor{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
 .fx-chbox.muted{filter:grayscale(1);opacity:.6}
 #fx-channels{column-gap:16px;padding:0 9px}
+/* All: every channel page at once, two side by side where they fit; each box names its channel (no heads above) */
+.fx-pages.one.all{grid-template-columns:repeat(auto-fit,minmax(min(520px,100%),1fr))}
+#pan-chans.allpages #fx-channels{display:none}
+.fx-chname{grid-column:var(--c);grid-row:2;position:relative;z-index:1;font:600 12px ui-monospace,monospace;color:var(--muted);text-align:center}
+.fx-chname.cursor{color:var(--accent)}
+.fx-chname.cursor::after{content:" ◀"}
+.fx-chname.muted{opacity:.6;text-decoration:line-through}
+/* All, two side by side: narrower names and gaps, each value under its slider, small switches that may wrap */
+.fx-pages.all .fx-card.matrix.blocks{grid-template-columns:1.9em minmax(4em,6.5em) repeat(4,minmax(0,1fr));column-gap:10px}
+.fx-pages.all .fx-chbox{margin:-4px -5px}
+.fx-pages.all .fx-card.blocks .fx-ctl{flex-wrap:wrap;gap:0 4px}
+.fx-pages.all .fx-card.blocks .fx-ctl input[type=range]{flex:1 0 100%;min-width:0}
+.fx-pages.all .fx-card.blocks .fx-ctl output{flex:1;min-width:0;text-align:center;font-size:11px;line-height:1.1}
+.fx-pages.all .fx-card.blocks .seg{flex-wrap:wrap}
+.fx-pages.all .fx-card.blocks .seg button{flex:1 1 auto;padding:3px 4px;font-size:11px}
 #fx-help{max-width:min(720px,92vw);border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--ink)}
 #fx-help::backdrop{background:rgb(0 0 0/.45)}
 #fx-help p{font-size:14px}
@@ -282,6 +297,8 @@ body:not(.connected) .pop-body{opacity:.5;pointer-events:none}
   body.perform button,body.perform select{padding:5px 10px}
   body.perform .fx-card.matrix .fx-row{padding:clamp(3px,1.5vmin,18px) 2px}
   body.perform .fx-card.matrix.blocks{row-gap:clamp(6px,3vmin,36px)}
+  body.perform .fx-pages.all .fx-card.matrix.blocks{row-gap:clamp(4px,1.2vmin,14px)}
+  body.perform #pan-chans #fx-pages.all{flex:none}
   /* panels in their own windows: the others take the room */
   body.perform.pop-screen #live-sec{grid-template-areas:"head head" "wire master" "wire chans" "wire chans"}
   body.perform.pop-wire #live-sec{grid-template-areas:"head head" "screen master" "screen chans" "screen chans"}
@@ -302,7 +319,7 @@ body:not(.connected) .pop-body{opacity:.5;pointer-events:none}
   .fx-card.blocks .fx-row .fx-ctl{grid-column:auto}
   .fx-card.blocks .fx-row .fx-name,.fx-card.blocks .fx-row .fx-ctl.shared{grid-column:1/-1}
   .fx-card.blocks .fx-ctl.cursor{background:color-mix(in srgb,var(--accent) 9%,transparent)}
-  .fx-chbox{display:none}
+  .fx-chbox,.fx-chname{display:none}
   #fx-channels{padding:0}
   .panel-head .pop,#stage-full{display:none}}
 /* perform on a phone (by size, not touch, so a phone asking for the desktop site gets the desktop
@@ -563,7 +580,7 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <dialog id="fx-help">
 <h2>How the effects work</h2>
 <p>Changes go to the FM-1 straight away. <b>Keep on FM-1</b> stores them, as the SAVE button does. K1-K4 are the knobs that play each control on the FM-1; turn SELECT there to change pages (it stops at the first and last page: Settings › FX and lights can make it go round). A control the FM-1 changes lights up here.</p>
-<p>Channels shows all four channels side by side for one effects page: the page the FM-1 shows, unless you pick one. The channel under the FM-1's cursor is marked ◀. Controls shared by all channels sit once, under the four.</p>
+<p>Channels shows all four channels side by side for one effects page: the page the FM-1 shows, unless you pick one. The channel under the FM-1's cursor is marked ◀. Controls shared by all channels sit once, under the four. <b>All</b> shows every channel page at once (FILTER, DRIVE, LFO, LO-FI), the page on the FM-1's knobs marked; this browser remembers it, and picking one page goes back to one at a time.</p>
 <p>On the FM-1 (FM-1_984 and newer) the effects are two areas. Turning a knob or SELECT pops up the channel pages FILTER, DRIVE, LFO, LO-FI for the channel under LSDj's cursor, for a moment (Settings › POPUP TIME); LSDj keeps working meanwhile. The FX button opens the master pages MASTER, ECHO, ECHO MOD and keeps them open until you press FX again; there the channel strip shows PU1 PU2 WAV NOI and keys C4-F4 mute them. SELECT turns the pages of the area shown. (FM-1_982: FX went channel pages, master pages, closed; FM-1_977-980: hold FX for MASTER.)</p>
 <p><b>Master</b> is MASTER (All FX, compressor, freeze), the shared echo and reverb, and the channel mutes. The PU1-NOI buttons are the same mutes: lit means playing. From 0.9.97 every effect is on one page only.</p>
 <p>The echo is one echo shared by all channels: each channel sets how much it sends to it on LO-FI K3 (Echo send, one per channel), and ECHO sets its time, feedback, mix and tone, ECHO MOD its character. The reverb works the same way (0.9.97): each channel's reverb send on LO-FI K4, the REVERB page its mix, size and tone. (Before 0.9.97 the send was FILTER K2 and the filter type LO-FI K3; FM-1_980-996 also had the echo mix and time on MASTER.)</p>
@@ -689,7 +706,7 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <label class="check"><input id="rom-experimental" type="checkbox" disabled><span>I understand this firmware is experimental and may not start or sound right, and I have backed up my songs.</span></label>
 <div class="row"><button id="rom-build" type="button" class="primary" aria-describedby="rom-next" disabled>Prepare firmware</button><span class="hint">Builds the file on this computer. Nothing is installed yet.</span></div>
 <details><summary>What's in this version (0.9.97-dev.9)</summary>
-<p>New in 0.9.97-dev.9 (a test build): MIDI sync and note mode together. With LSDj's SYNC on KEYBD (or OFF), a MIDI Start sets it to MIDI so LSDj follows the clock, and MIDI Stop sets KEYBD again, so the FM-1's keys and MIDI notes play LSDj between runs (not while it runs to the clock: LSDj takes one or the other). SYNC = LSDJ is left alone. A screen on the FM-1 while it installs: a progress bar, what it's doing, and DO NOT UNPLUG. The firmware is built smaller, so there's more room for LSDj's kits. On this page: Perform's Channels panel shows PU1, PU2, WAV and NOI as four blocks side by side (the rows still line up; phones keep the list).</p>
+<p>New in 0.9.97-dev.9 (a test build): MIDI sync and note mode together. With LSDj's SYNC on KEYBD (or OFF), a MIDI Start sets it to MIDI so LSDj follows the clock, and MIDI Stop sets KEYBD again, so the FM-1's keys and MIDI notes play LSDj between runs (not while it runs to the clock: LSDj takes one or the other). SYNC = LSDJ is left alone. A screen on the FM-1 while it installs: a progress bar, what it's doing, and DO NOT UNPLUG. The firmware is built smaller, so there's more room for LSDj's kits. On this page: Perform's Channels panel shows PU1, PU2, WAV and NOI as four blocks side by side (the rows still line up; phones keep the list), and its <b>All</b> button shows every channel page at once (FILTER, DRIVE, LFO, LO-FI, two side by side where they fit; this browser remembers it).</p>
 <p>From 0.9.97-dev.8: the SELECT button picks the channel the effects act on, on any LSDj screen: PU1, PU2, WAV, NOI, then back to following LSDj's cursor. Its light is on while a channel is picked; moving the cursor on the SONG screen lets go, and the pick is not saved. Knobs and the page act on the picked channel. Also: going back to M-VAVE's V16 from an FM-1 that had V15 now works, and FM-1s with the newer flash chip (UC25HQ80) are recognised.</p>
 <p>New on this page: MIDI sync (Perform, Master: Clock). This page: a tempo, and Play / Stop that start and stop every FM-1 plugged in together, with the clock to each. Or one FM-1 leads: its clock and Start / Stop go on to the others (they play one SYNC DELAY behind it). On each FM-1: LSDj PROJECT › SYNC = MIDI (or KEYBD with 0.9.97-dev.9) and GLO › MIDI › CLOCK IN = ALL or USB (TRANSPORT ON lets Play and Stop start it); the leader: SYNC = LSDJ and CLOCK OUT = USB. Works with 0.9.96 too. And each game controller can play its own FM-1 (Settings › Game controller › plays).</p>
 <p>New on this page: several FM-1s plugged in at once. Connect lists them all, and the list in My FM-1 and in Perform switches between them (one at a time); switching back to one is quick (the page remembers it and reads it again just after). All screens (Perform, Screen panel) shows up to four FM-1s' screens at once, the one in use lit; click one to use it. Follow the one played (Follow in Perform) switches by itself to the FM-1 you play: a knob, a page, a mute, the cursor, start / stop. It stays put while the one in use is played too, or two others at once, and keeps a switch for a few seconds. A pulled cable reconnects to the same FM-1 only. Installing still needs just one FM-1 plugged in. Pause in Try it works again; a virtual FM-1 paused by switching tabs carries on when you come back.</p>

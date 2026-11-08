@@ -103,6 +103,20 @@ export async function runFxUiTests() {
     cursor = 2; bytes[38] = 6; bytes[39] = 1;
     await until(() => document.querySelector('#fx-channels [data-ch="2"]').classList.contains('cursor'), 'the column under the cursor marked');
     assert(!document.querySelector('#fx-channels [data-ch="0"]').classList.contains('cursor'), 'one cursor column');
+    /* All: every channel page at once, a name in each channel box, the cursor marked there; a page button goes back */
+    const shownCards = () => [...document.querySelectorAll('#fx-pages .fx-card')].filter(c => getComputedStyle(c).display !== 'none').length;
+    assert(shownCards() === 1, 'one channel page at a time');
+    $('fx-page-all').click();
+    assert(shownCards() === document.querySelectorAll('#fx-pages .fx-card').length && shownCards() > 1, 'All: every channel page shown');
+    assert(document.querySelectorAll('#fx-pages [data-page="1"] .fx-chname').length === 4, 'All: each channel box named');
+    assert(document.querySelector('#fx-pages [data-page="1"] .fx-chname[data-ch="2"]').classList.contains('cursor'), 'All: the cursor channel marked');
+    assert(localStorage.getItem('lsdj-burrito-allpages') === '1', 'All kept in this browser');
+    { const w = writes, r = document.querySelector('#fx-pages [data-page="2"] .fx-ctl[data-key="drive"][data-ch="1"] input');
+      r.value = '33'; r.oninput(); await until(() => writes > w, 'All: a DRIVE slider sends');
+      assert(read().ch[1].drive === 33, 'All: DRIVE PU2 changed');
+      bytes[38] = 6; bytes[39] = 1; }   // the FM-1's page and All FX OFF again, as set above
+    document.querySelector('#fx-pagebar [data-page="2"]').click();
+    assert(shownCards() === 1 && !$('fx-page-all').classList.contains('on') && localStorage.getItem('lsdj-burrito-allpages') === '0', 'a page button: one page again');
     await until(() => radio('allFxOn', 0).getAttribute('aria-checked') === 'true', 'LIVE master switch reflection');
     assert($('live-badges').textContent.includes('ALL FX OFF'), 'LIVE bypass badge');
     assert(document.querySelector('[data-page="6"]').classList.contains('fm1'), 'ECHO MOD active-page badge');

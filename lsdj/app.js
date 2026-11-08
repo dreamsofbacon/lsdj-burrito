@@ -468,6 +468,9 @@ let cursorCh = 0, lastLive = null, bpm = 120, sendTimer = null;
 let fm1Page = null, lastChPage = null, mute = 0, muteOk = false, muteTouched = 0;
 /* the channel page shown: the FM-1's, unless one is picked here */
 let followPage = true, pickPage = 0;
+/* all the channel pages at once (FILTER, DRIVE, LFO, LO-FI), the choice kept in this browser */
+let allPages = false;
+try { allPages = localStorage.getItem('lsdj-burrito-allpages') === '1'; } catch { /* storage blocked: one page */ }
 const shownPage = () => followPage ? (lastChPage ?? fx.page) : pickPage;
 /* per channel (its own value for each of the four) or one for all */
 const perChannel = key => PARAM[key].where === 'ch' || PARAM[key].where === 'q' || PARAM[key].where === 'rvch' || key === 'fxOn';
@@ -698,18 +701,23 @@ function control(key, ch) {
 }
 /* A channel page as four blocks, PU1 PU2 WAV NOI side by side, its rows still lined up across them: each row's
    cells go on the card's grid (--r, --c) over a box per channel (marked for the cursor and mutes as the
-   controls are); knobs shared by all channels come after the boxes. Narrow screens keep the rows (CSS). */
-function channelBlocks(card) {
+   controls are); knobs shared by all channels come after the boxes. Narrow screens keep the rows (CSS).
+   With all pages shown (no column heads above them), each box starts with its channel's name. */
+function channelBlocks(card, names) {
   const rows = [...card.querySelectorAll(':scope > .fx-row')];
   const shared = r => !!r.querySelector('.fx-ctl.shared');
-  const per = rows.filter(r => !shared(r));
-  [...per, ...rows.filter(shared)].forEach((r, i) => { r.style.setProperty('--r', i + 2); card.append(r); });
+  const per = rows.filter(r => !shared(r)), top = names ? 3 : 2;
+  [...per, ...rows.filter(shared)].forEach((r, i) => { r.style.setProperty('--r', i + top); card.append(r); });
   card.querySelectorAll('.fx-ctl[data-ch]').forEach(w => w.style.setProperty('--c', +w.dataset.ch + 3));
   const first = card.querySelector(':scope > .fx-row');
   CHANNELS.forEach((name, c) => {
     const b = document.createElement('div'); b.className = 'fx-chbox'; b.dataset.ch = c; b.setAttribute('aria-hidden', 'true');
-    b.style.setProperty('--c', c + 3); b.style.setProperty('--n', per.length);
+    b.style.setProperty('--c', c + 3); b.style.setProperty('--n', per.length + (names ? 1 : 0));
     card.insertBefore(b, first);
+    if (!names) return;
+    const l = document.createElement('div'); l.className = 'fx-chname'; l.dataset.ch = c; l.textContent = name;
+    l.style.setProperty('--c', c + 3);
+    card.insertBefore(l, first);
   });
   card.classList.add('blocks');
 }
@@ -740,7 +748,7 @@ function buildFx() {
       else { const w = control(key, 0); if (perCh) w.classList.add('shared'); row.append(w); }
       card.append(row);
     });
-    if (perCh) channelBlocks(card);
+    if (perCh) channelBlocks(card, allPages);
     (isMasterPage(fx, i, fwNum) ? masterBox : box).append(card);
   });
   const mutes = $('fx-mutes'); mutes.replaceChildren();
@@ -752,14 +760,27 @@ function buildFx() {
   });
   const bar = $('fx-pagebar'); bar.replaceChildren();
   const pageFollow = document.createElement('button'); pageFollow.type = 'button'; pageFollow.id = 'fx-page-follow'; pageFollow.textContent = 'FM-1 page';
-  pageFollow.title = 'Show the page the FM-1 is on'; pageFollow.onclick = () => { followPage = true; refresh(); };
+  /* All: every channel page at once; picking one page (or FM-1 page) goes back to one at a time */
+  const setAll = on => {
+    if (on === allPages) return refresh();
+    allPages = on;
+    try { localStorage.setItem('lsdj-burrito-allpages', on ? '1' : '0'); } catch { /* this visit only */ }
+    buildFx();
+  };
+  pageFollow.title = 'Show the page the FM-1 is on'; pageFollow.onclick = () => { followPage = true; setAll(false); };
   bar.append(pageFollow);
   box.querySelectorAll('.fx-card').forEach(card => {
     const b = document.createElement('button'); b.type = 'button'; b.dataset.page = card.dataset.page;
     b.textContent = card.querySelector('h3').firstChild.textContent;
-    b.onclick = () => { followPage = false; pickPage = +card.dataset.page; refresh(); };
+    b.onclick = () => { followPage = false; pickPage = +card.dataset.page; setAll(false); };
     bar.append(b);
   });
+  const all = document.createElement('button'); all.type = 'button'; all.id = 'fx-page-all'; all.textContent = 'All';
+  all.title = 'Show every channel page at once'; all.setAttribute('aria-pressed', String(allPages));
+  all.onclick = () => setAll(!allPages);
+  bar.append(all);
+  box.classList.toggle('all', allPages);
+  $('pan-chans').classList.toggle('allpages', allPages);
   /* the column heads: the channel, what is on, under the cursor, playing */
   const head = $('fx-channels'); head.replaceChildren(document.createElement('div'), document.createElement('div'));
   CHANNELS.forEach((name, c) => {
@@ -778,11 +799,12 @@ function refresh(hot = []) {
     : 'Older firmware layout: the MASTER page and All FX switch require FM-1_975 or newer.';
   const cards = $$('#fx-pages .fx-card');
   const want = cards.some(card => +card.dataset.page === shownPage()) ? shownPage() : +(cards[0]?.dataset.page ?? 0);
-  cards.forEach(card => card.classList.toggle('shown', +card.dataset.page === want));
-  $('fx-page-follow').classList.toggle('on', followPage);
+  cards.forEach(card => card.classList.toggle('shown', allPages || +card.dataset.page === want));
+  $('fx-page-follow').classList.toggle('on', followPage && !allPages);
+  $('fx-page-all').classList.toggle('on', allPages);
   const onFm1 = fm1Page ?? fx.page;
   $$('#fx-pagebar [data-page]').forEach(b => {
-    b.classList.toggle('on', +b.dataset.page === want);
+    b.classList.toggle('on', !allPages && +b.dataset.page === want);
     b.classList.toggle('fm1', !!lastLive && +b.dataset.page === onFm1);
   });
   $$('#fx-mutes [data-mute]').forEach(b => {
