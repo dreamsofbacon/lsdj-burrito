@@ -60,6 +60,11 @@ details{margin:10px 0 0}
 details>summary{cursor:pointer;color:var(--muted);font-size:13px;width:max-content;max-width:100%}
 details[open]>summary{margin-bottom:6px}
 details .hint,details p{font-size:13px;color:var(--muted)}
+.sync-row{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;font-size:14px;margin:6px 0 0}
+#sync-bpm{width:4.5em}
+#sync-page{display:inline-flex;flex-wrap:wrap;gap:6px;align-items:center}#sync-page[hidden]{display:none}
+#sync-note{flex-basis:100%;font-size:12px}
+.pad-targets{display:grid;gap:6px;margin:6px 0;font-size:14px}.pad-targets select{margin-left:6px;max-width:100%}
 .pad-map{display:grid;grid-template-columns:max-content 1fr 1fr;gap:4px 8px;align-items:center;font-size:13px;margin:6px 0}
 .pad-map .pad-slot{display:flex;gap:2px;min-width:0}
 .pad-map .pad-slot button:first-child{flex:1;min-width:0;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -126,6 +131,14 @@ input[type=range]{accent-color:var(--accent)}
 .fx-ctl input[type=range]{flex:1;min-width:60px;accent-color:var(--accent)}
 .fx-ctl select{flex:1;min-width:0}
 .fx-ctl output{font:12px ui-monospace,monospace;min-width:4em;text-align:right;color:var(--muted)}
+.screens-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;max-width:720px}
+.screen-tile{display:flex;flex-direction:column;gap:2px;min-width:0;min-height:0;padding:3px;border:2px solid var(--line);border-radius:8px;background:var(--card2);color:var(--muted);font-size:12px;text-align:left}
+.screen-tile canvas{display:block;width:100%;aspect-ratio:160/144;image-rendering:pixelated;border-radius:4px;min-height:0}
+.screen-tile span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.screen-tile.on{border-color:var(--accent);color:var(--ink);font-weight:600}
+.panel-head #screens-all{margin-left:auto;padding:2px 8px;font-size:12px}
+button.follow[aria-pressed=true]{background:var(--accent);color:var(--accent-ink,#000);border-color:var(--accent)}
+#stage-pick,#dev-pick{max-width:min(100%,360px)}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;flex:1}
 .seg button{flex:1;border:0;border-radius:0;padding:5px 6px;font-size:13px;background:var(--card)}
 .seg button+button{border-left:1px solid var(--line)}
@@ -205,6 +218,63 @@ table.fx th,table.fx td{padding:3px 6px;border-bottom:1px solid var(--line);text
 .fx-ctl.chan-line.cursor::before{color:var(--accent)}
 .fx-ctl.chan-line.muted{filter:grayscale(1);opacity:.45}
 .fx-pages.one .fx-card.matrix{padding:6px 8px}
+/* a channel page as four blocks (app.js channelBlocks): a box per channel behind its column, the rows lined up */
+.fx-card.matrix.blocks{display:grid;grid-template-columns:2.2em minmax(5em,8em) repeat(4,minmax(0,1fr));gap:6px 16px;align-items:center}
+.fx-pages .fx-card.matrix.blocks{padding-bottom:12px}
+.fx-card.blocks>h3{grid-column:1/-1;grid-row:1}
+.fx-card.blocks>.fx-row{display:contents}
+.fx-card.blocks>.fx-row>*{grid-row:var(--r)}
+.fx-card.blocks .fx-row .knob{grid-column:1}
+.fx-card.blocks .fx-row .fx-name{grid-column:2}
+.fx-card.blocks .fx-row .fx-ctl{grid-column:var(--c);position:relative;z-index:1}
+.fx-card.blocks .fx-row .fx-ctl.shared{grid-column:3/-1}
+.fx-card.blocks .fx-ctl.cursor{background:none}
+.fx-card.blocks .fx-row.hot>*{animation:fxhot 1.6s ease-out}
+.fx-chbox{grid-column:var(--c);grid-row:2/span var(--n);align-self:stretch;margin:-5px -7px;border:1px solid var(--line);border-radius:9px;background:var(--card)}
+.fx-chbox.cursor{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
+.fx-chbox.muted{filter:grayscale(1);opacity:.6}
+#fx-channels{column-gap:16px;padding:0 9px}
+/* All: every channel page at once, two side by side where they fit; each box names its channel (no heads above) */
+.fx-pages.one.all{grid-template-columns:repeat(auto-fit,minmax(min(520px,100%),1fr))}
+#pan-chans.allpages #fx-channels{display:none}
+.fx-chname{grid-column:var(--c);grid-row:2;position:relative;z-index:1;font:600 12px ui-monospace,monospace;color:var(--muted);text-align:center}
+.fx-chname.cursor{color:var(--accent)}
+.fx-chname.cursor::after{content:" ◀"}
+.fx-chname.muted{opacity:.6;text-decoration:line-through}
+/* All, two side by side: narrower names and gaps, each value under its slider, small switches that may wrap */
+.fx-pages.all .fx-card.matrix.blocks{grid-template-columns:1.9em minmax(4em,6.5em) repeat(4,minmax(0,1fr));column-gap:10px}
+.fx-pages.all .fx-chbox{margin:-4px -5px}
+.fx-pages.all .fx-card.blocks .fx-ctl{flex-wrap:wrap;gap:0 4px}
+.fx-pages.all .fx-card.blocks .fx-ctl input[type=range]{flex:1 0 100%;min-width:0}
+.fx-pages.all .fx-card.blocks .fx-ctl output{flex:1;min-width:0;text-align:center;font-size:11px;line-height:1.1}
+.fx-pages.all .fx-card.blocks .seg{flex-wrap:wrap}
+.fx-pages.all .fx-card.blocks .seg button{flex:1 1 auto;padding:3px 4px;font-size:11px}
+/* All on a screen of fixed size (Perform's stage, the panel in its own window: --allfit): the pages fill the panel
+   (2 x 2, or a row / column of four for a very wide / tall one, app.js fitAll), the rows share each page's height,
+   and app.js sizes the text (--allfs) so it all fits: no scrollbars */
+body.popped #pan-chans.allfit{overflow:hidden;min-height:0}
+body.popped #pan-chans #fx-pages.all{--allfit:1}
+#fx-pages.all.fit{flex:1;min-height:0;font-size:var(--allfs,1em);grid-template-columns:repeat(var(--allc,2),minmax(0,1fr));grid-auto-rows:minmax(0,1fr);gap:.6em;align-content:stretch}
+#fx-pages.all.fit .fx-card{min-height:0;max-height:none;overflow:hidden;padding:.35em .6em .6em}
+#fx-pages.all.fit .fx-card.matrix.blocks{grid-template-rows:auto auto;grid-auto-rows:1fr;row-gap:.25em;column-gap:.7em;align-items:center;
+  grid-template-columns:1.9em minmax(5.5em,6.5em) repeat(4,minmax(5.2em,1fr))}
+#fx-pages.all.fit .fx-card h3{font-size:.9em;margin:0}
+#fx-pages.all.fit .fx-row .knob{font-size:.65em}
+#fx-pages.all.fit .fx-chname{font-size:.75em}
+#fx-pages.all.fit .fx-card.blocks .fx-ctl output{font-size:.7em}
+#fx-pages.all.fit .fx-ctl select{font-size:.85em;padding:.15em .3em}
+#fx-pages.all.fit .fx-card.blocks .seg button{font-size:.7em;padding:.25em .3em}
+#fx-pages.all.fit .fx-onfm1{font-size:.7em}
+/* ...and keeps the four blocks even in a window short enough for the phone layout */
+#fx-pages.all.fit .fx-card.matrix.blocks{display:grid}
+#fx-pages.all.fit .fx-card.blocks>.fx-row{display:contents}
+#fx-pages.all.fit .fx-card.blocks>.fx-row>*{grid-row:var(--r)}
+#fx-pages.all.fit .fx-card.blocks .fx-row .knob{display:grid;grid-column:1}
+#fx-pages.all.fit .fx-card.blocks .fx-row .fx-name{grid-column:2}
+#fx-pages.all.fit .fx-card.blocks .fx-row .fx-ctl{grid-column:var(--c)}
+#fx-pages.all.fit .fx-card.blocks .fx-row .fx-ctl.shared{grid-column:3/-1}
+#fx-pages.all.fit .fx-card.blocks .fx-ctl[data-chn]::before{content:none}
+#fx-pages.all.fit .fx-chbox,#fx-pages.all.fit .fx-chname{display:block}
 #fx-help{max-width:min(720px,92vw);border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--ink)}
 #fx-help::backdrop{background:rgb(0 0 0/.45)}
 #fx-help p{font-size:14px}
@@ -243,6 +313,8 @@ body:not(.connected) .pop-body{opacity:.5;pointer-events:none}
   body.perform #pan-screen #fm1-screen{width:100%;height:100%;min-width:0;aspect-ratio:auto;object-fit:contain;object-position:top}
   body.perform #pan-screen #virtual-box:not([hidden]){flex:1;min-height:0;display:flex;flex-direction:column}
   body.perform #pan-screen #virtual-mount{flex:1;min-height:0;height:auto}
+  body.perform #pan-screen #screens-grid:not([hidden]){flex:1;min-height:0;max-width:none;grid-auto-rows:minmax(0,1fr)}
+  body.perform #pan-screen .screen-tile canvas{flex:1;width:100%;height:100%;aspect-ratio:auto;object-fit:contain}
   body.perform .fm1-screen{max-width:none;padding:0;border:0;background:none}
   body.perform .fxd-wrap{overflow:hidden;margin:0}
   body.perform .fxd{min-width:0}
@@ -250,6 +322,13 @@ body:not(.connected) .pop-body{opacity:.5;pointer-events:none}
   body.perform .fx-row{padding:2px}
   body.perform button,body.perform select{padding:5px 10px}
   body.perform .fx-card.matrix .fx-row{padding:clamp(3px,1.5vmin,18px) 2px}
+  body.perform .fx-card.matrix.blocks{row-gap:clamp(6px,3vmin,36px)}
+  /* the stage laid out at 1920 x 1080 and scaled to the window as a whole (app.js stageZoom): the same
+     proportions on every screen, so what fits at 1080p fits everywhere */
+  body.perform.stage-zoom #live-sec{--sh:1080px;font-size:16.74px;zoom:var(--stagez,1)}
+  body.perform .foot{visibility:hidden}
+  body.perform #pan-chans.allfit{overflow:hidden}
+  body.perform #pan-chans #fx-pages.all{--allfit:1}
   /* panels in their own windows: the others take the room */
   body.perform.pop-screen #live-sec{grid-template-areas:"head head" "wire master" "wire chans" "wire chans"}
   body.perform.pop-wire #live-sec{grid-template-areas:"head head" "screen master" "screen chans" "screen chans"}
@@ -264,6 +343,14 @@ body:not(.connected) .pop-body{opacity:.5;pointer-events:none}
   .fx-card.matrix .fx-row .knob,.chan-head>div:nth-child(-n+2){display:none}
   .fx-card.matrix .fx-row .fx-name,.fx-card.matrix .fx-row .fx-ctl.shared{grid-column:1/-1}
   .fx-card.matrix .fx-ctl[data-chn]::before{content:attr(data-chn);font:600 11px ui-monospace,monospace;color:var(--muted)}
+  .fx-card.matrix.blocks{display:block}
+  .fx-card.blocks>.fx-row{display:grid}
+  .fx-card.blocks>.fx-row>*{grid-row:auto}
+  .fx-card.blocks .fx-row .fx-ctl{grid-column:auto}
+  .fx-card.blocks .fx-row .fx-name,.fx-card.blocks .fx-row .fx-ctl.shared{grid-column:1/-1}
+  .fx-card.blocks .fx-ctl.cursor{background:color-mix(in srgb,var(--accent) 9%,transparent)}
+  .fx-chbox,.fx-chname{display:none}
+  #fx-channels{padding:0}
   .panel-head .pop,#stage-full{display:none}}
 /* perform on a phone (by size, not touch, so a phone asking for the desktop site gets the desktop
    page): no site bar, a sticky head of fixed height (messages float under it, so nothing below
@@ -367,7 +454,32 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 .file-btn{position:relative;overflow:hidden}
 .file-btn input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%}
 .file-btn:focus-within{outline:3px solid var(--hi);outline-offset:2px}
-#rom-kits{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:10px 0;columns:2 220px}
+#rom-kits{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:10px 0}
+#rom-kits .kit-line{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:3px 0;border-bottom:1px solid var(--line)}
+#rom-kits .kit-use{flex:1 1 160px}
+.kit-tools{display:inline-flex;flex-wrap:wrap;gap:4px}
+.kit-tools button,.st-actions button{padding:2px 8px;font-size:12px}
+.kit-empty{margin:8px 0 4px}
+.st-table{border-collapse:collapse;width:100%;margin:6px 0 12px;font-size:14px}
+.st-table th,.st-table td{border-bottom:1px solid var(--line);padding:4px 6px;text-align:left;vertical-align:top}
+.st-actions{white-space:nowrap}
+#songtools .row{margin:6px 0;flex-wrap:wrap}
+.sets{margin-top:24px;border-top:1px solid var(--line);padding-top:8px}
+.sets select{max-width:100%}
+.sets-lib{margin:4px 0 8px;padding-left:20px}
+.sets-plan{display:block;margin:4px 0}
+.sets-card{border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin:8px 0}
+.sets-card h4{margin:2px 0 6px}
+.smp{white-space:nowrap}
+button.play{padding:0 5px;margin-right:3px;font-size:11px;line-height:1.5;min-width:0}
+.sets-listen summary{cursor:pointer;display:inline}
+.sets-listen[open]{display:block;margin:4px 0 6px}
+.sets-listen div{margin:2px 0}
+.kit-editor{max-width:min(720px,calc(100vw - 32px));border:1px solid var(--line);border-radius:12px;background:var(--bg);color:inherit}
+.kit-editor::backdrop{background:rgba(0,0,0,.5)}
+.kit-sample{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--line)}
+.kit-num input{width:4.5em}
+.kit-editor progress{width:200px;vertical-align:middle}
 #rom-kits legend{padding:0 4px;font-size:13px;color:var(--muted)}
 #rom-kits label{display:inline-block;padding:2px 0}
 .check{display:flex;gap:8px;align-items:flex-start;margin:10px 0}
@@ -396,7 +508,7 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <header class="top"><div class="top-in">
 <a class="brand" href="#home">LSDJ Burrito<small>by Dreamy_bacon</small></a>
 <nav class="page-nav" aria-label="Main">
-<a href="#home" data-view="home">Home</a><a href="#connect" data-view="device">My FM-1</a><a href="#install" data-view="install">Install</a><a href="#emulator-sec" data-view="try">Try it</a>
+<a href="#home" data-view="home">Home</a><a href="#connect" data-view="device">My FM-1</a><a href="#install" data-view="install">Install</a><a href="#songtools" data-view="songs">Songs &amp; kits</a><a href="#emulator-sec" data-view="try">Try it</a>
 </nav>
 <button id="install-app" class="chip install-chip" type="button" title="Install LSDJ Burrito as an app: it opens in its own window and works offline" hidden>Install app</button>
 <a id="conn-chip" class="chip" href="#connect">Not connected</a>
@@ -435,10 +547,13 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <p id="device" role="status"></p>
 <div class="row"><button id="connect-btn" class="primary" type="button">Connect over USB</button>
 <select id="port-pick" hidden></select>
+<select id="dev-pick" hidden aria-label="The FM-1 to use"></select>
+<button id="follow-btn" class="follow" type="button" aria-pressed="false" hidden title="Switch by itself to the FM-1 being played (a knob, a page, a mute, start / stop)">Follow the one played</button>
 <button id="virtual-btn" type="button" title="Runs your prepared firmware in the emulator on this page. Nothing connects to a real FM-1." disabled>Use the virtual FM-1</button></div>
 </div>
 <details class="connect-help"><summary>If it doesn't connect</summary>
 <p>No FM-1 to hand? Use the virtual FM-1 runs the firmware you prepared in Install in the emulator on this page (Try it), and Perform, Songs, Colours and Settings work on it as on a real one. It changes only the virtual FM-1.</p>
+<p>Several FM-1s? Plug them all in: Connect lists them, and the list (here and in Perform) switches between them, one at a time. All screens (Perform, Screen) shows up to four FM-1s' screens at once; click one to use it. Follow the one played switches by itself to the FM-1 you play (a knob, a page, a mute, start / stop); while the one in use is played too, or two others at once, it stays put. Installing needs just one FM-1 plugged in.</p>
 <p>No FM-1 found? Use a data cable (some charge-only cables don't carry data), check the FM-1 is on and close other music apps that may hold its MIDI port. Installing firmware is done from <a href="#install">Install</a>, not here.</p>
 </details>
 </section>
@@ -450,6 +565,8 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <section id="live-sec" class="tab-panel needs-device stage" aria-disabled="true">
 <div class="stage-head">
 <h2>Perform <span id="stage-dev" class="hint"></span></h2>
+<select id="stage-pick" hidden aria-label="The FM-1 to use"></select>
+<button id="stage-follow" class="follow" type="button" aria-pressed="false" hidden title="Switch by itself to the FM-1 being played">Follow</button>
 <span id="live-badges"></span>
 <span class="stage-gap"></span>
 <span id="fx-status" class="hint" role="status"></span>
@@ -460,9 +577,10 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 </div>
 
 <div class="panel" id="pan-screen" data-pop="screen" data-title="FM-1 screen" data-size="720x680">
-<div class="panel-head"><h3>Screen</h3><button class="pop" type="button" title="Open in its own window">⇱</button></div>
+<div class="panel-head"><h3>Screen</h3><button id="screens-all" type="button" class="follow" aria-pressed="false" hidden title="Every FM-1's screen at once (up to 4): click one to use it">All screens</button><button class="pop" type="button" title="Open in its own window">⇱</button></div>
 <div id="fm1-screen-box" class="fm1-screen" hidden><canvas id="fm1-screen" width="160" height="144" role="img" aria-label="The FM-1's screen, as its display shows it"></canvas></div>
 <p id="fm1-screen-note" class="hint" hidden></p>
+<div id="screens-grid" class="screens-grid" hidden></div>
 <div id="virtual-box" hidden>
 <div id="virtual-mount"></div>
 <p class="hint virtual-foot"><button id="virtual-view" type="button" aria-pressed="false">Show only the screen</button> The virtual FM-1: play it here (click its keys and knobs, or the keyboard). Volume, Pause, Stop and its songs (.sav) are in <a href="#emulator-sec">Try it</a>.</p>
@@ -481,6 +599,12 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <div id="fx-master-pages" class="fx-pages master"></div>
 </div>
 <p id="fx-master-status" class="hint" role="status"></p>
+<div id="sync-row" class="sync-row" hidden>
+<label>Clock <select id="sync-mode" aria-label="MIDI clock"></select></label>
+<span id="sync-page" hidden><label>Tempo <input id="sync-bpm" type="number" min="40" max="295" step="1" value="120" inputmode="numeric"> BPM</label>
+<button id="sync-play" type="button">▶ Play</button><button id="sync-stop" type="button">■ Stop</button></span>
+<span id="sync-note" class="hint" role="status"></span>
+</div>
 </div>
 
 <div class="panel" id="pan-chans" data-pop="chans" data-title="Channel effects" data-size="1100x520">
@@ -497,13 +621,13 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <dialog id="fx-help">
 <h2>How the effects work</h2>
 <p>Changes go to the FM-1 straight away. <b>Keep on FM-1</b> stores them, as the SAVE button does. K1-K4 are the knobs that play each control on the FM-1; turn SELECT there to change pages (it stops at the first and last page: Settings › FX and lights can make it go round). A control the FM-1 changes lights up here.</p>
-<p>Channels shows all four channels side by side for one effects page: the page the FM-1 shows, unless you pick one. The channel under the FM-1's cursor is marked ◀. Controls shared by all channels sit once, under the four.</p>
+<p>Channels shows all four channels side by side for one effects page: the page the FM-1 shows, unless you pick one. The channel under the FM-1's cursor is marked ◀. Controls shared by all channels sit once, under the four. <b>All</b> shows every channel page at once (FILTER, DRIVE, LFO, LO-FI), the page on the FM-1's knobs marked; this browser remembers it, and picking one page goes back to one at a time.</p>
 <p>On the FM-1 (FM-1_984 and newer) the effects are two areas. Turning a knob or SELECT pops up the channel pages FILTER, DRIVE, LFO, LO-FI for the channel under LSDj's cursor, for a moment (Settings › POPUP TIME); LSDj keeps working meanwhile. The FX button opens the master pages MASTER, ECHO, ECHO MOD and keeps them open until you press FX again; there the channel strip shows PU1 PU2 WAV NOI and keys C4-F4 mute them. SELECT turns the pages of the area shown. (FM-1_982: FX went channel pages, master pages, closed; FM-1_977-980: hold FX for MASTER.)</p>
-<p><b>Master</b> is MASTER (All FX, compressor, and from FM-1_980 the echo mix and time, K3 and K4), the shared echo (from FM-1_981) and the channel mutes. The PU1-NOI buttons are the same mutes: lit means playing.</p>
-<p>The echo is one echo shared by all channels: each channel sets how much it sends to it (FILTER K2: Echo send, next to Channel FX; LO-FI K3 before FM-1_979), and ECHO / ECHO MOD set its time, feedback, mix and character.</p>
+<p><b>Master</b> is MASTER (All FX, compressor, freeze), the shared echo and reverb, and the channel mutes. The PU1-NOI buttons are the same mutes: lit means playing. From 0.9.97 every effect is on one page only.</p>
+<p>The echo is one echo shared by all channels: each channel sets how much it sends to it on LO-FI K3 (Echo send, one per channel), and ECHO sets its time, feedback, mix and tone, ECHO MOD its character. The reverb works the same way (0.9.97): each channel's reverb send on LO-FI K4, the REVERB page its mix, size and tone. (Before 0.9.97 the send was FILTER K2 and the filter type LO-FI K3; FM-1_980-996 also had the echo mix and time on MASTER.)</p>
 <p>A muted channel's effects can still be changed: its column goes grey, as its panel does on the FM-1. Every effect has a MIDI CC too: see Settings › MIDI.</p>
 <p><b>MASTER K1: All FX</b> bypasses every effect without losing settings; <b>FILTER K1: Channel FX</b> bypasses one channel. Mutes and freeze are not saved. Muting and freeze from this page need FM-1_977 or newer; firmware before FM-1_975 shows its older layout.</p>
-<p><b>Wiring:</b> each channel goes through drive, filter, lo-fi, then the LFO (volume or pan; to the cutoff it moves the filter, dashed). Its echo send is taken after that into the one shared echo. Lit = doing something. Grey: muted, dry (Channel FX off) or All FX off.</p>
+<p><b>Wiring:</b> each channel goes through drive, filter, lo-fi, then the LFO (volume or pan; to the cutoff it moves the filter, dashed). Its echo send is taken after that into the one shared echo. Then the reverb (0.9.97): each channel's reverb send ("rev") goes into it (dashed when its mix is 0), and it goes into the compressor. Lit = doing something. Grey: muted, dry (Channel FX off) or All FX off.</p>
 <p><b>Own windows:</b> ⇱ opens a panel in its own window, for a second screen or a projector. Close that window (or Bring back) to put it back here. Full screen hides everything but the controls; Esc leaves it.</p>
 <form method="dialog"><button class="primary">Close</button></form>
 </dialog>
@@ -520,6 +644,7 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 </div>
 <progress id="save-progress" value="0" max="1" hidden></progress>
 <p id="save-status" role="status"></p>
+<p class="hint">Which samples your songs play, single songs as .lsdsng, renaming and deleting songs: <a href="#songtools">Songs &amp; kits</a>.</p>
 <details><summary>About .sav files</summary><p>Files with exactly 16 extra bytes at the end can be imported after you confirm using the first 131072 bytes. The format of those extra bytes isn't checked, and your original file is never changed.</p></details>
 </section>
 
@@ -560,11 +685,12 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <p class="hint">Settings, effects and custom colours in one file. Songs are backed up separately, in Songs.</p>
 <div class="row"><button id="backup" type="button">Back up settings…</button>
 <button id="restore-pick" type="button">Restore a backup…</button><input id="restore" type="file" accept=".json" hidden></div>
-<div id="pad-sec" hidden>
+<div id="pad-sec">
 <h3 class="subhead">Game controller</h3>
 <p class="hint">A game controller connected to this computer or phone (USB, or Bluetooth paired to it) plays LSDj on the FM-1 through this page, from any tab (0.9.97 and newer). Its buttons are kept in this browser, per controller.</p>
 <p id="pad-status" class="hint" role="status" hidden></p>
 <p id="pad-pick-row" hidden><label>Controller <select id="pad-pick"></select></label></p>
+<div id="pad-targets" class="pad-targets" hidden></div>
 <div id="pad-map-box" hidden>
 <p class="hint">Click a slot, then press the controller button. Each button does one thing; using it again moves it.</p>
 <p id="pad-held" class="hint mono" role="status">Pressed now: (no controller playing)</p>
@@ -606,7 +732,7 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 
 <div class="wstep" data-step="2" hidden>
 <h2>Sample kits</h2>
-<p class="hint">All kits are ticked. If they don't all fit, untick some: songs that use a removed kit lose those samples.</p>
+<p class="hint">All kits are ticked. If they don't all fit, untick some: songs that use a removed kit lose those samples. To see which kits your songs play, open your songs in <a href="#songtools">Songs &amp; kits</a>; each kit then says which songs play it. Each kit can also be saved as a .kit, replaced, renamed, edited or cleared, and empty slots can take a .kit or a kit made from your own sounds (as LSDj Patcher does; only this page's copy of your ROM changes).</p>
 <fieldset id="rom-kits" disabled><legend>Sample kits (all selected initially)</legend></fieldset>
 <p id="rom-budget" role="status"></p>
 <div class="wiz-nav"><button type="button" data-back>Back</button><button type="button" class="primary" data-next>Next</button></div>
@@ -620,8 +746,23 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <p id="wiz-backup-status" role="status" hidden></p></div>
 <label class="check"><input id="rom-experimental" type="checkbox" disabled><span>I understand this firmware is experimental and may not start or sound right, and I have backed up my songs.</span></label>
 <div class="row"><button id="rom-build" type="button" class="primary" aria-describedby="rom-next" disabled>Prepare firmware</button><span class="hint">Builds the file on this computer. Nothing is installed yet.</span></div>
-<details><summary>What's in this version (0.9.96)</summary>
-<p>New on this page: the virtual FM-1 in My FM-1. With no FM-1 to hand, press Use the virtual FM-1: it runs your prepared firmware in the emulator on this page, and Perform, Songs, Colours and Settings work on it as on a real one (over a USB cable inside the emulator). The Screen panel shows the virtual FM-1 itself, to play there, or only its screen. It changes only the virtual FM-1. The emulator is a newer build of Joakim Eriksson's fm1-emu, built here with a USB port for the page; it also runs a little faster. Try it's FM-1 now looks like the device, labels every control with its LSDj job, takes MIDI in and loads and saves songs (.sav). In the full-screen Perform layout the screen fits its panel.</p>
+<details><summary>What's in this version (0.9.97-dev.9)</summary>
+<p>New in 0.9.97-dev.9 (a test build): MIDI sync and note mode together. With LSDj's SYNC on KEYBD (or OFF), a MIDI Start sets it to MIDI so LSDj follows the clock, and MIDI Stop sets KEYBD again, so the FM-1's keys and MIDI notes play LSDj between runs (not while it runs to the clock: LSDj takes one or the other). SYNC = LSDJ is left alone. A screen on the FM-1 while it installs: a progress bar, what it's doing, and DO NOT UNPLUG. The firmware is built smaller, so there's more room for LSDj's kits. On this page: Perform's Channels panel shows PU1, PU2, WAV and NOI as four blocks side by side (the rows still line up; phones keep the list), and its <b>All</b> button shows every channel page at once (FILTER, DRIVE, LFO, LO-FI; this browser remembers it). On a computer, Perform now scales as a whole to the window, so every panel fits on screen with no scrollbars at any size; with All the four pages fill the Channels panel, also in its own window.</p>
+<p>From 0.9.97-dev.8: the SELECT button picks the channel the effects act on, on any LSDj screen: PU1, PU2, WAV, NOI, then back to following LSDj's cursor. Its light is on while a channel is picked; moving the cursor on the SONG screen lets go, and the pick is not saved. Knobs and the page act on the picked channel. Also: going back to M-VAVE's V16 from an FM-1 that had V15 now works, and FM-1s with the newer flash chip (UC25HQ80) are recognised.</p>
+<p>New on this page: MIDI sync (Perform, Master: Clock). This page: a tempo, and Play / Stop that start and stop every FM-1 plugged in together, with the clock to each. Or one FM-1 leads: its clock and Start / Stop go on to the others (they play one SYNC DELAY behind it). On each FM-1: LSDj PROJECT › SYNC = MIDI (or KEYBD with 0.9.97-dev.9) and GLO › MIDI › CLOCK IN = ALL or USB (TRANSPORT ON lets Play and Stop start it); the leader: SYNC = LSDJ and CLOCK OUT = USB. Works with 0.9.96 too. And each game controller can play its own FM-1 (Settings › Game controller › plays).</p>
+<p>New on this page: several FM-1s plugged in at once. Connect lists them all, and the list in My FM-1 and in Perform switches between them (one at a time); switching back to one is quick (the page remembers it and reads it again just after). All screens (Perform, Screen panel) shows up to four FM-1s' screens at once, the one in use lit; click one to use it. Follow the one played (Follow in Perform) switches by itself to the FM-1 you play: a knob, a page, a mute, the cursor, start / stop. It stays put while the one in use is played too, or two others at once, and keeps a switch for a few seconds. A pulled cable reconnects to the same FM-1 only. Installing still needs just one FM-1 plugged in. Pause in Try it works again; a virtual FM-1 paused by switching tabs carries on when you come back.</p>
+<p>New on this page: the virtual FM-1 in My FM-1. With no FM-1 to hand, press Use the virtual FM-1: it runs your prepared firmware in the emulator on this page, and Perform, Songs, Colours and Settings work on it as on a real one (over a USB cable inside the emulator). The Screen panel shows the virtual FM-1 itself, to play there, or only its screen. It changes only the virtual FM-1. The emulator is a newer build of Joakim Eriksson's fm1-emu, built here with a USB port for the page; it also runs a little faster.</p>
+<p>New on this page: every game controller plays, not only ones with the browser's standard layout (generic USB pads, arcade sticks, adapters too; a stick that rests off centre holds nothing). One without the standard layout starts with a guess for its buttons: check them in Settings › Game controller, where Pressed now shows what it sends.</p>
+<p>The game controller section moved from under the FM-1's screen to Settings › Game controller; the Screen panel shows only the screen.</p>
+<p>New in 0.9.97-dev.7 (a test build): reverb sends, like the echo's. Each channel sets how much it sends to the reverb on LO-FI K4 (RV SND; on this page in the Channels panel, a slider per channel), and only the sends feed the reverb. REVERB is now MIX, SIZE, TONE (K4 INPUT is gone). Turning a send up while the reverb's mix is 0 sets the mix to 64. MIDI: CC 92 is each channel's reverb send (next to CC 91, the echo send); CC 24 does nothing now. Effects saved by dev.1-6 keep their sound: INPUT ALL becomes every send full, INPUT SEND the echo sends.</p>
+<p>dev.6: the echo send is on the channel pages: LO-FI K3 (CRUSH, DECIMATE, SEND), and on this page in the Channels panel, a slider per channel. ECHO is now TIME, FEEDBACK, MIX, TONE, all shared; ECHO MOD K4 is empty. KNOBS = CHANNELS includes the send again (the last effect).</p>
+<p>dev.5: every effect is on one page only. MASTER: ALL FX, COMP, FREEZE. FILTER: FX ON, TYPE, CUTOFF, RESO (the filter type is back next to the cutoff). LO-FI: CRUSH, DECIMATE. ECHO: SEND, TIME, FEEDBACK, MIX (the send and the mix are no longer on FILTER and MASTER too). KNOBS = CHANNELS goes through FILTER to LO-FI; the sends are on ECHO.</p>
+<p>New on this page: choose the game controller (Settings › Game controller). Every controller the browser sees is listed, including ones without the standard layout (generic USB pads, arcade sticks, adapters): choose one and set its buttons. Each controller keeps its own buttons. There, "Pressed now" shows what the page reads from the controller, and a controller button presses one Game Boy button only: giving it to another moves it.</p>
+<p>dev.4: remap the game controller. In Settings, Game controller: click a slot and press the controller button (or push the stick) it should be. Two slots for each Game Boy button. Kept in this browser; Reset to default goes back.</p>
+<p>New in 0.9.97-dev.4 (a test build): play LSDj with a game controller through this page. Connect any controller to this computer or phone (USB, or Bluetooth paired to it) and press a button: Settings › Game controller names it. D-pad or left stick: the arrows; A (bottom) and Y (top): A; B (right) and X (left): B; Menu / Start: START; View / Back: SELECT. It works while this page is open and connected; the FM-1's keys keep working too.</p>
+<p>New in 0.9.97-dev.3 (a test build): the reverb on this page (Effects, Master: the REVERB card; in effects files and backups too) and over MIDI: CC 21 reverb mix, 22 size, 23 tone, 24 input (64-127 send), on any of the four CC channels like the echo CCs.</p>
+<p>New in 0.9.97-dev.2 (a test build): the echo send and the echo time are on one page. ECHO is now K1 SEND (the channel under LSDj's cursor), K2 TIME, K3 FEEDBACK, K4 MIX; the echo TONE moved to ECHO MOD K4 and FREEZE to MASTER K4. FILTER K2 is still the send too.</p>
+<p>New in 0.9.97-dev.1 (a test build): a reverb. Press FX for the master pages; REVERB is the fourth (SELECT). K1 MIX (0 is off), K2 SIZE (a small room to a long hall), K3 TONE (dark to bright), K4 INPUT: ALL (the whole mix, echo repeats included) or SEND (only what the channels send to the echo, FILTER K2). It comes after the echo and before the compressor, and it is saved with the other effects. </p>
 <p>New in 0.9.96: LSDJ Burrito has a normal version number, 0.9.96, and is published as a GitHub release for The Firmware Hub (its firmware number is now FM-1_537000996; your FM-1 and this page still call it FM-1_996, the one after 995). An FM-1 with LSDJ Burrito but no LSDj in it now shows how to add your LSDj with this page, instead of a blank screen, and stays ready for updates. The splash shows the version.</p>
 <p>From FM-1_995: note mode just works. The FM-1's keys (press HOME for note mode) and MIDI notes reach LSDj only when LSDj's PROJECT › SYNC is KEYBD. With LSDj 9.3.9 and SYNC OFF, the FM-1 now switches it to KEYBD by itself the first time you use note mode, and says LSDJ SYNC SET / TO KEYBD FOR NOTES. It leaves SYNC alone when it is MIDI or LSDJ (MIDI clock in and out need those) and tells you to set KEYBD yourself, as with other LSDj versions. The setting is part of the song: SAVE keeps it.</p>
 <p>From FM-1_994: Bluetooth is gone. The Bluetooth build was never part of the normal firmware (it only fitted with a smaller sound buffer, which crackled), so for the firmware you use nothing changes, except that Settings no longer lists BLUETOOTH and MIDI clock in is USB or TRS, clock out USB. My FM-1 connects over USB only. (FM-1_993 was a private test build.)</p>
@@ -670,6 +811,14 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 </section>
 </div>
 
+<!-- ============ SONGS & KITS ============ -->
+<div class="view" data-view="songs" hidden>
+<section id="songtools-sec">
+<h2>Songs &amp; kits</h2>
+<div id="songtools"></div>
+</section>
+</div>
+
 <!-- ============ TRY ============ -->
 <div class="view" data-view="try" hidden>
 <section id="emulator-sec">
@@ -702,7 +851,7 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <details><summary>Controls</summary>
 <p>Click or tap the keys and buttons; drag knobs up and down or scroll over them. With Show what each control does on, every control carries a tag saying what it does in LSDj:</p>
 <p><b>Yellow on the keys:</b> LSDj's Game Boy buttons in button mode (the arrows, SELECT, START, B, A). HOME switches the keys to note mode, where they play notes instead and OCT- / OCT+ shift the octave. <b>Blue (C4 to F4):</b> with FX open, these mute and unmute PU1, PU2, WAV and NOI. <b>White names on black keys:</b> the soft light on that key shows which LSDj screen you're on (SONG, CHAIN, PHRASE, INSTR, TABLE, GROOVE).</p>
-<p><b>Buttons:</b> PLAY = START, REC = SELECT, FX opens the master effects, GLO the settings, SAVE saves your songs, SEQ switches live / song mode, hold ARP and turn KNOB1 to cue a song row, hold EDIT and turn KNOB1 to set the tempo (or tap EDIT in time). SEL, ENV and LFO aren't used. <b>Knobs:</b> PRESETS = up / down, ALGORITHM = left / right, SELECT turns the effects pages, KNOB1-4 play that page's four effects, MASTER is the volume.</p>
+<p><b>Buttons:</b> PLAY = START, REC = SELECT, FX opens the master effects, GLO the settings, SAVE saves your songs, SEQ switches live / song mode, hold ARP and turn KNOB1 to cue a song row, hold EDIT and turn KNOB1 to set the tempo (or tap EDIT in time). SELECT picks the channel the effects act on (0.9.97 and newer: PU1, PU2, WAV, NOI, then back to following LSDj's cursor; its light is on while a channel is picked); ENV and LFO aren't used. <b>Knobs:</b> PRESETS = up / down, ALGORITHM = left / right, SELECT turns the effects pages, KNOB1-4 play that page's four effects, MASTER is the volume.</p>
 <p>With the instrument focused: arrows = directions, Z/X = B/A, Shift/Enter = Select/Start. Use a MIDI keyboard feeds it MIDI like the FM-1's MIDI socket: notes play LSDj when GLO › MIDI › NOTE IN is on, and clock and CCs work as on the FM-1. Switching tabs pauses it.</p>
 <p>Songs: Load songs (.sav) starts the virtual FM-1 with an LSDj save of yours (a running one restarts). Save songs (.sav) downloads what the virtual FM-1 last saved: press SAVE on it first. On a phone held upright the FM-1 is laid out for the screen; turn the phone for its real layout.</p>
 </details>
@@ -719,7 +868,7 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 </section>
 </div>
 
-<p class="hint foot">The firmware is free software (GPL-3.0), based on <a href="https://github.com/ChanceTheMaker/gamedude-fm1-smk" target="_blank" rel="noopener">GameDude</a>. Source: <a href="https://github.com/dreamsofbacon/lsdj-burrito-src" target="_blank" rel="noopener">lsdj-burrito-src</a>; <a href="lsdj/fm1-lsdj-template-source.zip" download>matching 0.9.96 template source</a>. Not affiliated with M-VAVE or <a href="https://www.littlesounddj.com/" target="_blank" rel="noopener">LSDj's author, Johan Kotlinski</a>.</p>
+<p class="hint foot">The firmware is free software (GPL-3.0), based on <a href="https://github.com/ChanceTheMaker/gamedude-fm1-smk" target="_blank" rel="noopener">GameDude</a>. Source: <a href="https://github.com/dreamsofbacon/lsdj-burrito-src" target="_blank" rel="noopener">lsdj-burrito-src</a>; <a href="lsdj/fm1-lsdj-template-source.zip" download>matching 0.9.97-dev.9 template source</a>. Not affiliated with M-VAVE or <a href="https://www.littlesounddj.com/" target="_blank" rel="noopener">LSDj's author, Johan Kotlinski</a>.</p>
 </main>
 <script type="module" src="lsdj/ui.js"></script>
 <script type="module" src="lsdj/lsdj-app.js"></script>

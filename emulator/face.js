@@ -5,10 +5,10 @@
 // layout.js). Which control is which comes from fm1-emu's own panel (ui.panel_hit), so the ids the
 // emulator expects stay right.
 
-// Control ids (as the emulator's key matrix): 0 OCT-, 1 OCT+, 2..7 FX SEL ENV LFO EDIT GLO,
+// Control ids (as the emulator's key matrix): 0 OCT-, 1 OCT+, 2..7 FX SELECT ENV LFO EDIT GLO,
 // 8..13 HOME SAVE ARP SEQ PLAY REC, 14..40 the keys F3..G5. Knobs (fm1-emu's order): 0 SELECT,
 // 1 PRESETS, 2 ALGORITHM, 3..6 KNOB1..4, 7 MASTER (the volume pot).
-export const BUTTONS = ['OCT-', 'OCT+', 'FX', 'SEL', 'ENV', 'LFO', 'EDIT', 'GLO',
+export const BUTTONS = ['OCT-', 'OCT+', 'FX', 'SELECT', 'ENV', 'LFO', 'EDIT', 'GLO',
   'HOME', 'SAVE', 'ARP', 'SEQ', 'PLAY', 'REC'];
 export const KNOBS = ['SELECT', 'PRESETS', 'ALGORITHM', 'KNOB1', 'KNOB2', 'KNOB3', 'KNOB4', 'MASTER'];
 const UPPER_SILK = ['OP1', 'OP2', 'OP3', 'OP4', 'OP5', 'OP6', 'PIT', 'GLO', 'MONO', 'POLY', ''];
@@ -98,6 +98,13 @@ export const LSDJ_KEYS = {0: 'left', 2: 'left', 3: 'up', 5: 'up', 4: 'down', 6: 
 // What every other control does with LSDj (handoff/docs/GUIDE.md, quick actions). '' = not used.
 export const LSDJ_BUTTONS = {0: 'OCTAVE -', 1: 'OCTAVE +', 2: 'MASTER FX', 3: '', 4: '', 5: '', 6: 'TEMPO',
   7: 'SETTINGS', 8: 'NOTE MODE', 9: 'SAVE SONGS', 10: 'CUE ROW', 11: 'LIVE/SONG', 12: 'START', 13: 'SELECT'};
+/* jobs that depend on the firmware run (v: 997 for 0.9.97; 0 unknown: the newest) */
+export const buttonJob = (id, v = 0) => id === 3 ? (!v || v >= 997 ? 'FX CHANNEL' : '') : LSDJ_BUTTONS[id];
+/* an LSDJ Burrito package's version: FM-1_537000997 -> 997 (0 for others) */
+export function productVersion(product) {
+  const r = /^FM-1_537(\d\d)(\d\d)(\d\d)$/.exec(product || '');
+  return r ? +r[1] * 10000 + +r[2] * 100 + +r[3] : 0;
+}
 export const LSDJ_KNOBS = {0: 'FX PAGE', 1: 'UP/DOWN', 2: 'LEFT/RIGHT', 3: 'EFFECT 1', 4: 'EFFECT 2',
   5: 'EFFECT 3', 6: 'EFFECT 4', 7: 'VOLUME'};
 export const FX_MUTES = {7: 'PU1', 9: 'PU2', 11: 'WAV', 12: 'NOI'};   // C4..F4 with FX open
@@ -211,15 +218,15 @@ export function drawFace(g, L, S, s) {
       g.textAlign = 'center'; g.textBaseline = 'middle';
       g.fillText(BUTTONS[id], x + w / 2, y + h / 2 + sink + 1);
       g.restore();
-      if (s.lsdj) tag(g, LSDJ_BUTTONS[id] || 'NOT USED', x + w / 2, y + h + (small ? 7 : 9), small ? 7.5 : 10.5,
-        LSDJ_BUTTONS[id] ? C.tag : C.unused);
+      const job = buttonJob(id, s.version);
+      if (s.lsdj) tag(g, job || 'NOT USED', x + w / 2, y + h + (small ? 7 : 9), small ? 7.5 : 10.5, job ? C.tag : C.unused);
     }
   }
 }
 
 /* What a frame changes in the front's picture (lit levels in 16 steps, pressed controls). */
-export function faceKey(leds, pressed, lsdj) {
-  let k = lsdj ? 'L' : '';
+export function faceKey(leds, pressed, lsdj, version = 0) {
+  let k = (lsdj ? 'L' : '') + version + ':';
   for (let i = 0; i < 41; i++) k += ((ledLevel(leds?.[i]) * 15) | 0).toString(16);
   return k + [...pressed].sort((a, b) => a - b).join(',');
 }

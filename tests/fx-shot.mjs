@@ -3,7 +3,7 @@
 // connects a pretend FM-1 with PU2 muted, effects on, battery on USB; shows the Effects tab.
 import {OP, le32} from '../lsdj/link.js';
 
-export async function runFxShot() {
+export async function runFxShot(fw = 'FM-1_979') {   // or FM-1_997: the 0.9.97 pages, the reverb
   if (!['localhost', '127.0.0.1'].includes(location.hostname)) throw Error('Local preview only');
   const input = {name: 'FM-1 test'};
   const b = Array(68).fill(0);
@@ -17,12 +17,14 @@ export async function runFxShot() {
     const op = message[4];
     const send = (data = [], status = 0) => queueMicrotask(() => input.onmidimessage?.({
       data: [0xf0, 0x7d, 0x47, 0x53, op, status, ...data.flatMap(x => [x & 127, x >> 7]), 0xf7]}));
-    if (op === OP.INFO) { const info = Array(35).fill(0); info[0] = 1; info[34] = 1; [...'FM-1_979'].forEach((c, i) => info[1 + i] = c.charCodeAt(0)); return send(info); }
+    if (op === OP.INFO) { const info = Array(35).fill(0); info[0] = 1; info[34] = 1; [...fw].forEach((c, i) => info[1 + i] = c.charCodeAt(0)); return send(info); }
     if (op === OP.FX_GET) return send(b);
     if (op === OP.SETTINGS_GET) return send(le32(0x5a000000));
     if (op === OP.THEME_GET) return send(Array(16).fill(0));
     if (op === OP.FEAT_GET) return send(le32(0x460001CE));
     if (op === OP.MIDI_GET) return send(le32(0x4D000809));
+    if (op === OP.REVERB_GET || op === OP.REVERB_SENDS_GET) return fw >= 'FM-1_997' ? send(le32(op === OP.REVERB_GET ? 0x00404030 : 0x00200010)) : send([], 1);
+    if ([OP.SCREEN_INFO, OP.SCREEN_SYNC, OP.SCREEN_ROW].includes(op)) return send([], 1);
     if (op === OP.LIVE) return send([1, 1, 140, 0, 2, 0, 0xF, ...b, 0x82]);
     return send();
   }};

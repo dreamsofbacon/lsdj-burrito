@@ -167,4 +167,24 @@ assert.deepEqual(heldInputs(pad([4], [0.2, -0.9, 0.8, 0])), ['b4', 'a1-', 'a2+']
                              every: f => { tickFn = f; return 1; }, cancel: () => {}});
   tickFn(); assert.equal(raws.at(-1).rest[0], 1);
   pads[0].axes[0] = 0; stop.recentre(); assert.equal(raws.at(-1).rest[0], 0, 'Re-centre from the page'); stop(); }
-console.log('PASS gamepad: layout (Xbox A/Y -> A, B/X -> B, d-pad and stick), names, sent at once, held every 200 ms, released once, busy link, retries, choosing a controller, controllers without the standard layout (rest, hat d-pad), remapping (names, slots, a button moves, kept per controller, capture), settling, re-centre, pressure buttons, raw view');
+/* several FM-1s: each controller plays its own target; one mask per target; a target no controller plays any more
+   gets 0 once; a busy target waits without holding up the others; stop lets go everywhere */
+{ let t = 0, tickFn, sent = [], targets = {0: 'a', 1: 'b'}, busyB = false;
+  const pads = [{...pad([0]), index: 0}, {...pad([12]), index: 1, id: 'Other Pad (STANDARD GAMEPAD)'}];
+  const stop = startGamepad({send: async (m, k) => { sent.push([k, m]); }, nav: {getGamepads: () => pads}, now: () => t,
+    getTarget: info => targets[info.index] ?? null, canSend: k => !(k === 'b' && busyB),
+    every: f => { tickFn = f; return 1; }, cancel: () => {}});
+  const run = async ms => { for (let i = 0; i < ms; i += 16) { t += 16; tickFn(); await Promise.resolve(); await Promise.resolve(); } };
+  await run(32);
+  assert.deepEqual(sent.slice(0, 2).sort(), [['a', GB.A], ['b', GB.UP]], `each to its own FM-1: ${JSON.stringify(sent)}`);
+  targets[1] = 'a'; sent = []; await run(32);
+  assert.ok(sent.some(([k, m]) => k === 'a' && m === (GB.A | GB.UP)) && sent.some(([k, m]) => k === 'b' && m === 0), `both on a; b let go: ${JSON.stringify(sent)}`);
+  targets[1] = 'b'; busyB = true; sent = []; await run(64);
+  assert.ok(sent.every(([k]) => k === 'a') && sent.some(([, m]) => m === GB.A), `b busy: a still sent: ${JSON.stringify(sent)}`);
+  busyB = false; await run(32);
+  assert.ok(sent.some(([k, m]) => k === 'b' && m === GB.UP), 'b when free');
+  targets[0] = null; sent = []; await run(32);
+  assert.deepEqual(sent.filter(([k]) => k === 'a'), [['a', 0]], 'a controller set to Nothing: its FM-1 let go once');
+  stop(); await Promise.resolve(); await Promise.resolve();
+  assert.deepEqual(sent.at(-1), ['b', 0], 'stop lets go'); }
+console.log('PASS gamepad: layout (Xbox A/Y -> A, B/X -> B, d-pad and stick), names, several FM-1s (a target each), sent at once, held every 200 ms, released once, busy link, retries, choosing a controller, controllers without the standard layout (rest, hat d-pad), remapping (names, slots, a button moves, kept per controller, capture), settling, re-centre, pressure buttons, raw view');

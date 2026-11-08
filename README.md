@@ -46,18 +46,21 @@ The remaining pages match the device knobs:
 
 | Page | K1 | K2 | K3 | K4 |
 | --- | --- | --- | --- | --- |
-| 1 MASTER | All FX | Compressor | Echo mix | Echo time |
-| 2 FILTER | Channel FX | Echo send | Cutoff | Resonance |
+| 1 MASTER | All FX | Compressor | Freeze | - |
+| 2 FILTER | Channel FX | Filter type | Cutoff | Resonance |
 | 3 DRIVE | Drive | Distortion | Warmth | - |
 | 4 LFO | Rate | Depth | Shape | Destination |
-| 5 LO-FI | Crush | Decimate | Filter type | - |
+| 5 LO-FI | Crush | Decimate | Echo send | Reverb send |
 | 6 ECHO | Time | Feedback | Mix | Tone |
-| 7 ECHO MOD | Wobble | Sync | Mode | Freeze |
+| 7 ECHO MOD | Wobble | Sync | Mode | - |
+| 8 REVERB | Mix | Size | Tone | - |
 
-This is FM-1_980 and newer (MASTER K3/K4 since 980; echo send on FILTER K2 and
-filter type on LO-FI K3 since 979). SELECT changes the device page. Unused knobs do
-nothing. ECHO and ECHO MOD are shared; FILTER/DRIVE/LFO/LO-FI edit the chosen
-channel. Freeze is ECHO MOD K4 on the FM-1, and settable from the page (977 and newer).
+This is 0.9.97 and newer: every effect is on one page only. Before it (FM-1_979-996):
+MASTER K3/K4 echo mix and time (980+), FILTER K2 echo send, LO-FI K3 filter type,
+ECHO time/feedback/mix/tone, ECHO MOD K4 freeze, no REVERB. SELECT changes the device
+page. Unused knobs do nothing. MASTER, ECHO, ECHO MOD and REVERB are shared;
+FILTER/DRIVE/LFO/LO-FI (the echo and reverb sends included) edit the chosen
+channel. Freeze is settable from the page too (977 and newer).
 Older connected firmware retains its original page/knob layout, with an
 explanation that All FX needs 975 or newer. New-layout backups cannot be
 restored to older firmware. Both 11-word and 17-word legacy backups remain

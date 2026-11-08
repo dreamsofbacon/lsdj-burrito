@@ -103,6 +103,20 @@ export async function runFxUiTests() {
     cursor = 2; bytes[38] = 6; bytes[39] = 1;
     await until(() => document.querySelector('#fx-channels [data-ch="2"]').classList.contains('cursor'), 'the column under the cursor marked');
     assert(!document.querySelector('#fx-channels [data-ch="0"]').classList.contains('cursor'), 'one cursor column');
+    /* All: every channel page at once, a name in each channel box, the cursor marked there; a page button goes back */
+    const shownCards = () => [...document.querySelectorAll('#fx-pages .fx-card')].filter(c => getComputedStyle(c).display !== 'none').length;
+    assert(shownCards() === 1, 'one channel page at a time');
+    $('fx-page-all').click();
+    assert(shownCards() === document.querySelectorAll('#fx-pages .fx-card').length && shownCards() > 1, 'All: every channel page shown');
+    assert(document.querySelectorAll('#fx-pages [data-page="1"] .fx-chname').length === 4, 'All: each channel box named');
+    assert(document.querySelector('#fx-pages [data-page="1"] .fx-chname[data-ch="2"]').classList.contains('cursor'), 'All: the cursor channel marked');
+    assert(localStorage.getItem('lsdj-burrito-allpages') === '1', 'All kept in this browser');
+    { const w = writes, r = document.querySelector('#fx-pages [data-page="2"] .fx-ctl[data-key="drive"][data-ch="1"] input');
+      r.value = '33'; r.oninput(); await until(() => writes > w, 'All: a DRIVE slider sends');
+      assert(read().ch[1].drive === 33, 'All: DRIVE PU2 changed');
+      bytes[38] = 6; bytes[39] = 1; }   // the FM-1's page and All FX OFF again, as set above
+    document.querySelector('#fx-pagebar [data-page="2"]').click();
+    assert(shownCards() === 1 && !$('fx-page-all').classList.contains('on') && localStorage.getItem('lsdj-burrito-allpages') === '0', 'a page button: one page again');
     await until(() => radio('allFxOn', 0).getAttribute('aria-checked') === 'true', 'LIVE master switch reflection');
     assert($('live-badges').textContent.includes('ALL FX OFF'), 'LIVE bypass badge');
     assert(document.querySelector('[data-page="6"]').classList.contains('fm1'), 'ECHO MOD active-page badge');
@@ -329,13 +343,6 @@ export async function runFxUiTests() {
         firmware = 'FM-1_996';
         await $('connect-btn').onclick();
         assert(/needs LSDJ Burrito 0\.9\.97/.test($('pad-status').textContent), `996: ${$('pad-status').textContent}`);
-        assert($('pad-sec').hidden, '996 (the released firmware): no game controller section');
-        /* 996: the 0.9.96 pages (MASTER echo mix/time, the send on FILTER K2, filter type on LO-FI K3), no reverb */
-        assert([...document.querySelectorAll('#fx-master-pages .fx-card')].map(c => c.dataset.page).join() === '0,5,6', '996: MASTER, ECHO, ECHO MOD');
-        assert(!document.querySelector('.fx-ctl[data-key="rvMix"], .fx-ctl[data-key="rvSend"]'), '996: no reverb controls');
-        { const keys = p => [...document.querySelectorAll(`.fx-card[data-page="${p}"] .fx-ctl`)].map(c => c.dataset.key);
-          assert(keys(0).join() === 'allFxOn,comp,mix,time', `996 MASTER: ${keys(0)}`);
-          assert(keys(1).includes('send') && keys(4).includes('type') && !keys(4).includes('send'), `996 FILTER ${keys(1)} / LO-FI ${keys(4)}`); }
         const n = padSent.length; gp.buttons[0] = {pressed: true, value: 1}; await sleep(300);
         assert(padSent.length === n, '996: no PAD_SET');
       } finally {

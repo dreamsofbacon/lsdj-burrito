@@ -47,7 +47,7 @@ export async function createPanel(host, ui, controls, onError) {
   const knobMaterial = new T.MeshStandardMaterial({color: 0x2b2c30, roughness: 0.55, metalness: 0.25});
   const capMaterial = new T.MeshStandardMaterial({color: 0x34363a, roughness: 0.4, metalness: 0.3});
   const bodyMaterial = new T.MeshStandardMaterial({color: 0x585b60, roughness: 0.7, metalness: 0.2});
-  let L, kind, face, lcd, knobs = [], scale = 2, last = '', leds = new Float32Array(41), lsdj = true;
+  let L, kind, face, lcd, knobs = [], scale = 2, last = '', leds = new Float32Array(41), lsdj = true, version = 0;
   let pressed = new Set(), flat = false, tilt = 24, yaw = -12;
 
   function roundedShape(w, h, r) {
@@ -103,10 +103,10 @@ export async function createPanel(host, ui, controls, onError) {
     last = ''; paint(); resize();
   }
   function paint() {
-    const key = faceKey(leds, pressed, lsdj);
+    const key = faceKey(leds, pressed, lsdj, version);
     if (key === last) return;
     last = key;
-    drawFace(g, L, scale, {leds, pressed, lsdj});
+    drawFace(g, L, scale, {leds, pressed, lsdj, version});
     faceTexture.needsUpdate = true;
   }
   const render = () => renderer.render(scene, camera);
@@ -182,6 +182,7 @@ export async function createPanel(host, ui, controls, onError) {
     angle(nextTilt, nextYaw) { tilt = nextTilt; yaw = nextYaw; rotate(); },
     front(value) { flat = value; rotate(); },
     lsdj(value) { lsdj = value; paint(); render(); },
+    version(v) { version = v; paint(); render(); },   /* the firmware run (face.js buttonJob) */
     draw(frame, state) {
       if (frame?.lcd) {
         const d = lcdImage.data;

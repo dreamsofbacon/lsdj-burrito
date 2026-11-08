@@ -185,11 +185,16 @@ export const padName = gp => (gp?.id || 'Game controller').replace(/\s*\((?:STAN
    onHeld(codes, info) the inputs held on it, when they change. Returns stop(), with
    stop.capture(cb): the next input newly pressed on the controller playing goes to cb(code, info) instead of the
    FM-1 (nothing is sent meanwhile), and stop.cancelCapture(). */
+/* send(mask, target): the Game Boy buttons held (a mask) for one target FM-1. getTarget(info): the FM-1 a controller
+   plays (a key; null: nothing), so two controllers can play two FM-1s; each target keeps its own last mask and resend,
+   and a target no controller plays any more gets 0 once. canSend(target): its link is free now. */
 export function startGamepad({send, status = () => {}, canSend = () => true, getMap = () => DEFAULT_MAP, getPick = () => '',
+                              getTarget = () => 'fm1',
                               onPads = () => {}, onHeld = () => {}, onRaw = () => {}, nav = globalThis.navigator,
                               now = () => performance.now(), every = (f, ms) => setInterval(f, ms), cancel = clearInterval,
                               visible = () => typeof document === 'undefined' || !document.hidden}) {
-  let last = 0, sentAt = -Infinity, inflight = false, shown = '', stopped = false, capture = null, before = null;
+  let shown = '', stopped = false, capture = null, before = null;
+  const targets = new Map();   /* target -> {last, sentAt, inflight} */
   let padsSig = null, heldSig = null, rawSig = null, used = [];
   const cals = new Map();   /* index|id -> calibrate() */
   const say = t => { if (t !== shown) { shown = t; status(t); } };
@@ -215,7 +220,7 @@ export function startGamepad({send, status = () => {}, canSend = () => true, get
     if (hs !== heldSig) { heldSig = hs; onHeld([...new Set(now_)], u); }
     const raw = used.length ? rawInputs(used[0], calOf(used[0])) : null, rs = JSON.stringify(raw);
     if (rs !== rawSig) { rawSig = rs; onRaw(raw, u); }
-    let mask = 0;
+    const masks = new Map();   /* target -> the buttons its controllers hold */
     if (capture) {   /* remapping: an input that was not already held when the capture began */
       const set = new Set(used.flatMap(p => heldInputs(p, calOf(p), true)));
       if (!before) before = new Set();
@@ -223,17 +228,28 @@ export function startGamepad({send, status = () => {}, canSend = () => true, get
       const got = [...set].find(c => !before.has(c));
       if (got) { const cb = capture; capture = null; before = null; cb(got, u); }
     } else {
-      mask = used.reduce((m, p) => m | padMask(p, getMap(infoOf(p)), calOf(p)), 0);
+      for (const p of used) {
+        const info = infoOf(p), k = getTarget(info);
+        if (k != null) masks.set(k, (masks.get(k) || 0) | padMask(p, getMap(info), calOf(p)));
+      }
     }
-    if (inflight || !canSend()) return;
-    const t = now();
-    if (mask === last && !(mask && t - sentAt >= RESEND_MS)) return;
-    inflight = true; last = mask; sentAt = t;
-    Promise.resolve().then(() => send(mask)).catch(() => { last = -1; }).finally(() => { inflight = false; });
+    const keys = new Set([...masks.keys(), ...[...targets].filter(([, s]) => s.last !== 0).map(([k]) => k)]);
+    for (const k of keys) {
+      const s = targets.get(k) || {last: 0, sentAt: -Infinity, inflight: false}, mask = masks.get(k) || 0;
+      targets.set(k, s);
+      if (s.inflight || !canSend(k)) continue;
+      const t = now();
+      if (mask === s.last && !(mask && t - s.sentAt >= RESEND_MS)) continue;
+      s.inflight = true; s.last = mask; s.sentAt = t;
+      Promise.resolve().then(() => send(mask, k)).catch(() => { s.last = -1; }).finally(() => { s.inflight = false; });
+    }
   };
   const id = every(tick, 16);
   tick();
-  const stop = () => { stopped = true; cancel(id); if (last > 0) Promise.resolve().then(() => send(0)).catch(() => {}); };
+  const stop = () => {
+    stopped = true; cancel(id);
+    for (const [k, s] of targets) if (s.last > 0) Promise.resolve().then(() => send(0, k)).catch(() => {});
+  };
   stop.capture = cb => {   /* what is held now is not taken (it was pressed before the click) */
     capture = cb; before = new Set(used.flatMap(p => heldInputs(p, calOf(p), true))); };
   stop.recentre = () => { for (const p of used) { const k = `${p.index}|${p.id}`; cals.set(k, recentre(p, cals.get(k))); } padsSig = heldSig = rawSig = null; tick(); };

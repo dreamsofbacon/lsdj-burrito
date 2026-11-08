@@ -57,15 +57,16 @@ const store = (k, v) => { try { v === null ? localStorage.removeItem(k) : localS
 export const matching = () => { try { return localStorage.getItem(OFF) !== 'off'; } catch { return true; } };
 
 /* the FM-1's current theme (8 colours), or null: back to the page's own colours */
-let last = null;
+let last = null, shown = null;   /* shown: the colours on the page now (the same again: nothing redrawn) */
 export function showDeviceTheme(theme) {
   if (theme) last = theme;
   if (!matching() || !last) return;
-  const vars = pageColours(last);
-  set(vars); store(KEY, JSON.stringify(vars));
+  const json = JSON.stringify(pageColours(last));
+  if (json === shown) return;
+  shown = json; set(JSON.parse(json)); store(KEY, json);
 }
 export function setMatching(on) {
   store(OFF, on ? null : 'off');
   if (on) showDeviceTheme(null);
-  else { set(null); store(KEY, null); }
+  else { shown = null; set(null); store(KEY, null); }
 }

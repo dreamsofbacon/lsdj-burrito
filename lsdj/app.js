@@ -2,8 +2,9 @@
 // The page: connect to the FM-1's running LSDJ Burrito firmware (lsdj/link.js)
 // for live effects, songs, colours and settings. Never writes firmware.
 import {startGamepad, loadMaps, mapFor, saveMap, loadPick, savePick, assign, takenFrom, isDefaultMap, defaultMapFor, inputName, GB_ORDER, SLOTS} from './gamepad.js';
-import {Link, midiPorts, LinkError, SAVE_SIZE} from './link.js';
+import {Link, midiPorts, findFm1s, LinkError, SAVE_SIZE} from './link.js';
 import {confirmSaveImport} from './save-file.js';
+import {mountSongsUi, setSongsHooks} from './songs-ui.js';
 import {showDeviceTheme, setMatching, matching} from './page-theme.js';
 import {setBeforeInstall, installing, usbMidiUnavailable} from './install-ui.js';
 import {CHANNELS, pagesForFx, PARAM, paramGet, paramSet, valueText, channelSummary, unpackFx, packFx, unpackReverb, packReverb, packReverbSends, PRESETS, THEMES, COLOR_NAMES, toHex, fromHex,
@@ -11,10 +12,11 @@ import {CHANNELS, pagesForFx, PARAM, paramGet, paramSet, valueText, channelSumma
         firmwareNumber, FEATURES, unpackFeatures, packFeatures} from './fx-model.js';
 import {fxDiagram, pageFor} from './fx-diagram.js';
 import {zipStore} from './zip.js';
+import {startClock, startRelay, clampBpm} from './midiclock.js';
 import {romFromSlot} from './lsdj-rom.js';
 import {ScreenMirror} from './screen.js';
 import {popOut, onPopChange, isOut, docs, seen, anyVisible, visibleWindow} from './popout.js';
-import {startVirtual, virtualFirmware, mountVirtual, virtualPaused} from '../emulator/app.js';
+import {startVirtual, virtualFirmware, mountVirtual, virtualPaused, pauseVirtual} from '../emulator/app.js';
 
 /* by id or selector, in the page and in the panels' own windows (lsdj/popout.js) */
 const $ = id => { for (const d of docs()) { const el = d.getElementById(id); if (el) return el; } return null; };
@@ -35,9 +37,26 @@ let virtual = false;   // connected to the virtual FM-1 (emulator/app.js) over i
 const VIRTUAL = 'the virtual FM-1';
 
 /* ---------- connect ---------- */
-async function connectTo(input, output, how = 'USB') {
-  if (busy || installing()) return;
-  connected = false;
+/* fast: a switch between FM-1s (what the page remembers of the one switched to shows at once); Connect and a
+   reconnect read everything */
+async function connectTo(input, output, how = 'USB', {fast = false} = {}) {
+  if (busy || installing() || connecting) return;
+  connecting = true;
+  try { await connectOnce(input, output, how, fast); }
+  finally { connecting = false; }
+  drawDevPick(); syncWatchers();
+  if (connected && !virtual) scanSoon();   /* (the other FM-1s plugged in, for the list) */
+}
+async function connectOnce(input, output, how, fast) {
+  await scanning;   /* a search for FM-1s borrows their inputs: let it finish */
+  await flushSend();   /* an effect moved a moment ago goes to the FM-1 it was moved for */
+  remember();
+  /* (the controllers keep going: those on "the FM-1 in use" move with it, the old one gets 0) */
+  stopPoll(); lostAt = 0; missed = 0; lastKey = null;
+  if (virtual && how !== VIRTUAL) pauseVirtual();
+  for (const d of [...watchers.keys()]) if (d.input === input || d.output === output) unwatch(d);
+  for (const d of [...padLinks.keys()]) if (d.input === input || d.output === output) closePadLink(d);
+  connected = false; current = null;
   mirror?.stop(); mirror = null;
   showVirtual(how === VIRTUAL);
   link?.close(); link = new Link(input, output);
@@ -49,18 +68,32 @@ async function connectTo(input, output, how = 'USB') {
     say('device', (virtual ? `Connected to the virtual FM-1 (the emulator on this page, not a device): ` : `Connected over ${how}: `) +
       `${info.firmware} running ${info.title || 'a game'}` + (info.liveKnown ? '' : ' (live data needs LSDj 9.3.9)'), 'ok');
     $('stage-dev').textContent = virtual ? `· virtual FM-1 (${info.firmware})` : `· ${info.firmware} over ${how}`;
-    fx = unpackFx(await link.fxGet());
-    fx.reverb = await readReverb();
-    settings = unpackSettings(await link.settingsGet());
-    { const w = await link.midiGet(); midi = w === null ? null : unpackMidi(w); }
-    { const w = fwNum >= 979 ? await link.featGet() : null; features = w === null ? null : unpackFeatures(w); }
-    theme = await link.themeGet(); customTheme = theme.slice();
+    const dev = virtual ? null : devices.find(d => d.input === input && d.output === output) || {input, output, name: output.name, info};
+    /* an FM-1 switched back to: what the page knew of it shows at once (each request takes ~50 ms); the live poll
+       brings its effects, and the rest is read again just after (refreshDevice) */
+    const known = fast && dev && remembered.get(dev);
+    if (known && known.fwId === info.firmware) {
+      ({settings, midi, features} = structuredClone(known));
+      fx = structuredClone(known.fx); customTheme = known.customTheme.slice(); theme = customTheme.slice();
+    } else {
+      fx = unpackFx(await link.fxGet());
+      fx.reverb = await readReverb();
+      settings = unpackSettings(await link.settingsGet());
+      { const w = await link.midiGet(); midi = w === null ? null : unpackMidi(w); }
+      { const w = fwNum >= 979 ? await link.featGet() : null; features = w === null ? null : unpackFeatures(w); }
+      theme = await link.themeGet(); customTheme = theme.slice();
+    }
     buildFx(); buildSettings(); buildTheme(); enable(true);
     pageTheme();
-    connected = true; lostAt = 0; missed = 0;
+    connected = true; lostAt = 0; missed = 0; activeAt = Date.now();
+    if (dev) {
+      current = dev; current.info = info;
+      lastDev = {inId: input.id, outId: output.id, name: output.name};
+      if (known) void refreshDevice(link);
+    }
     watchPorts(ports?.access);
     startPoll(250);
-    if (!virtual) startMirror(how);
+    if (!virtual) startMirror();
     startPad();
   } catch (e) { enable(false); say('device', e.message, 'bad'); }
 }
@@ -76,7 +109,10 @@ function lost(message) {
   if (!connected || installing()) return;
   if (virtual) { message = 'The virtual FM-1 stopped. Press Use the virtual FM-1 to start it again.'; showVirtual(false); }
   connected = false; lostAt = virtual ? 0 : Date.now(); missed = 0;
-  stopPoll(); mirror?.stop(); mirror = null; pad?.(); pad = null; link?.close();
+  stopPoll(); mirror?.stop(); mirror = null; link?.close();
+  if (![...padTargets.values()].some(v => v !== 'current' && v !== 'none')) { pad?.(); pad = null; }   /* none plays another FM-1 */
+  soloAtLoss = devices.filter(d => !sameDev(d, current)).length === 0;
+  current = null; syncWatchers(); drawDevPick();
   enable(false); say('device', message, 'warn');
 }
 const UNPLUGGED = 'The FM-1 was disconnected. Plug it in again: the page connects by itself (or press Connect).';
@@ -85,6 +121,7 @@ function onPortChange(e) {
   if (!p) return;
   if (p.state === 'disconnected' && connected && (samePort(p, link?.input) || samePort(p, link?.output))) return lost(UNPLUGGED);
   if (p.state === 'connected' && !connected && lostAt) reconnect();
+  scanSoon();   /* another FM-1 plugged in or pulled: the list follows (only the one in use is "lost") */
 }
 function watchPorts(access) {
   if (access === watching || !access?.addEventListener) return;   // test doubles may have no events
@@ -99,7 +136,7 @@ async function reconnect() {
     for (const wait of [300, 1000, 2500]) {
       await new Promise(r => setTimeout(r, wait));
       if (connected || !lostAt || busy || installing()) return;
-      await connectUsbQuietly();
+      await connectUsbQuietly({again: true});   /* the same FM-1 only, never another one plugged in */
       if (connected) return;
     }
     if (!connected) say('device', 'The FM-1 is back but did not answer. Is LSDJ Burrito running? Press Connect to try again.', 'warn');
@@ -111,6 +148,8 @@ $('connect-btn').onclick = async () => {
   if (unavailable) return say('device', unavailable, 'warn');
   try {
     ports = await midiPorts();
+    const found = await scan();
+    if (found.length) { const d = choose(found) || found[0]; return connectTo(d.input, d.output); }
     if (ports.input && ports.output) return connectTo(ports.input, ports.output);
     if (!ports.ins.length) return say('device', 'No MIDI devices found. Check the USB cable (a data cable) and that the FM-1 is on.', 'bad');
     const pick = $('port-pick'); pick.hidden = false; pick.replaceChildren(new Option('Choose the FM-1…', ''));
@@ -161,10 +200,257 @@ $('virtual-btn').onclick = async () => {
       catch (e) { probe.close(); if (i >= 20 || input.state !== 'connected') throw e; }
       say('device', 'Starting the virtual FM-1… (waiting for its USB)');
     }
-    ports = null;
     await connectTo(input, output, VIRTUAL);
   } catch (e) { if (!connected) say('device', `The virtual FM-1 did not connect: ${e.message}`, 'bad'); }
 };
+/* ---------- several FM-1s ----------
+   Every FM-1 plugged in is listed (link.js findFm1s: each answers INFO on its own ports). The page talks to one
+   at a time; the list (My FM-1, and Perform's head) switches. Follow: the page also watches the others (LIVE, a
+   few times a second) and switches to the one being played (a knob, a page, a mute, the cursor, start / stop).
+   It stays while the one in use is played too, and while two or more others are played at once (no flip-flop),
+   and keeps a switch at least HOLD_MS. A pulled cable reconnects to the same FM-1 only. */
+const QUIET_MS = 1500, HOLD_MS = 2500, WATCH_MS = 300;
+let devices = [], current = null, lastDev = null, scanning = null, connecting = false, scanTimer = 0;
+let follow = false, activeAt = 0, switchedAt = 0, lastKey = null;
+const watchers = new Map();   // an FM-1 not in use -> {link, base, at, missed}
+try { follow = localStorage.getItem('lsdj-burrito-follow') === '1'; } catch { /* storage blocked: off */ }
+const sameDev = (a, b) => !!a && !!b && a.input === b.input && a.output === b.output;
+const liveKey = l => [l.page, l.cursor, l.bpm, l.mute, l.freeze, l.playing, ...l.fx].join();
+const portKey = d => String(d.output.id ?? d.name);
+async function scan() {
+  if (!ports?.access || connecting || busy || installing()) return devices;
+  if (scanning) return scanning;
+  scanning = (async () => {
+    const known = [...(connected && current ? [current] : []), ...watchers.keys(), ...padLinks.keys()];
+    /* an FM-1 found again keeps its entry: what the page remembers of it, its screen tile, its watcher */
+    devices = (await findFm1s(ports.access, {known})).map(f => {
+      const old = devices.find(o => sameDev(o, f));
+      return old ? Object.assign(old, {info: f.info}) : f;
+    }).sort((a, b) => portKey(a).localeCompare(portKey(b)));
+    for (const d of [...padLinks.keys()]) if (!devices.includes(d)) closePadLink(d);
+    drawDevPick(); syncWatchers();
+    return devices;
+  })().catch(() => devices).finally(() => { scanning = null; });
+  return scanning;
+}
+const scanSoon = () => { clearTimeout(scanTimer); scanTimer = setTimeout(() => void scan(), 700); };
+/* the FM-1 used last (a reconnect, Read from my FM-1): by its ports, else the only one there is.
+   again (a pulled cable): by its ports, or (its ports renamed) the only one when it was the only one: FM-1s
+   share a port name, so with several a name proves nothing, and the page never takes another one. */
+let soloAtLoss = true;
+function choose(found, again = false) {
+  const byId = lastDev && found.find(d => d.input.id === lastDev.inId && d.output.id === lastDev.outId);
+  if (byId) return byId;
+  if (again) return soloAtLoss && found.length === 1 ? found[0] : null;
+  return found.length === 1 ? found[0] : null;
+}
+/* what the page knew of each FM-1 it switched away from (this visit only) */
+const remembered = new Map();
+function remember() {
+  if (connected && current && fx && settings)
+    remembered.set(current, structuredClone({fwId, fx, settings, midi, features, customTheme: customTheme || theme}));
+}
+/* after a switch back: the settings, MIDI options, switches and colours read again; the page redrawn if any changed */
+async function refreshDevice(l) {
+  try {
+    const s = unpackSettings(await l.settingsGet());
+    const mw = await l.midiGet(), m = mw === null ? null : unpackMidi(mw);
+    const fw = fwNum >= 979 ? await l.featGet() : null, f = fw === null ? null : unpackFeatures(fw);
+    const th = await l.themeGet();
+    if (l !== link || !connected || busy) return;
+    if (JSON.stringify([settings, midi, features, customTheme]) === JSON.stringify([s, m, f, th])) return;
+    settings = s; midi = m; features = f; customTheme = th.slice(); theme = th.slice();
+    buildSettings(); buildTheme(); pageTheme();
+  } catch { /* the live poll notices a lost FM-1 */ }
+}
+async function flushSend() {
+  if (!sendTimer || !link) return;
+  clearTimeout(sendTimer); sendTimer = null;
+  try { await link.fxSet(packFx(fx)); if (fx.reverb) await writeReverb(fx.reverb); } catch { /* it went away */ }
+}
+async function switchTo(d) {
+  if (connected && sameDev(d, current)) return;
+  switchedAt = Date.now();
+  await connectTo(d.input, d.output, 'USB', {fast: true});
+}
+/* All screens: every FM-1's screen at once (up to MAX_SCREENS), in Perform's Screen panel; a click on one switches
+   to it. Each FM-1 not in use gets its own screen mirror on its watcher's link. */
+const MAX_SCREENS = 4;
+let allScreens = false;
+try { allScreens = localStorage.getItem('lsdj-burrito-screens') === '1'; } catch { /* off */ }
+const gridOn = () => allScreens && devices.length >= 2 && !virtual;
+const tiles = new Map();   // an FM-1 -> its tile {el, canvas, caption}
+function drawGrid() {
+  const grid = $('screens-grid'), on = gridOn(), shown = devices.slice(0, MAX_SCREENS);
+  grid.hidden = !on;
+  $('screens-all').hidden = devices.length < 2 || virtual;
+  $('screens-all').setAttribute('aria-pressed', String(allScreens));
+  if (on) $('fm1-screen-box').hidden = $('fm1-screen-note').hidden = true;
+  if (shown.length !== tiles.size || shown.some(d => !tiles.has(d))) {
+    for (const d of [...tiles.keys()]) if (!shown.includes(d)) tiles.delete(d);
+    grid.replaceChildren(...shown.map(d => {
+      let t = tiles.get(d);
+      if (!t) {
+        const el = document.createElement('button'), canvas = document.createElement('canvas'), caption = document.createElement('span');
+        el.type = 'button'; el.className = 'screen-tile'; canvas.width = 160; canvas.height = 144;
+        el.append(canvas, caption); el.onclick = () => void switchTo(d);
+        t = {el, canvas, caption}; tiles.set(d, t);
+      }
+      return t.el;
+    }));
+  }
+  shown.forEach((d, i) => {
+    const t = tiles.get(d), on = connected && sameDev(d, current);
+    t.el.classList.toggle('on', on); t.el.setAttribute('aria-pressed', String(on));
+    t.caption.textContent = `${i + 1}: ${d.info.title || 'no LSDj'}`; t.el.title = devLabel(d, i) + (on ? ' (in use)' : ': click to use it');
+  });
+}
+function watch(d) {
+  if (watchers.has(d) || sameDev(d, current)) return;
+  closePadLink(d);   /* the watcher's link carries a controller's presses too */
+  const w = {link: new Link(d.input, d.output), base: null, at: 0, missed: 0, mode: watchMode(), mirror: null};
+  watchers.set(d, w);
+  const canvas = gridOn() && tiles.get(d)?.canvas;
+  if (canvas) {   /* its screen in its tile, while the grid shows and nothing else needs the link */
+    w.mirror = new ScreenMirror(w.link, canvas, {every: 33, clock: visibleWindow, push: firmwareNumber(d.info.firmware) >= 990,
+      active: () => gridOn() && !busy && !installing() && !connecting && seen(canvas)});
+    w.mirror.start();
+  }
+  const step = async () => {
+    if (watchers.get(d) !== w) return;
+    if (follow && !busy && !installing() && !connecting && anyVisible()) {
+      try {
+        const key = liveKey(await w.link.live()); w.missed = 0;
+        /* played, unless by a controller on this page (that is not someone at the FM-1) */
+        if (w.base !== null && key !== w.base && Date.now() - (padAt.get(portKey(d)) || 0) > QUIET_MS) { w.at = Date.now(); maybeFollow(d); }
+        w.base = key;
+      } catch { if (++w.missed >= LOST_POLLS) { unwatch(d); scanSoon(); return; } }
+    }
+    if (watchers.get(d) === w) visibleWindow().setTimeout(step, WATCH_MS);
+  };
+  step();
+}
+function unwatch(d) { const w = watchers.get(d); if (!w) return; watchers.delete(d); w.mirror?.stop(); w.link.close(); }
+const watchMode = () => `${follow} ${gridOn()}`;
+function syncWatchers() {
+  const want = (follow || gridOn()) && connected && !connecting ? devices.filter(d => !sameDev(d, current)) : [];
+  for (const [d, w] of [...watchers]) if (!want.includes(d) || w.mode !== watchMode()) unwatch(d);
+  want.forEach(watch);
+}
+$('screens-all').onclick = () => {
+  allScreens = !allScreens;
+  try { localStorage.setItem('lsdj-burrito-screens', allScreens ? '1' : '0'); } catch { /* this visit only */ }
+  drawDevPick(); syncWatchers();
+  if (connected && !virtual) startMirror();   /* the FM-1 in use: into its tile, or back to the one big screen */
+};
+/* d was just played: switch to it, unless the FM-1 in use was played lately (or the page's own controls), a
+   switch was just made, or another one is being played as well */
+const CONFIRM_MS = 700;   /* played at the same moment as the one in use: its poll gets the time to say so */
+let followTimer = 0;
+function maybeFollow(d) {
+  const stay = () => {
+    const now = Date.now();
+    return !follow || !connected || busy || installing() || connecting || capturing || !watchers.has(d) ||
+      now - activeAt < QUIET_MS || now - touched < QUIET_MS || now - switchedAt < HOLD_MS ||
+      [...watchers].some(([o, w]) => o !== d && now - w.at < QUIET_MS);
+  };
+  if (stay() || followTimer) return;
+  followTimer = setTimeout(() => {
+    followTimer = 0;
+    if (stay()) return;
+    say('device', 'Following the FM-1 being played…');
+    void switchTo(d);
+  }, CONFIRM_MS);
+}
+function devLabel(d, i) { return `FM-1 ${i + 1}: ${d.info.title || 'no LSDj'} · ${d.info.firmware} (${d.name})`; }
+function drawDevPick() {
+  drawGrid(); drawPadTargets(); refreshSync();
+  const choices = devices.map((d, i) => [String(i), devLabel(d, i)]);
+  if (virtual) choices.push(['virtual', 'The virtual FM-1']);
+  const now = virtual ? 'virtual' : connected ? String(devices.findIndex(d => sameDev(d, current))) : '';
+  const has = choices.some(([v]) => v === now);
+  for (const id of ['dev-pick', 'stage-pick']) {
+    const s = $(id);
+    s.hidden = choices.length < 2;
+    s.replaceChildren(...(has ? [] : [new Option('Choose an FM-1…', '')]), ...choices.map(([v, t]) => new Option(t, v)));
+    s.value = has ? now : '';
+  }
+  for (const id of ['follow-btn', 'stage-follow']) {
+    const b = $(id);
+    b.hidden = devices.length < 2 && !(virtual && devices.length);
+    b.setAttribute('aria-pressed', String(follow));
+  }
+}
+for (const id of ['dev-pick', 'stage-pick']) $(id).onchange = e => {
+  const v = e.target.value;
+  if (v === 'virtual') { if (!virtual) $('virtual-btn').onclick(); return; }
+  const d = devices[+v];
+  if (v !== '' && d) void switchTo(d);
+};
+for (const id of ['follow-btn', 'stage-follow']) $(id).onclick = () => {
+  follow = !follow;
+  try { localStorage.setItem('lsdj-burrito-follow', follow ? '1' : '0'); } catch { /* kept for this visit only */ }
+  drawDevPick(); syncWatchers();
+};
+/* ---------- MIDI sync (lsdj/midiclock.js) ----------
+   Clock: Off; This page (a tempo, Play / Stop: clock, Start and Stop to every FM-1 plugged in); or one FM-1 leads
+   (its clock and Start / Stop, as they arrive, passed on to the others). Over each FM-1's own output, whichever FM-1
+   is in use; the leader's input is listened to beside its link (addEventListener: the link keeps onmidimessage). */
+let clock = null, relay = null, leader = null, syncMode = 'off';
+const syncSet = new Map();   // output -> timed, as given to the clock or the relay
+const leaderHear = e => relay?.feed(e.data);
+function syncOuts() {
+  const outs = new Map(devices.map(d => [d.output, true]));
+  if (connected && link && !outs.has(link.output)) outs.set(link.output, !virtual);   /* the virtual FM-1: no timestamps */
+  if (leader) outs.delete(leader.output);   /* never back to the leader */
+  return outs;
+}
+function syncTargets() {
+  const engine = clock || relay, want = engine ? syncOuts() : new Map();
+  for (const [out] of [...syncSet]) if (!want.has(out)) { engine?.removeTarget(out); syncSet.delete(out); }
+  for (const [out, timed] of want) if (!syncSet.has(out)) { engine.addTarget(out, {timed}); syncSet.set(out, timed); }
+}
+function setSync(mode) {
+  if (clock) { clock.stop(); clock.close(); clock = null; }   /* (Stop to every FM-1 first) */
+  relay?.close(); relay = null;
+  if (leader) { leader.input.removeEventListener?.('midimessage', leaderHear); leader = null; }
+  syncSet.clear(); syncMode = 'off';
+  if (mode === 'page') {
+    syncMode = 'page';
+    clock = startClock({bpm: +$('sync-bpm').value, onState: drawSync});
+  } else if (mode && mode !== 'off') {
+    const d = devices.find(x => portKey(x) === mode);
+    if (d) {
+      syncMode = mode; leader = d; relay = startRelay({});
+      d.input.open?.().catch?.(() => {});
+      d.input.addEventListener?.('midimessage', leaderHear);
+    }
+  }
+  syncTargets(); drawSync();
+}
+function drawSync(note) {
+  $('sync-row').hidden = !connected && !devices.length;
+  const sel = $('sync-mode');
+  const opts = [['off', 'Off'], ['page', 'This page'], ...(devices.length >= 2 ? devices.map((d, i) => [portKey(d), `FM-1 ${i + 1} leads (${d.info.title || 'no LSDj'})`]) : [])];
+  sel.replaceChildren(...opts.map(([v, t]) => new Option(t, v)));
+  sel.value = syncMode;
+  $('sync-page').hidden = syncMode !== 'page';
+  $('sync-play').setAttribute('aria-pressed', String(!!clock?.running));
+  const n = syncSet.size;
+  $('sync-note').textContent = typeof note === 'string' ? note
+    : syncMode === 'page' ? `${clock?.running ? 'Playing' : 'Stopped'} · clock to ${n} FM-1${n === 1 ? '' : 's'}. On each: LSDj PROJECT › SYNC = MIDI (or KEYBD with 0.9.97-dev.9: the FM-1 sets MIDI at Play, KEYBD again at Stop), GLO › MIDI › CLOCK IN = ALL or USB; TRANSPORT ON lets Play and Stop start it.`
+    : leader ? `${n} FM-1${n === 1 ? '' : 's'} follow${n === 1 ? 's' : ''} the leader, one SYNC DELAY behind. The leader: LSDj SYNC = LSDJ, CLOCK OUT = USB; the others: SYNC = MIDI (or KEYBD with 0.9.97-dev.9), CLOCK IN = ALL or USB.`
+    : '';
+}
+/* the FM-1s plugged in changed: the clock's targets follow; a leader pulled: Off */
+function refreshSync() {
+  if (leader && !devices.includes(leader)) { setSync('off'); drawSync('The leading FM-1 went away: the clock is off.'); return; }
+  syncTargets(); drawSync();
+}
+$('sync-mode').onchange = e => setSync(e.target.value);
+$('sync-play').onclick = () => { if (clock) { if (clock.running) clock.stop(); clock.start(); drawSync(); } };
+$('sync-stop').onclick = () => { if (clock) { clock.stop(); drawSync(); } };
+$('sync-bpm').onchange = () => { const v = clock ? clock.setTempo(+$('sync-bpm').value) : clampBpm(+$('sync-bpm').value); $('sync-bpm').value = v; };
 $('port-pick').onchange = e => {
   const i = +e.target.value, input = ports.ins[i];
   const output = ports.outs.find(o => o.name === input.name) || ports.outs[i];
@@ -182,6 +468,9 @@ let cursorCh = 0, lastLive = null, bpm = 120, sendTimer = null;
 let fm1Page = null, lastChPage = null, mute = 0, muteOk = false, muteTouched = 0;
 /* the channel page shown: the FM-1's, unless one is picked here */
 let followPage = true, pickPage = 0;
+/* all the channel pages at once (FILTER, DRIVE, LFO, LO-FI), the choice kept in this browser */
+let allPages = false;
+try { allPages = localStorage.getItem('lsdj-burrito-allpages') === '1'; } catch { /* storage blocked: one page */ }
 const shownPage = () => followPage ? (lastChPage ?? fx.page) : pickPage;
 /* per channel (its own value for each of the four) or one for all */
 const perChannel = key => PARAM[key].where === 'ch' || PARAM[key].where === 'q' || PARAM[key].where === 'rvch' || key === 'fxOn';
@@ -219,16 +508,75 @@ const GB_LABEL = {UP: 'Up', DOWN: 'Down', LEFT: 'Left', RIGHT: 'Right', A: 'A', 
 const shownPad = () => padInfo || padList.find(p => p.id === padPick) || {id: '', name: 'Game controller', standard: true, hat: -1};
 const namer = info => (info?.standard === false ? c => inputName(c, false) : c => inputName(c));
 function startPad() {
-  pad?.(); pad = null; capturing = null; padInfo = null;
+  const any = fwNum >= 997 || devices.some(d => firmwareNumber(d.info.firmware) >= 997);
   $('pad-status').hidden = false;
-  $('pad-sec').hidden = fwNum < 997;   /* (main: the released firmware has no game controller yet) */
-  $('pad-pick-row').hidden = $('pad-map-box').hidden = fwNum < 997;
-  if (fwNum < 997) { say('pad-status', `Game controller: needs LSDJ Burrito 0.9.97 or newer on the FM-1 (this one has ${fwId}).`); return; }
-  pad = startGamepad({send: m => link.padSet(m), canSend: () => connected && !busy && !installing(), status: t => say('pad-status', t),
-                      getPick: () => padPick, getMap: info => mapFor(padMaps, info),
-                      onPads: (list, used) => { padList = list; padInfo = used; drawPadPick(); if (!capturing) drawPadMap(); },
-                      onHeld: (codes, info) => drawPadHeld(codes, info), onRaw: raw => drawPadRaw(raw)});
-  drawPadPick(); drawPadMap();
+  $('pad-pick-row').hidden = $('pad-map-box').hidden = !any;
+  if (!any) {
+    pad?.(); pad = null; capturing = null; padInfo = null; drawPadTargets();
+    say('pad-status', `Game controller: needs LSDJ Burrito 0.9.97 or newer on the FM-1 (this one has ${fwId}).`); return;
+  }
+  if (!pad) {   /* (it keeps running across switches: controllers on "the FM-1 in use" move with it) */
+    capturing = null; padInfo = null;
+    pad = startGamepad({send: padSend, canSend: k => !busy && !installing() && !connecting && !!padLinkFor(k),
+                        status: t => say('pad-status', t), getPick: () => padPick, getMap: info => mapFor(padMaps, info), getTarget: padTarget,
+                        onPads: (list, used) => { padList = list; padInfo = used; drawPadPick(); drawPadTargets(); if (!capturing) drawPadMap(); },
+                        onHeld: (codes, info) => drawPadHeld(codes, info), onRaw: raw => drawPadRaw(raw)});
+  }
+  drawPadPick(); drawPadMap(); drawPadTargets();
+}
+/* Which FM-1 each controller plays: 'current' (the one in use; the default), an FM-1 of the list (its port key), or
+   'none'. By the controller's index|id (two alike share an id); this visit only (list places change on a replug).
+   One on a fixed FM-1 stays there through switches and Follow, and its presses do not count for Follow. */
+const padTargets = new Map(), padLinks = new Map(), padAt = new Map();
+const padKey = info => `${info.index}|${info.id}`;
+const curKey = () => !connected ? null : virtual ? 'virtual' : current ? portKey(current) : null;
+function padTarget(info) {
+  const v = padTargets.get(padKey(info)) || 'current';
+  if (v === 'current') return curKey();
+  if (v === 'none') return null;
+  if (devices.some(d => portKey(d) === v)) return v;
+  padTargets.set(padKey(info), 'none'); queueMicrotask(drawPadTargets);   /* its FM-1 was pulled: it plays nothing */
+  return null;
+}
+/* a target's link: the one in use, else its watcher's, else a small one of its own (0.9.97 and newer only) */
+function padLinkFor(key) {
+  if (key == null) return null;
+  if (key === curKey()) return connected && fwNum >= 997 ? link : null;
+  const d = devices.find(x => portKey(x) === key);
+  if (!d || firmwareNumber(d.info.firmware) < 997) return null;
+  const w = watchers.get(d);
+  if (w) return w.link;
+  let l = padLinks.get(d);
+  if (!l) { l = new Link(d.input, d.output); padLinks.set(d, l); }
+  return l;
+}
+function closePadLink(d) { const l = padLinks.get(d); if (l) { padLinks.delete(d); l.close(); } }
+async function padSend(mask, key) {
+  const l = padLinkFor(key);
+  if (!l) throw new LinkError('That FM-1 is not available.');
+  if (key !== curKey()) padAt.set(key, Date.now());
+  await l.padSet(mask);
+}
+function drawPadTargets() {
+  const box = $('pad-targets');
+  const show = !!pad && devices.length >= 2 && padList.length > 0;
+  box.hidden = !show;
+  if (!show) return;
+  const twin = id => padList.filter(p => p.id === id).length > 1;
+  box.replaceChildren(...padList.map(info => {
+    const row = document.createElement('label'), sel = document.createElement('select');
+    sel.append(new Option('The FM-1 in use', 'current'));
+    devices.forEach((d, i) => {
+      const o = new Option(devLabel(d, i), portKey(d));
+      if (firmwareNumber(d.info.firmware) < 997) { o.disabled = true; o.textContent += ' (needs 0.9.97)'; }
+      sel.append(o);
+    });
+    sel.append(new Option('Nothing', 'none'));
+    sel.value = padTargets.get(padKey(info)) || 'current';
+    sel.onchange = () => { padTargets.set(padKey(info), sel.value); pad?.refresh(); };
+    row.append(`${info.name}${twin(info.id) ? ` (${info.index + 1})` : ''} plays`, sel);
+    return row;
+  }));
 }
 function drawPadPick() {
   const sel = $('pad-pick'), opts = [['', 'Any controller']], seen = new Set();
@@ -351,6 +699,28 @@ function control(key, ch) {
   controls.push(item);
   return wrap;
 }
+/* A channel page as four blocks, PU1 PU2 WAV NOI side by side, its rows still lined up across them: each row's
+   cells go on the card's grid (--r, --c) over a box per channel (marked for the cursor and mutes as the
+   controls are); knobs shared by all channels come after the boxes. Narrow screens keep the rows (CSS).
+   With all pages shown (no column heads above them), each box starts with its channel's name. */
+function channelBlocks(card, names) {
+  const rows = [...card.querySelectorAll(':scope > .fx-row')];
+  const shared = r => !!r.querySelector('.fx-ctl.shared');
+  const per = rows.filter(r => !shared(r)), top = names ? 3 : 2;
+  [...per, ...rows.filter(shared)].forEach((r, i) => { r.style.setProperty('--r', i + top); card.append(r); });
+  card.querySelectorAll('.fx-ctl[data-ch]').forEach(w => w.style.setProperty('--c', +w.dataset.ch + 3));
+  const first = card.querySelector(':scope > .fx-row');
+  CHANNELS.forEach((name, c) => {
+    const b = document.createElement('div'); b.className = 'fx-chbox'; b.dataset.ch = c; b.setAttribute('aria-hidden', 'true');
+    b.style.setProperty('--c', c + 3); b.style.setProperty('--n', per.length + (names ? 1 : 0));
+    card.insertBefore(b, first);
+    if (!names) return;
+    const l = document.createElement('div'); l.className = 'fx-chname'; l.dataset.ch = c; l.textContent = name;
+    l.style.setProperty('--c', c + 3);
+    card.insertBefore(l, first);
+  });
+  card.classList.add('blocks');
+}
 function buildFx() {
   controls.length = 0;
   const box = $('fx-pages'); box.replaceChildren();
@@ -378,6 +748,7 @@ function buildFx() {
       else { const w = control(key, 0); if (perCh) w.classList.add('shared'); row.append(w); }
       card.append(row);
     });
+    if (perCh) channelBlocks(card, allPages);
     (isMasterPage(fx, i, fwNum) ? masterBox : box).append(card);
   });
   const mutes = $('fx-mutes'); mutes.replaceChildren();
@@ -389,14 +760,28 @@ function buildFx() {
   });
   const bar = $('fx-pagebar'); bar.replaceChildren();
   const pageFollow = document.createElement('button'); pageFollow.type = 'button'; pageFollow.id = 'fx-page-follow'; pageFollow.textContent = 'FM-1 page';
-  pageFollow.title = 'Show the page the FM-1 is on'; pageFollow.onclick = () => { followPage = true; refresh(); };
+  /* All: every channel page at once; picking one page (or FM-1 page) goes back to one at a time */
+  const setAll = on => {
+    if (on === allPages) return refresh();
+    allPages = on;
+    try { localStorage.setItem('lsdj-burrito-allpages', on ? '1' : '0'); } catch { /* this visit only */ }
+    buildFx();
+  };
+  pageFollow.title = 'Show the page the FM-1 is on'; pageFollow.onclick = () => { followPage = true; setAll(false); };
   bar.append(pageFollow);
   box.querySelectorAll('.fx-card').forEach(card => {
     const b = document.createElement('button'); b.type = 'button'; b.dataset.page = card.dataset.page;
     b.textContent = card.querySelector('h3').firstChild.textContent;
-    b.onclick = () => { followPage = false; pickPage = +card.dataset.page; refresh(); };
+    b.onclick = () => { followPage = false; pickPage = +card.dataset.page; setAll(false); };
     bar.append(b);
   });
+  const all = document.createElement('button'); all.type = 'button'; all.id = 'fx-page-all'; all.textContent = 'All';
+  all.title = 'Show every channel page at once'; all.setAttribute('aria-pressed', String(allPages));
+  all.onclick = () => setAll(!allPages);
+  bar.append(all);
+  box.classList.toggle('all', allPages);
+  $('pan-chans').classList.toggle('allpages', allPages);
+  queueFit();
   /* the column heads: the channel, what is on, under the cursor, playing */
   const head = $('fx-channels'); head.replaceChildren(document.createElement('div'), document.createElement('div'));
   CHANNELS.forEach((name, c) => {
@@ -406,6 +791,62 @@ function buildFx() {
   });
   refresh();
 }
+/* All on a screen of fixed size (CSS --allfit: Perform's stage, the panel in its own window): the pages fill the
+   Channels panel, 2 x 2 (a row of four when it is very wide, a column when very tall), and the text is sized, as
+   large as fits, so there are no scrollbars. Again whenever the panel changes size. */
+function fitAll() {
+  const box = $('fx-pages'), panel = $('pan-chans');
+  if (!box || !panel) return;
+  const win = box.ownerDocument.defaultView;
+  const on = allPages && win.getComputedStyle(box).getPropertyValue('--allfit').trim() === '1';
+  box.classList.toggle('fit', on); panel.classList.toggle('allfit', on);
+  if (!on) { box.style.removeProperty('--allfs'); box.style.removeProperty('--allc'); return; }
+  const n = box.querySelectorAll('.fx-card').length;
+  const fits = () => panel.scrollHeight <= panel.clientHeight + 1 && panel.scrollWidth <= panel.clientWidth + 1 &&
+    [...box.querySelectorAll('.fx-card')].every(c => c.scrollHeight <= c.clientHeight + 1 && c.scrollWidth <= c.clientWidth + 1);
+  const largest = cols => {   // the largest text, times the panel's own size, that fits with this many columns
+    box.style.setProperty('--allc', cols);
+    let lo = .3, hi = 1.6;
+    for (let i = 0; i < 9; i++) {
+      const mid = (lo + hi) / 2;
+      box.style.setProperty('--allfs', mid + 'em');
+      if (fits()) lo = mid; else hi = mid;
+    }
+    return lo;
+  };
+  /* 2 x 2 unless a row (or a column) of the pages gives clearly larger text */
+  let best = {cols: Math.min(2, n), fs: largest(Math.min(2, n))};
+  for (const cols of n > 2 ? [n, 1] : []) { const fs = largest(cols); if (fs > best.fs * 1.15) best = {cols, fs}; }
+  box.style.setProperty('--allc', best.cols); box.style.setProperty('--allfs', best.fs + 'em');
+  if (best.fs < .55) {   // too small to read (a tiny window): the pages as usual, the panel scrolls
+    box.classList.remove('fit'); panel.classList.remove('allfit');
+    box.style.removeProperty('--allfs'); box.style.removeProperty('--allc');
+  }
+}
+let fitQueued = false, fitWatch = null, fitWin = null;
+function queueFit() {
+  const panel = $('pan-chans'); if (!panel) return;
+  const win = panel.ownerDocument.defaultView;
+  if (fitWin !== win) {   // the panel moved to its own window or back: watch it there
+    fitWatch?.disconnect();
+    fitWatch = new win.ResizeObserver(() => queueFit()); fitWatch.observe(panel); fitWin = win;
+  }
+  if (fitQueued) return;
+  fitQueued = true;
+  win.requestAnimationFrame(() => { fitQueued = false; fitAll(); });
+}
+/* Perform's stage (wide screens): laid out at 1920 x 1080, then scaled to the window as a whole (CSS zoom), so
+   every panel keeps its proportions and nothing scrolls on any screen size. */
+const STAGE = '(min-width:961px) and (min-height:440px) and (orientation:landscape)';
+function stageZoom() {
+  const on = document.body.classList.contains('perform') && matchMedia(STAGE).matches && CSS.supports('zoom', '1');
+  document.body.classList.toggle('stage-zoom', on);
+  if (on) document.body.style.setProperty('--stagez', String(Math.min(innerHeight, innerWidth * 9 / 16) / 1080));
+  else document.body.style.removeProperty('--stagez');
+  queueFit();
+}
+addEventListener('resize', stageZoom);
+new MutationObserver(stageZoom).observe(document.body, {attributes: true, attributeFilter: ['class']});
 /* Everything shown from fx (and the live state): values, the page, the cursor, mutes. */
 function refresh(hot = []) {
   if (!fx) return;
@@ -415,11 +856,12 @@ function refresh(hot = []) {
     : 'Older firmware layout: the MASTER page and All FX switch require FM-1_975 or newer.';
   const cards = $$('#fx-pages .fx-card');
   const want = cards.some(card => +card.dataset.page === shownPage()) ? shownPage() : +(cards[0]?.dataset.page ?? 0);
-  cards.forEach(card => card.classList.toggle('shown', +card.dataset.page === want));
-  $('fx-page-follow').classList.toggle('on', followPage);
+  cards.forEach(card => card.classList.toggle('shown', allPages || +card.dataset.page === want));
+  $('fx-page-follow').classList.toggle('on', followPage && !allPages);
+  $('fx-page-all').classList.toggle('on', allPages);
   const onFm1 = fm1Page ?? fx.page;
   $$('#fx-pagebar [data-page]').forEach(b => {
-    b.classList.toggle('on', +b.dataset.page === want);
+    b.classList.toggle('on', !allPages && +b.dataset.page === want);
     b.classList.toggle('fm1', !!lastLive && +b.dataset.page === onFm1);
   });
   $$('#fx-mutes [data-mute]').forEach(b => {
@@ -528,6 +970,7 @@ async function tick() {
   try {
     if (++ticks % 8 === 0) await followThemeSetting();
     const l = await link.live();
+    { const key = liveKey(l); if (lastKey !== null && key !== lastKey) activeAt = Date.now(); lastKey = key; }   /* played: Follow stays */
     const live = unpackFx(l.fx);
     live.reverb = fx.reverb && ticks % 2 === 0 ? await readReverb()
       : fx.reverb && {...fx.reverb, rvSend: fx.reverb.rvSend && [...fx.reverb.rvSend]};   /* every other poll */
@@ -565,13 +1008,17 @@ const stopPoll = () => { pollGen++; };
 /* ---------- the FM-1's screen (FM-1_983 and newer) ----------
    Read only while it can be seen (Perform shown, or the screen in its own window, on screen) and
    no other device operation runs; it shares the link with the live poll above. */
-function startMirror(how) {
-  const box = $('fm1-screen-box'), note = $('fm1-screen-note'), canvas = $('fm1-screen');
-  box.hidden = false; note.hidden = true;
+function startMirror() {
+  mirror?.stop(); mirror = null;
+  /* All screens: the FM-1 in use draws in its own tile (lit), else in the one big screen */
+  const tile = gridOn() && current && tiles.get(current);
+  const box = $('fm1-screen-box'), note = $('fm1-screen-note'), canvas = tile ? tile.canvas : $('fm1-screen');
+  box.hidden = !!tile; note.hidden = true;
   mirror = new ScreenMirror(link, canvas, {every: 33, clock: visibleWindow,
     push: fwNum >= 990,   // FM-1_990: the FM-1 sends each new picture by itself
     active: () => connected && !busy && !installing() && seen(canvas) && (isOut('screen') || !$('live-sec').hidden),
     onSupport: ok => {
+      if (tile) return;
       box.hidden = !ok; note.hidden = ok;
       if (!ok) note.textContent = `The FM-1's screen shows here with FM-1_983 or newer (this FM-1 runs ${fwId}).`;
     }});
@@ -601,16 +1048,19 @@ async function run(statusId, fn) {
   finally { busy = false; buttons.forEach((b, i) => b.disabled = disabled[i]); $('save-progress').hidden = true; }
 }
 /* Not connected: connect over USB as the Connect button does, when the FM-1 is found by name. */
-async function connectUsbQuietly() {
+/* again: after a pulled cable, the same FM-1 only. Several plugged in and none used yet: none (choose in My FM-1). */
+async function connectUsbQuietly({again = false} = {}) {
   if (connected || busy || installing() || usbMidiUnavailable()) return;
   try {
     ports = await midiPorts();
-    if (ports.input && ports.output) await connectTo(ports.input, ports.output);
+    const found = await scan(), d = choose(found, again);
+    if (d) await connectTo(d.input, d.output);
+    else if (!again && !found.length && ports.input && ports.output) await connectTo(ports.input, ports.output);
   } catch { /* MIDI blocked or unavailable: the message below says what to do */ }
 }
 export async function readInstalledCartridge(progress, signal) {
   await connectUsbQuietly();
-  if (!link || !connected) throw new LinkError('No FM-1 found over USB. Turn it on and plug it in with a data cable, or connect to the running FM-1 in My FM-1 (choose its MIDI port), then try Read from my FM-1 again.');
+  if (!link || !connected) throw new LinkError('No FM-1 found over USB. Turn it on and plug it in with a data cable, or connect to the running FM-1 in My FM-1 (choose its MIDI port; with several plugged in, choose the one to read), then try Read from my FM-1 again.');
   if (busy || installing() || sendTimer) throw new LinkError('Wait for the current device operation to finish.');
   const active = link;
   busy = true;
@@ -635,6 +1085,22 @@ function download(bytes, name, type = 'application/octet-stream') {
   setTimeout(() => URL.revokeObjectURL(a.href), 10000);
 }
 const stamp = () => new Date().toISOString().slice(0, 10);
+/* Songs & kits (songs-ui.js): the FM-1's songs and LSDj, read or sent with the same checks as Songs */
+async function exclusive(fn) {
+  if (installing()) throw new LinkError('Wait for the firmware installation to finish.');
+  await connectUsbQuietly();
+  if (!link || !connected) throw new LinkError('No FM-1 connected: connect it in My FM-1, or open a .sav file instead.');
+  if (busy) throw new LinkError('Another FM-1 operation is running. Wait for it to finish.');
+  busy = true;
+  try { return await fn(link); } finally { busy = false; }
+}
+setSongsHooks({
+  readSave: pr => exclusive(l => l.exportSave(pr)),
+  sendSave: (bytes, pr) => exclusive(l => l.importSave(bytes, pr)),
+  readRom: async pr => romFromSlot(await readInstalledCartridge(pr)),
+  cartInfo: () => exclusive(l => l.cartridgeInfo()),
+});
+mountSongsUi($('songtools'));
 /* The three exports (each its own file): songs, the installed LSDj (read back from the FM-1:
    FM-1_974 and newer web-installed builds), the effects setup. Nothing is written to the FM-1. */
 async function songsFile() {
