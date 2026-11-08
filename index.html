@@ -407,7 +407,21 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 .file-btn{position:relative;overflow:hidden}
 .file-btn input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%}
 .file-btn:focus-within{outline:3px solid var(--hi);outline-offset:2px}
-#rom-kits{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:10px 0;columns:2 220px}
+#rom-kits{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:10px 0}
+#rom-kits .kit-line{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:3px 0;border-bottom:1px solid var(--line)}
+#rom-kits .kit-use{flex:1 1 160px}
+.kit-tools{display:inline-flex;flex-wrap:wrap;gap:4px}
+.kit-tools button,.st-actions button{padding:2px 8px;font-size:12px}
+.kit-empty{margin:8px 0 4px}
+.st-table{border-collapse:collapse;width:100%;margin:6px 0 12px;font-size:14px}
+.st-table th,.st-table td{border-bottom:1px solid var(--line);padding:4px 6px;text-align:left;vertical-align:top}
+.st-actions{white-space:nowrap}
+#songtools .row{margin:6px 0;flex-wrap:wrap}
+.kit-editor{max-width:min(720px,calc(100vw - 32px));border:1px solid var(--line);border-radius:12px;background:var(--bg);color:inherit}
+.kit-editor::backdrop{background:rgba(0,0,0,.5)}
+.kit-sample{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--line)}
+.kit-num input{width:4.5em}
+.kit-editor progress{width:200px;vertical-align:middle}
 #rom-kits legend{padding:0 4px;font-size:13px;color:var(--muted)}
 #rom-kits label{display:inline-block;padding:2px 0}
 .check{display:flex;gap:8px;align-items:flex-start;margin:10px 0}
@@ -436,7 +450,7 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <header class="top"><div class="top-in">
 <a class="brand" href="#home">LSDJ Burrito<small>by Dreamy_bacon</small></a>
 <nav class="page-nav" aria-label="Main">
-<a href="#home" data-view="home">Home</a><a href="#connect" data-view="device">My FM-1</a><a href="#install" data-view="install">Install</a><a href="#emulator-sec" data-view="try">Try it</a>
+<a href="#home" data-view="home">Home</a><a href="#connect" data-view="device">My FM-1</a><a href="#install" data-view="install">Install</a><a href="#songtools" data-view="songs">Songs &amp; kits</a><a href="#emulator-sec" data-view="try">Try it</a>
 </nav>
 <button id="install-app" class="chip install-chip" type="button" title="Install LSDJ Burrito as an app: it opens in its own window and works offline" hidden>Install app</button>
 <a id="conn-chip" class="chip" href="#connect">Not connected</a>
@@ -572,6 +586,7 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 </div>
 <progress id="save-progress" value="0" max="1" hidden></progress>
 <p id="save-status" role="status"></p>
+<p class="hint">Which samples your songs play, single songs as .lsdsng, renaming and deleting songs: <a href="#songtools">Songs &amp; kits</a>.</p>
 <details><summary>About .sav files</summary><p>Files with exactly 16 extra bytes at the end can be imported after you confirm using the first 131072 bytes. The format of those extra bytes isn't checked, and your original file is never changed.</p></details>
 </section>
 
@@ -659,7 +674,7 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 
 <div class="wstep" data-step="2" hidden>
 <h2>Sample kits</h2>
-<p class="hint">All kits are ticked. If they don't all fit, untick some: songs that use a removed kit lose those samples.</p>
+<p class="hint">All kits are ticked. If they don't all fit, untick some: songs that use a removed kit lose those samples. To see which kits your songs play, open your songs in <a href="#songtools">Songs &amp; kits</a>; each kit then says which songs play it. Each kit can also be saved as a .kit, replaced, renamed, edited or cleared, and empty slots can take a .kit or a kit made from your own sounds (as LSDj Patcher does; only this page's copy of your ROM changes).</p>
 <fieldset id="rom-kits" disabled><legend>Sample kits (all selected initially)</legend></fieldset>
 <p id="rom-budget" role="status"></p>
 <div class="wiz-nav"><button type="button" data-back>Back</button><button type="button" class="primary" data-next>Next</button></div>
@@ -735,6 +750,14 @@ canvas{border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;
 <details><summary>Install log</summary><pre id="fw-log" class="mono" style="white-space:pre-wrap;font-size:12px"></pre></details>
 <details><summary>Risks</summary><p>Installing firmware always carries some risk. If the transfer is interrupted (the cable comes out, the computer sleeps, the power drops) or the firmware has a fault, the FM-1 may not start until a working firmware is installed again; usually it can be recovered by reconnecting it in update mode, but that isn't guaranteed. This firmware is experimental and unofficial, and isn't supported by M-VAVE. The page checks the file before sending it, but that can't prove it will run correctly on your FM-1. Back up your songs first, and install at your own risk.</p></details>
 <div class="wiz-nav"><button type="button" data-back>Back</button><a class="button-link" href="#connect">Go to My FM-1</a></div>
+</section>
+</div>
+
+<!-- ============ SONGS & KITS ============ -->
+<div class="view" data-view="songs" hidden>
+<section id="songtools-sec">
+<h2>Songs &amp; kits</h2>
+<div id="songtools"></div>
 </section>
 </div>
 

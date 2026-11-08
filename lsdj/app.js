@@ -4,6 +4,7 @@
 import {startGamepad, loadMaps, mapFor, saveMap, loadPick, savePick, assign, takenFrom, isDefaultMap, defaultMapFor, inputName, GB_ORDER, SLOTS} from './gamepad.js';
 import {Link, midiPorts, findFm1s, LinkError, SAVE_SIZE} from './link.js';
 import {confirmSaveImport} from './save-file.js';
+import {mountSongsUi, setSongsHooks} from './songs-ui.js';
 import {showDeviceTheme, setMatching, matching} from './page-theme.js';
 import {setBeforeInstall, installing, usbMidiUnavailable} from './install-ui.js';
 import {CHANNELS, pagesForFx, PARAM, paramGet, paramSet, valueText, channelSummary, unpackFx, packFx, unpackReverb, packReverb, packReverbSends, PRESETS, THEMES, COLOR_NAMES, toHex, fromHex,
@@ -1005,6 +1006,21 @@ function download(bytes, name, type = 'application/octet-stream') {
   setTimeout(() => URL.revokeObjectURL(a.href), 10000);
 }
 const stamp = () => new Date().toISOString().slice(0, 10);
+/* Songs & kits (songs-ui.js): the FM-1's songs and LSDj, read or sent with the same checks as Songs */
+async function exclusive(fn) {
+  if (installing()) throw new LinkError('Wait for the firmware installation to finish.');
+  await connectUsbQuietly();
+  if (!link || !connected) throw new LinkError('No FM-1 connected: connect it in My FM-1, or open a .sav file instead.');
+  if (busy) throw new LinkError('Another FM-1 operation is running. Wait for it to finish.');
+  busy = true;
+  try { return await fn(link); } finally { busy = false; }
+}
+setSongsHooks({
+  readSave: pr => exclusive(l => l.exportSave(pr)),
+  sendSave: (bytes, pr) => exclusive(l => l.importSave(bytes, pr)),
+  readRom: async pr => romFromSlot(await readInstalledCartridge(pr)),
+});
+mountSongsUi($('songtools'));
 /* The three exports (each its own file): songs, the installed LSDj (read back from the FM-1:
    FM-1_974 and newer web-installed builds), the effects setup. Nothing is written to the FM-1. */
 async function songsFile() {

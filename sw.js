@@ -13,6 +13,7 @@ const FILES = [
   'lsdj/app.js', 'lsdj/fx-diagram.js', 'lsdj/fx-model.js', 'lsdj/gamepad.js', 'lsdj/install-ui.js', 'lsdj/install.js', 'lsdj/link.js',
   'lsdj/lsdj-app.js', 'lsdj/lsdj-firmware.js', 'lsdj/lsdj-rom.js', 'lsdj/midiclock.js', 'lsdj/page-theme.js', 'lsdj/popout.js', 'lsdj/pwa.js',
   'lsdj/save-file.js', 'lsdj/screen.js', 'lsdj/ui.js', 'lsdj/zip.js',
+  'lsdj/lsdj-sav.js', 'lsdj/lsdj-kit.js', 'lsdj/lsdj-usage.js', 'lsdj/songs-ui.js', 'lsdj/kits-ui.js', 'lsdj/wav-kit.js',
   'lsdj/template.json', 'lsdj/versions.json', 'lsdj/fm1-lsdj-template.fwsc', 'lsdj/fm1-lsdj-template-source.zip',
   'vendor/fm1ota.js', 'vendor/fm1pkg.js',
   'emulator/app.js', 'emulator/core.js', 'emulator/panel.js', 'emulator/face.js', 'emulator/save-flash.js', 'emulator/upstream.json',

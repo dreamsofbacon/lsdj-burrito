@@ -2,6 +2,10 @@
 import {validateRom, identifyRom, listKits, planRom, romFromSlot, BANK, SLOT_MAX_BANKS} from './lsdj-rom.js';
 import {loadTemplate, prepareLsdjFirmware} from './lsdj-firmware.js';
 import {selectFirmware, installing, clearPreparedFirmware, setPreparingFirmware} from './install-ui.js';
+import {kitButtons, emptySlotTools} from './kits-ui.js';
+import {usageByBank, currentUsage, kitLabel} from './songs-ui.js';
+import {kitSlots} from './lsdj-kit.js';
+import {romFit} from './lsdj-usage.js';
 
 const $ = id => document.getElementById(id);
 const say = (text, cls = '') => { $('rom-info').textContent = text; $('rom-info').className = cls; };
@@ -9,6 +13,7 @@ let rom = null, template = null, metadata = null, versions = [], generation = 0,
 let loading = false, currentPlan = null;
 let downloadUrl = null;
 let reading = null, fromDevice = false;
+let romName = '', romInfo = null, romChanged = false, romUrl = null;
 const selected = () => [...$('rom-kits').querySelectorAll('input:checked')].map(el => Number(el.value));
 
 function clearDownload() {
@@ -45,6 +50,70 @@ function updatePlan() {
   updateControls();
 }
 $('rom-experimental').onchange = updatePlan;
+/* Install's ROM, for Songs and kits (songs-ui.js) */
+export const installRom = () => rom ? {rom, name: romName} : null;
+const announceRom = () => document.dispatchEvent(new CustomEvent('install-rom', {detail: installRom()}));
+/* LSDj 9.2.0 and later rotate kit sample frames (lsdj-kit.js buildKit) */
+const rotates = () => { const v = /^(\d+)\.(\d+)\.?(\w)?/.exec(romInfo?.version || ''); return !v || +v[1] > 9 || (+v[1] === 9 && +v[2] >= 2); };
+const kitCtx = {rom: () => rom, rotate: rotates, say: (t, c) => say(t, c), replace: (next, message) => replaceRom(next, message)};
+/* a kit tool changed the ROM: a new copy (the user's file is untouched), the list drawn again, ticks kept */
+function replaceRom(next, message) {
+  const ticked = new Set(selected()), had = new Set(listKits(rom).map(k => k.bank));
+  rom = next; romChanged = true;
+  renderKits(b => ticked.has(b) || !had.has(b));
+  updatePlan(); announceRom();
+  say(message + ' Changed in this page only: your ROM file is untouched. Download it below to keep it.', 'ok');
+}
+function renderKits(ticked = () => true) {
+  const legend = document.createElement('legend');
+  legend.textContent = 'Sample kits';
+  $('rom-kits').replaceChildren(legend);
+  const kits = listKits(rom), usage = usageByBank(rom, currentUsage());
+  for (const kit of kits) {
+    const label = document.createElement('label'), input = document.createElement('input'), line = document.createElement('div');
+    input.type = 'checkbox'; input.value = String(kit.bank); input.checked = ticked(kit.bank);
+    label.append(input, ` Bank ${kit.bank.toString(16).toUpperCase().padStart(2, '0')}: ${kit.name || '(unnamed kit)'}`);
+    const u = usage.get(kit.bank), note = document.createElement('span');
+    note.className = 'hint kit-use';
+    if (u) note.textContent = u.used.length ? ` · played in ${u.used.join(', ')}` + (u.maybe.length ? `, maybe ${u.maybe.join(', ')}` : '') :
+      u.maybe.length ? ` · maybe played in ${u.maybe.join(', ')}` : ' · not played by your songs';
+    line.className = 'kit-line'; line.append(label, note, kitButtons(kit.bank, kitCtx));
+    $('rom-kits').append(line);
+  }
+  if (!kits.length) {
+    const note = document.createElement('p');
+    note.textContent = 'No sample-kit banks were recognized. All required program/data banks are preserved.';
+    $('rom-kits').append(note);
+  }
+  $('rom-kits').append(emptySlotTools(kitCtx));
+  /* the songs open in Songs and kits play kits this LSDj doesn't have: say so before it's installed */
+  const now = currentUsage(), slots = kitSlots(rom), fit = now && romFit(slots, now);
+  if (fit && !fit.ok) {
+    const w = document.createElement('p'), ks = [...new Set(fit.kits.map(m => m.kit))];
+    w.className = 'warn';
+    w.textContent = `Your songs (open in Songs and kits) play kits this LSDj doesn't have: ` +
+      ks.map(k => `kit ${k.toString(16).toUpperCase().padStart(2, '0')}, ${kitLabel(slots, k)} (${[...new Set(fit.kits.filter(m => m.kit === k).flatMap(m => m.songs))].join(', ')})`).join('; ') +
+      '. Those parts play nothing with it. Choose the LSDj they were made with, or put the right kit in that slot.';
+    $('rom-kits').append(w);
+  }
+  if (usage.size) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.textContent = 'Tick only the kits my songs play';
+    b.title = 'From the songs open in Songs and kits ("maybe" ones stay ticked)';
+    b.onclick = () => { for (const i of $('rom-kits').querySelectorAll('input[type=checkbox]')) { const x = usage.get(Number(i.value)); i.checked = !!(x && (x.used.length || x.maybe.length)); } updatePlan(); };
+    $('rom-kits').append(b);
+  }
+  if (romChanged) {
+    if (romUrl) URL.revokeObjectURL(romUrl);
+    romUrl = URL.createObjectURL(new Blob([rom], {type: 'application/octet-stream'}));
+    const a = document.createElement('a');
+    a.href = romUrl; a.download = romName.replace(/(\.gbc?)?$/i, '-kits.gb'); a.className = 'button-link';
+    a.textContent = 'Download my changed LSDj (.gb)';
+    $('rom-kits').append(' ', a);
+  }
+}
+/* Songs and kits opened other songs: say again which kits they play (ticks kept) */
+document.addEventListener('songs-usage', () => { if (rom && !loading) { const t = new Set(selected()); renderKits(b => t.has(b)); } });
 $('rom-kits').onchange = updatePlan;
 function updateControls() {
   const blocked = busy || installing() || !!reading;
@@ -73,7 +142,7 @@ document.addEventListener('firmware-install-state', updateControls);
 async function chooseRom(file, device = false) {
   const seq = ++generation;
   fromDevice = device;
-  rom = template = metadata = null;
+  rom = template = metadata = null; romChanged = false; romInfo = null;
   loading = !!file;
   const legend = document.createElement('legend');
   legend.textContent = 'Sample kits (all selected initially)';
@@ -100,7 +169,7 @@ async function chooseRom(file, device = false) {
     if (device && reading.signal.aborted) throw Error('Cartridge read cancelled.');
     const kits = listKits(bytes);
     planRom(bytes, kits.map(k => k.bank), loaded.metadata.cartridge_capacity);
-    rom = bytes; versions = catalog; ({template, metadata} = loaded);
+    rom = bytes; versions = catalog; ({template, metadata} = loaded); romName = file.name; romInfo = info;
     say(`${file.name} (${info.title}): ${info.tested ? 'a tested LSDj build' :
       info.sameProgram ? 'a tested LSDj program with different samples' : 'an untested LSDj build'}. ` +
       (info.cursorProfile === 1 ? 'LSDj 9.3.9 program (custom palettes and kits are fine): effects follow the cursor; SEQ, tempo, cues and MIDI sync work. ' :
@@ -109,18 +178,8 @@ async function chooseRom(file, device = false) {
       (device ? 'All installed kits are ticked; untick any you can do without. ' : '') +
       (!info.globalChecksumValid ? 'Its checksum is out of date; the firmware gets a corrected one. ' : ''),
       info.cursorProfile ? 'ok' : 'warn');
-    for (const kit of kits) {
-      const label = document.createElement('label'), input = document.createElement('input');
-      input.type = 'checkbox'; input.value = String(kit.bank); input.checked = true;
-      label.append(input, ` Bank ${kit.bank.toString(16).toUpperCase().padStart(2, '0')}: ${kit.name || '(unnamed kit)'}`);
-      $('rom-kits').append(label, document.createElement('br'));
-    }
-    if (!kits.length) {
-      const note = document.createElement('p');
-      note.textContent = 'No sample-kit banks were recognized. All required program/data banks are preserved.';
-      $('rom-kits').append(note);
-    }
-    updatePlan();
+    renderKits();
+    updatePlan(); announceRom();
   } catch (err) {
     if (seq === generation) {
       rom = template = metadata = currentPlan = null;
