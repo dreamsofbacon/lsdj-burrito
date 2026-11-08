@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 import assert from 'node:assert/strict';
 import {unpackReverb, packReverbSends, packReverb, reverbSeconds, REVERB_PARAMS, valueText, PAGES, PAGES_997, PAGES_979, PAGES_978, LEGACY_PAGES, pagesForFx, firmwareNumber, unpackFx, packFx, paramGet, paramSet, channelSummary,
-        FEATURES, FEATURE_DEFAULTS, packFeatures, unpackFeatures, MIDI_CC_MAP, THEMES, isMasterPage} from '../lsdj/fx-model.js';
+        FEATURES, FEATURE_DEFAULTS, packFeatures, unpackFeatures, MIDI_CC_MAP, THEMES, isMasterPage, effectActive} from '../lsdj/fx-model.js';
 
 const setup = (layout, page, n = 17) => {
   const b = Array(4 * n).fill(0);
@@ -119,4 +119,22 @@ assert.throws(() => unpackFeatures(0x460001CE | (THEMES.length + 1) << 9), /Unkn
 assert.deepEqual(MIDI_CC_MAP.map(m => m[0]).sort((a, b) => a - b),
   [70, 71, 74, 75, 76, 77, 91, 80, 81, 12, 13, 14, 15, 16, 17, 18, 19, 72, 73, 78, 79, 82, 83, 20, 21, 22, 23, 92].sort((a, b) => a - b));
 assert.ok(MIDI_CC_MAP.every(m => m[2] === 'channel' || m[2] === 'shared'));
+/* Dimmed when doing nothing (effectActive): the filter group needs a type, drive / LFO / crush / decimate their
+   amount, sends and their effect a mix; Channel FX off dims the channel, All FX off everything; switches never */
+{ const fx = unpackFx(setup(2, 1)), on = (k, c = 0) => effectActive(fx, k, c);
+  fx.reverb = {rvMix: 0, rvSize: 64, rvTone: 64, rvSend: [0, 0, 0, 0]}; fx.fxOff = 0; fx.bypass = false;
+  for (const k of ['type', 'cutoff', 'reso', 'warm', 'drive', 'dist', 'lfoRate', 'lfoDepth', 'crush', 'decim', 'send', 'rvSend',
+    'time', 'feedback', 'mix', 'wobble', 'comp', 'rvMix', 'rvSize']) assert.equal(on(k), false, k + ' idle at rest');
+  for (const k of ['allFxOn', 'fxOn', 'freeze']) assert.equal(on(k), true, k + ' (a switch) never idle');
+  fx.ch[1].type = 1; assert.ok(on('cutoff', 1) && on('warm', 1) && !on('cutoff', 0), 'a filter type wakes its channel\'s filter');
+  fx.ch[0].drive = 9; assert.ok(on('dist', 0) && !on('dist', 1));
+  fx.q[2].lfoDepth = 5; assert.ok(on('lfoShape', 2) && on('lfoRate', 2) && !on('lfoRate', 0));
+  fx.ch[3].crush = 1; assert.ok(on('crush', 3) && !on('decim', 3));
+  fx.ch[0].send = 50; assert.ok(!on('send', 0), 'a send with the echo silent');
+  fx.echo.mix = 30; assert.ok(on('send', 0) && on('feedback') && on('wobble') && !on('send', 1));
+  fx.reverb.rvSend[1] = 20; assert.ok(!on('rvSend', 1)); fx.reverb.rvMix = 64; assert.ok(on('rvSend', 1) && on('rvTone') && !on('rvSend', 0));
+  fx.comp = 3; assert.ok(on('comp'));
+  fx.fxOff = 2; assert.ok(!on('cutoff', 1) && !on('rvSend', 1) && on('dist', 0) && on('fxOn', 1), 'Channel FX off: that channel idle');
+  fx.bypass = true; assert.ok(!on('dist', 0) && !on('mix') && !on('comp') && on('allFxOn'), 'All FX off: all idle but the switch');
+  delete fx.reverb; fx.bypass = false; assert.ok(!on('rvMix') && !on('rvSend', 1), 'no reverb (older firmware)'); }
 console.log('PASS FX model: seven-page mapping (979 and 975-978), global bypass/settings roundtrip, 11/17-word legacy layouts, invalid data, feature switches, CC map');

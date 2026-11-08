@@ -154,6 +154,12 @@ table.fx th,table.fx td{padding:3px 6px;border-bottom:1px solid var(--line);text
 #cc-map th{padding-top:10px}
 /* a muted channel: its controls grey but still work (as on the FM-1), and why */
 .fx-pages.muted .fx-card{filter:grayscale(1);opacity:.6}
+/* effects doing nothing now: dimmed, still usable (app.js markIdle); brighter under the pointer or in use */
+.fx-ctl.idle{opacity:.4;transition:opacity .15s}
+.fx-ctl.idle:hover,.fx-ctl.idle:focus-within{opacity:.75}
+.fx-row.idle>.fx-name,.fx-row.idle>.knob{opacity:.45}
+.fx-card.idle>h3{opacity:.5}
+#fx-pagebar button.idle:not(.on){opacity:.5}
 #fx-muted{margin:6px 0 10px}
 /* the wiring (lsdj/fx-diagram.js) */
 .fm1-screen{max-width:480px;border:1px solid var(--line);border-radius:10px;background:var(--card2);padding:6px}

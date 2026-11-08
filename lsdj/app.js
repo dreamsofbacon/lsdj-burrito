@@ -9,7 +9,7 @@ import {showDeviceTheme, setMatching, matching} from './page-theme.js';
 import {setBeforeInstall, installing, usbMidiUnavailable} from './install-ui.js';
 import {CHANNELS, pagesForFx, PARAM, paramGet, paramSet, valueText, channelSummary, unpackFx, packFx, unpackReverb, packReverb, packReverbSends, PRESETS, THEMES, COLOR_NAMES, toHex, fromHex,
         SETTINGS, unpackSettings, packSettings, MIDI_SETTINGS, MIDI_CC_MAP, unpackMidi, packMidi, CUSTOM_THEME, isMasterPage,
-        firmwareNumber, FEATURES, unpackFeatures, packFeatures} from './fx-model.js';
+        firmwareNumber, FEATURES, unpackFeatures, packFeatures, effectActive} from './fx-model.js';
 import {fxDiagram, pageFor} from './fx-diagram.js';
 import {zipStore} from './zip.js';
 import {startClock, startRelay, clampBpm} from './midiclock.js';
@@ -690,6 +690,7 @@ function control(key, ch) {
       paramSet(fx, key, ch, +input.value); out.textContent = valueText(fx, key, ch, bpm); changed();
       /* the same knob elsewhere (980: echo on MASTER), for the same channel */
       controls.forEach(it => { if (it.key === key && it.ch === ch && it.wrap !== wrap) it.set(+input.value); });
+      markIdle();
     };
     set = v => { if (!focused(input)) input.value = v; };
   }
@@ -848,9 +849,30 @@ function stageZoom() {
 addEventListener('resize', stageZoom);
 new MutationObserver(stageZoom).observe(document.body, {attributes: true, attributeFilter: ['class']});
 /* Everything shown from fx (and the live state): values, the page, the cursor, mutes. */
+/* Effects doing nothing now are dimmed (fx-model.js effectActive), so what is on shows at a glance: each control;
+   a row whose controls are all idle; a page with nothing on (its title and its button in the page bar). The
+   switches (All FX, Channel FX, Freeze) are never dimmed, and don't make a page count as on. */
+function markIdle() {
+  const pageOn = new Map();
+  controls.forEach(it => {
+    const on = effectActive(fx, it.key, it.ch), sw = ['master', 'flags'].includes(PARAM[it.key].where);
+    it.wrap.classList.toggle('idle', !on);
+    const page = it.wrap.closest('.fx-card')?.dataset.page;
+    if (page != null) pageOn.set(page, (pageOn.get(page) || false) || (on && !sw));
+  });
+  $$('.fx-card').forEach(card => {
+    card.querySelectorAll('.fx-row').forEach(r => {
+      const c = [...r.querySelectorAll('.fx-ctl')];
+      r.classList.toggle('idle', c.length > 0 && c.every(w => w.classList.contains('idle')));
+    });
+    card.classList.toggle('idle', pageOn.get(card.dataset.page) === false);
+  });
+  $$('#fx-pagebar [data-page]').forEach(b => b.classList.toggle('idle', pageOn.get(b.dataset.page) === false));
+}
 function refresh(hot = []) {
   if (!fx) return;
   controls.forEach(it => it.set(paramGet(fx, it.key, it.ch)));
+  markIdle();
   $('fx-master-status').textContent = fx.v3
     ? (fx.bypass ? 'All FX OFF: dry output. Settings are kept; MASTER K1 turns them back on.' : '')
     : 'Older firmware layout: the MASTER page and All FX switch require FM-1_975 or newer.';

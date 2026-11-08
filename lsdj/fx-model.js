@@ -167,6 +167,29 @@ export function paramGet(fx, key, c) {
   default: return key === 'fxOn' ? ((fx.fxOff >> c) & 1 ? 0 : 1) : (fx.freeze ? 1 : 0);
   }
 }
+/* Is this effect doing something now? Perform dims the ones that aren't (as the Wiring greys its blocks): a filter
+   setting with no filter type, drive and its distortion at drive 0, the LFO at depth 0, crush / decimate at 0, the
+   echo (and a send to it) with its mix at 0, the same for the reverb, the compressor at 0; a channel with Channel FX
+   off, and everything with All FX off. The switches (All FX, Channel FX, Freeze) are never dimmed. */
+export function effectActive(fx, key, c = 0) {
+  const p = PARAM[key];
+  if (!p || p.where === 'master' || p.where === 'flags') return true;
+  if (fx.v3 && fx.bypass) return false;
+  const perCh = p.where === 'ch' || p.where === 'q' || p.where === 'rvch';
+  if (perCh && (fx.fxOff >> c) & 1) return false;
+  const ch = fx.ch[c] ?? {}, q = fx.q?.[c] ?? {}, echoOn = fx.echo.mix > 0, rvOn = !!fx.reverb?.rvMix;
+  switch (key) {
+  case 'type': case 'cutoff': case 'reso': case 'warm': return !!ch.type;
+  case 'drive': case 'dist': return !!ch.drive;
+  case 'lfoRate': case 'lfoDepth': case 'lfoShape': case 'lfoDest': return !!q.lfoDepth;
+  case 'crush': return !!ch.crush;
+  case 'decim': return !!ch.decim;
+  case 'send': return echoOn && !!ch.send;
+  case 'rvSend': return rvOn && !!fx.reverb.rvSend?.[c];
+  case 'comp': return !!fx.comp;
+  default: return p.where === 'echo' ? echoOn : p.where === 'rv' ? rvOn : true;
+  }
+}
 export function paramSet(fx, key, c, v) {
   const p = PARAM[key];
   switch (p.where) {
