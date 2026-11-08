@@ -65,7 +65,7 @@ export async function runDjUiTests() {
   const access = new EventTarget();
   access.inputs = new Map([['a', A.input], ['b', B.input], ['t', T.input]]);
   access.outputs = new Map([['a', A.output], ['b', B.output], ['t', T.output]]);
-  for (const k of ['lsdj-burrito-stage', 'dj-mixer', 'dj-mixer-in', 'dj-mixer-out', 'dj-mixer-map', 'dj-bpm', 'dj-learned', 'dj-view-0', 'dj-view-1']) try { localStorage.removeItem(k); } catch {}
+  for (const k of ['lsdj-burrito-stage', 'dj-mixer', 'dj-mixer-in', 'dj-mixer-out', 'dj-mixer-map', 'dj-bpm', 'dj-learned', 'dj-view-0', 'dj-view-1', 'dj-whole']) try { localStorage.removeItem(k); } catch {}
   try {
     Object.defineProperty(navigator, 'requestMIDIAccess', {configurable: true, value: async () => access});
     await $('connect-btn').onclick();
@@ -175,6 +175,29 @@ export async function runDjUiTests() {
     assert(!decksEl[1].querySelector('.dj-maprow') && B.mapReads.length === reads && B.screens > shots, `back to Screen: no rows read (${B.mapReads.length - reads}), the screen asked again (${B.screens - shots})`);
     B.midi.length = 0;
 
+    // 4e. Tap pressed quickly: the tempo follows, and the layout is not redrawn (each tap redrew both decks, their
+    // rows and the mixer, and froze Colin's page); then Whole BPM: every tempo snaps to a whole number
+    const tapBtn = () => [...document.querySelectorAll('.dj-mixer button')].find(b => b.textContent === 'Tap');
+    const kept = [tapBtn(), ...document.querySelectorAll('.dj-deck-body > *')];
+    for (let i = 0; i < 16; i++) { tapBtn().click(); await sleep(i % 2 ? 230 : 270); }
+    const tapped = djState().master.bpm, big = () => document.querySelector('.dj-mixer .dj-bpm.big').textContent;
+    assert(tapped > 225 && tapped < 255, `16 taps 250 ms apart: about 240 BPM: ${tapped}`);
+    assert(kept.every(e => e.isConnected), 'taps: nothing redrawn but the numbers');
+    await until(() => big() === tapped.toFixed(1), `the master readout follows: ${big()} vs ${tapped}`, 1000);
+    const wholeBox = [...document.querySelectorAll('.dj-mixer label')].find(l => /Whole BPM/.test(l.textContent)).querySelector('input');
+    wholeBox.click();
+    assert(djState().master.whole && Number.isInteger(djState().master.bpm) && djState().decks.every(d => Number.isInteger(d.bpm)), `Whole BPM: master and decks whole: ${djState().master.bpm}, ${djState().decks.map(d => d.bpm)}`);
+    await until(() => !big().includes('.'), `the readout without a point: ${big()}`, 1000);
+    const bpmInB = [...document.querySelectorAll('.dj-deck')][1].querySelector('.dj-bpm-in');
+    assert(bpmInB.step === '1', `deck tempo box in steps of 1: ${bpmInB.step}`);
+    bpmInB.value = '127.6'; bpmInB.dispatchEvent(new Event('change'));
+    assert(djState().decks[1].bpm === 128 && bpmInB.value === '128', `typed 127.6: 128: ${djState().decks[1].bpm} (${bpmInB.value})`);
+    for (let i = 0; i < 4; i++) { tapBtn().click(); await sleep(310); }
+    assert(Number.isInteger(djState().master.bpm), `Whole BPM: a tapped tempo is whole: ${djState().master.bpm}`);
+    [...document.querySelectorAll('.dj-mixer label')].find(l => /Whole BPM/.test(l.textContent)).querySelector('input').click();
+    assert(!djState().master.whole, 'Whole BPM off again');
+    for (const i of document.querySelectorAll('.dj-bpm-in')) { i.value = '120'; i.dispatchEvent(new Event('change')); }   /* back to 120 for the rest */
+
     // 5. the TX-6: its track 1 button stops deck A; the crossfader sets its channel 1 and 2 volumes
     const mixerSel = document.querySelector('.dj-mixer select[aria-label="Mixer"]');
     choose(mixerSel, 'tx6');
@@ -188,6 +211,13 @@ export async function runDjUiTests() {
     assert(vol(1) === 0 && vol(2) === 127, `crossfader to B: ch 1 ${vol(1)}, ch 2 ${vol(2)}`);
     T.play([0xb0, 1, 64]);
     assert(Math.abs(djState().mixer.faders[1] - 64 / 127) < 1e-9, 'fader 1 mirrored');
+    /* a fader moved fast (200 messages): the meter follows, the mixer panel is not rebuilt */
+    const head = document.querySelector('.dj-mixer > h4');
+    for (let i = 0; i < 200; i++) T.play([0xb0, 1, i & 127]);
+    const meterA = document.querySelector('.dj-meter span');
+    assert(head.isConnected && xf.isConnected, 'mixer messages: the panel not rebuilt');
+    assert(Math.abs(parseFloat(meterA.style.getPropertyValue('--v')) - (199 & 127) / 127) < 0.01, `the meter follows: ${meterA.style.getPropertyValue('--v')}`);
+    T.play([0xb0, 1, 64]);
     await until(() => B.level === 127, `with a mixer, B's own volume full again: ${B.levels}`);
 
     // 6. back to Effects: the effects panels again; the FM-1s at full volume
@@ -198,7 +228,7 @@ export async function runDjUiTests() {
     assert(!document.body.classList.contains('dj') && getComputedStyle($('pan-chans')).display !== 'none', 'Effects layout back');
     await until(() => B.level === 127, `the Effects layout: B at full volume: ${B.levels}`);
     djState().decks.forEach(d => d.clock?.stop());
-    return 'PASS DJ layout: switch, decks on FM-1s, Start and clocks per deck, the next bar, its own tempo, Sync, stem kill, DJ filter, Perform › Clock off, 0.9.98 (crossfader to FM-1 volume, Hold), each deck its FM-1 colours and Screen | Rows (screen, song row map, click to cue), TX-6 button and crossfader, fader mirrored, full volume after';
+    return 'PASS DJ layout: switch, decks on FM-1s, Start and clocks per deck, the next bar, its own tempo, Sync, stem kill, DJ filter, Perform › Clock off, 0.9.98 (crossfader to FM-1 volume, Hold), each deck its FM-1 colours and Screen | Rows (screen, song row map, click to cue), Tap quickly (no redraw), Whole BPM, TX-6 button and crossfader, fader mirrored, full volume after';
   } finally {
     if (descriptor) Object.defineProperty(navigator, 'requestMIDIAccess', descriptor); else delete navigator.requestMIDIAccess;
   }

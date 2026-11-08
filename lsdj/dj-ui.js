@@ -32,7 +32,13 @@ let hooks = {devices: () => [], linkFor: () => null, access: () => null, outputF
 export function setDjHooks(h) { hooks = {...hooks, ...h}; }
 
 const now = () => performance.now();
-const master = {bpm: clampBpm(+store.get('dj-bpm', 120)), clock: null, source: 'page', ext: null, tap: tapper()};
+/* whole: Whole BPM (kept in this browser): every tempo set here snaps to a whole number (tap, typing, the mixer's +/-) */
+const master = {bpm: clampBpm(+store.get('dj-bpm', 120)), clock: null, source: 'page', ext: null, tap: tapper(),
+  whole: store.get('dj-whole', '0') === '1'};
+/* a tempo as set here: whole, or to a tenth */
+const tempoOf = b => { const c = clampBpm(b); return master.whole ? Math.round(c) : Math.round(c * 10) / 10; };
+const bpmText = b => master.whole ? String(Math.round(b)) : b.toFixed(1);
+if (master.whole) master.bpm = tempoOf(master.bpm);
 const mixer = {id: store.get('dj-mixer', 'none'), inId: store.get('dj-mixer-in', ''), outId: store.get('dj-mixer-out', ''),
   map: JSON.parse(store.get('dj-mixer-map', '[1,2]')), learned: loadLearned(store.get('dj-learned', '[]')), learning: null,
   xfader: 0.5, curve: store.get('dj-curve', 'smooth'), faders: {}, input: null, note: ''};
@@ -58,10 +64,19 @@ function masterNow(t = now()) {
   const b = e.bpm || master.bpm;
   return {phase: e.ticks + Math.min(1, (t - e.lastAt) * b * PPQN / 60000), bpm: b};
 }
+/* A tempo change updates the numbers only (the readout, by tick; the box, here), never the whole layout: Tap
+   pressed quickly redrew both decks, their rows and the mixer on every tap and could freeze the page. */
 function setMasterBpm(b) {
-  master.bpm = clampBpm(b); store.set('dj-bpm', String(master.bpm));
+  master.bpm = tempoOf(b); store.set('dj-bpm', String(master.bpm));
   master.clock?.setTempo(master.bpm);
-  draw();
+  const i = mixer.ui?.bpmIn;
+  if (i && i.ownerDocument.activeElement !== i) i.value = master.bpm;
+}
+function setWhole(on) {
+  master.whole = on; store.set('dj-whole', on ? '1' : '0');
+  setMasterBpm(master.bpm);
+  decks.forEach(d => setDeckBpm(d, d.bpm));
+  draw();   /* the boxes' steps */
 }
 function masterPlay() {
   if (master.source !== 'page') { mixerSend('play'); return; }   /* an outside master: ask it (a mixer that takes it) */
@@ -148,7 +163,11 @@ function deckSync(d) {
   draw();
 }
 const nudge = (d, dir) => { if (d.clock?.running) d.clock.bend(dir ? 1 + dir * NUDGE : 1); };
-function setDeckBpm(d, b) { d.bpm = clampBpm(b); d.clock?.setTempo(d.bpm); draw(); }
+function setDeckBpm(d, b) {   /* (the numbers only, as setMasterBpm) */
+  d.bpm = tempoOf(b); d.clock?.setTempo(d.bpm);
+  const i = d.ui?.bpmIn;
+  if (i && i.ownerDocument.activeElement !== i) i.value = d.bpm;
+}
 
 /* FM-1 sends, coalesced (a knob turned quickly sends at most every 60 ms) */
 function pushFx(d) {
@@ -350,9 +369,10 @@ function act(a) {
   case 'start': if (d) deckPlay(d); break;
   case 'cue': if (d) cueRow(d); break;
   case 'play': masterPlay(); break;
-  case 'tempo': setMasterBpm(master.bpm + a.v); break;
+  case 'tempo': setMasterBpm(master.bpm + (master.whole ? Math.sign(a.v) * Math.max(1, Math.round(Math.abs(a.v))) : a.v)); break;   /* (whole: a step of 1 at least) */
   }
-  drawMixer();
+  if (['start', 'cue', 'play'].includes(a.act)) drawMixer();   /* a press: Play / Stop may change */
+  else mixerNumbers();   /* a fader, a knob, an encoder: many a second, the numbers only */
 }
 /* the crossfader: the mixer's two deck channels when it takes volumes; else (no mixer) each FM-1's volume, 0.9.98 */
 function setXfader(v) {
@@ -366,7 +386,7 @@ function setXfader(v) {
     ? (fm1s.length && fm1s.every(d => fwOf(d) >= 998) ? 'Without a MIDI mixer the crossfader sets each FM-1\'s volume (times its MASTER knob).'
       : 'Without a MIDI mixer the crossfader sets each FM-1\'s volume: that needs 0.9.98 on the FM-1s.')
     : sent ? '' : 'This mixer doesn\'t take its volumes from the page: the crossfader shows here only.';
-  drawMixer();
+  mixerNumbers();   /* (dragged: the numbers only, never the slider itself) */
 }
 function setMixerIn(id) {
   mixer.input?.removeEventListener?.('midimessage', hearMixer);
@@ -414,7 +434,8 @@ function drawDeck(d) {
   u.body.replaceChildren();
   if (!d.key) { u.body.append(el('p', {className: 'hint', textContent: 'Choose an FM-1 or another MIDI device for this deck.'})); return; }
   const running = !!d.clock?.running;
-  const bpmIn = el('input', {type: 'number', min: 40, max: 295, step: 0.1, value: d.bpm, className: 'dj-bpm-in', onchange: () => setDeckBpm(d, +bpmIn.value)});
+  const bpmIn = el('input', {type: 'number', min: 40, max: 295, step: master.whole ? 1 : 0.1, value: d.bpm, className: 'dj-bpm-in', onchange: () => setDeckBpm(d, +bpmIn.value)});
+  u.bpmIn = bpmIn;
   bpmIn.setAttribute('aria-label', `Deck ${NAMES[d.i]} tempo`);
   u.bpm = el('div', {className: 'dj-bpm'});
   u.phase = el('div', {className: 'dj-phase', ariaHidden: 'true'}, ...[0, 1, 2, 3].map(() => el('span')));
@@ -498,19 +519,24 @@ function drawMixer() {
   const g = crossfade(mixer.xfader, mixer.curve);
   const chSel = i => sel(Array.from({length: p.channels}, (_, c) => [String(c + 1), `ch ${c + 1}`]), String(mixer.map[i] || i + 1),
     v => { mixer.map[i] = +v; store.set('dj-mixer-map', JSON.stringify(mixer.map)); }, `Deck ${NAMES[i]}'s mixer channel`);
-  const meters = [0, 1].map(i => el('div', {className: 'dj-meter'}, el('b', {textContent: NAMES[i]}),
-    el('span', {style: `--v:${(mixer.faders[mixer.map[i]] ?? g[i]).toFixed(3)}`}), el('small', {textContent: mixer.faders[mixer.map[i]] != null ? 'fader' : 'xfade'})));
+  const meterParts = [0, 1].map(() => ({bar: el('span'), src: el('small')}));
+  const meters = meterParts.map((x, i) => el('div', {className: 'dj-meter'}, el('b', {textContent: NAMES[i]}), x.bar, x.src));
+  const note = el('p', {className: 'hint'});
   const source = sel([['page', 'This page'], ...ports.ins.map(x => [x.id, `Clock from ${x.name}`])], master.source, setSource, 'Master clock');
   const mb = masterNow();
-  const bpmIn = el('input', {type: 'number', min: 40, max: 295, step: 0.1, value: master.source === 'page' ? master.bpm : (mb.bpm || ''), disabled: master.source !== 'page',
+  const bpmIn = el('input', {type: 'number', min: 40, max: 295, step: master.whole ? 1 : 0.1, value: master.source === 'page' ? master.bpm : (mb.bpm || ''), disabled: master.source !== 'page',
     onchange: () => setMasterBpm(+bpmIn.value), className: 'dj-bpm-in'});
   bpmIn.setAttribute('aria-label', 'Master tempo');
+  const big = el('div', {className: 'dj-bpm big', textContent: mb.bpm ? bpmText(mb.bpm) : '—'});
+  const whole = el('input', {type: 'checkbox', checked: master.whole, onchange: () => setWhole(whole.checked)});
+  mixer.ui = {bpmIn, big, xf, meters: meterParts, note};
   const running = master.source === 'page' ? !!master.clock?.running : !!master.ext?.running;
   m.replaceChildren(...[
     el('h4', {textContent: 'Master'}),
-    el('div', {className: 'dj-bpm big', textContent: mb.bpm ? mb.bpm.toFixed(1) : '—'}),
+    big,
     el('div', {className: 'dj-row'}, el('label', {}, 'BPM ', bpmIn),
-      btn('Tap', () => { const b = master.tap.tap(now()); if (b) setMasterBpm(b); }, {disabled: master.source !== 'page', title: 'Tap in time'})),
+      btn('Tap', () => { const b = master.tap.tap(now()); if (b) setMasterBpm(b); }, {disabled: master.source !== 'page', title: 'Tap in time'}),
+      el('label', {className: 'hint', title: 'Every tempo set here snaps to a whole number: Tap, typing, the decks, the mixer\'s tempo control'}, whole, ' Whole BPM')),
     el('div', {className: 'dj-row'}, btn(running ? '■ Stop all' : '▶ Play all', masterPlay, {className: running ? 'on' : ''}), source),
     el('h4', {textContent: 'Mixer'}),
     sel(PRESETS.map(x => [x.id, x.name + (x.verified ? '' : ' (unverified)')]), mixer.id, v => { mixer.id = v; store.set('dj-mixer', v); setXfader(mixer.xfader); draw(); }, 'Mixer'),
@@ -523,7 +549,23 @@ function drawMixer() {
     el('div', {className: 'dj-row'}, sel(CURVES.map(c => [c, {smooth: 'Smooth fade', linear: 'Linear', cut: 'Cut (scratch)'}[c]]), mixer.curve,
       v => { mixer.curve = v; store.set('dj-curve', v); setXfader(mixer.xfader); }, 'Crossfader curve')),
     p.id === 'learn' ? learnBox() : null,
-    mixer.note ? el('p', {className: 'hint', textContent: mixer.note}) : null].filter(Boolean));
+    note].filter(Boolean));
+  mixerNumbers();
+}
+/* the mixer's moving parts only (faders, crossfader, the note): a mixer sends many messages a second, and the
+   page's own crossfader is being dragged, so these never rebuild the panel */
+function mixerNumbers() {
+  const u = mixer.ui;
+  if (!u?.xf) return;
+  const g = crossfade(mixer.xfader, mixer.curve);
+  u.meters.forEach((x, i) => {
+    const f = mixer.faders[mixer.map[i]];
+    x.bar.style.setProperty('--v', (f ?? g[i]).toFixed(3));
+    x.src.textContent = f != null ? 'fader' : 'xfade';
+  });
+  const v = String(Math.round(mixer.xfader * 1000));
+  if (u.xf.value !== v) u.xf.value = v;   /* (dragged here: already that value) */
+  u.note.textContent = mixer.note; u.note.hidden = !mixer.note;
 }
 function learnBox() {
   const pick = sel(ACTIONS.map((a, i) => [String(i), actName(a)]), '0', () => {}, 'Action to learn');
@@ -547,13 +589,14 @@ function draw() {
 /* the moving parts, 20 times a second: tempo readouts, beat lights, the gap to the master, what the FM-1 says */
 function tick() {
   const t = now(), m = masterNow(t);
+  if (mixer.ui?.big) { const s = m.bpm ? bpmText(m.bpm) : '—'; if (mixer.ui.big.textContent !== s) mixer.ui.big.textContent = s; }   /* the master's tempo */
   decks.forEach(d => {
     const u = d.ui;
     if (!u?.bpm) return;
     const ph = d.clock?.phase(t) ?? null, pos = position(ph);
     /* not clocked by this page: the FM-1's own phrase row (0.9.98; a phrase is a bar, 4 rows a beat), as last polled */
     const own = ph == null ? fm1Row(d) : null;
-    u.bpm.textContent = own != null ? String(d.live.bpm) : (d.bpm * (d.clock?.factor || 1)).toFixed(1);
+    u.bpm.textContent = own != null ? String(d.live.bpm) : bpmText(d.bpm * (d.clock?.factor || 1));
     [...u.phase.children].forEach((s, b) => s.classList.toggle('on', pos ? pos.beat === b : own != null && (own >> 2) === b));
     const gap = offset(ph, m.phase);
     u.gap.textContent = gap != null ? (Math.abs(gap) < 0.5 ? 'in sync with the master' : `${gap > 0 ? 'behind' : 'ahead'} by ${(Math.abs(gap) / 6).toFixed(1)} rows`)
