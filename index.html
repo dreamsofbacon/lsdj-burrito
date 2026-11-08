@@ -189,12 +189,10 @@ body.dj #live-sec>#pan-screen,body.dj #live-sec>#pan-wire,body.dj #live-sec>#pan
 .dj-meter span{width:18px;height:70px;border-radius:4px;background:linear-gradient(to top,var(--accent) calc(var(--v)*100%),var(--line) 0)}
 .dj-learned{margin:4px 0;padding-left:18px;max-height:8em;overflow:auto}
 .dj-status{min-height:1.2em}
-.dj-map{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 8px;margin:6px 0;font-size:.85em}
-.dj-maprow{display:grid;grid-template-columns:2.4em repeat(4,1fr);gap:2px;padding:1px 4px;border:1px solid transparent;border-radius:4px;background:none;color:inherit;font:inherit;text-align:center}
-.dj-maprow b{color:var(--muted);font-weight:400;text-align:left}
-.dj-maprow span.on{background:var(--accent);color:var(--bg);border-radius:3px}
-.dj-maprow.cued{border-color:var(--accent)}
-.dj-maprow:disabled{opacity:.45}
+/* a deck: its FM-1's screen (where the song row map was), and its FM-1's theme colours (dj-ui.js paintDeck) */
+.dj-screen-box{margin:6px 0;border:1px solid var(--line);border-radius:8px;background:var(--card2);padding:4px}
+.dj-screen{display:block;width:100%;max-width:480px;height:auto;margin:0 auto;aspect-ratio:160/144;image-rendering:pixelated}
+.dj-deck.themed{background:var(--card);color:var(--ink);border-color:var(--accent)}
 #fx-muted{margin:6px 0 10px}
 /* the wiring (lsdj/fx-diagram.js) */
 .fm1-screen{max-width:480px;border:1px solid var(--line);border-radius:10px;background:var(--card2);padding:6px}
@@ -795,7 +793,7 @@ button.play{padding:0 5px;margin-right:3px;font-size:11px;line-height:1.5;min-wi
 <label class="check"><input id="rom-experimental" type="checkbox" disabled><span>I understand this firmware is experimental and may not start or sound right, and I have backed up my songs.</span></label>
 <div class="row"><button id="rom-build" type="button" class="primary" aria-describedby="rom-next" disabled>Prepare firmware</button><span class="hint">Builds the file on this computer. Nothing is installed yet.</span></div>
 <details><summary>What's in this version (0.9.98-dev.1)</summary>
-<p>New in 0.9.98-dev.1 (a test build): <b>a DJ layout</b> in Perform (Effects | DJ). A deck per FM-1, each with its own tempo, Sync and nudge, channel kills, a DJ filter, and the song's rows as a map. The FM-1 now tells the page each channel's phrase and song row, SYNC, live / song mode and the page volume; the page can set the FM-1's volume (the crossfader without a MIDI mixer, not saved), live / song mode, and read the song's rows. Mixer presets for the TX-6 and the K.O. sidekick, or MIDI learn. Older firmware still works with the page; the DJ extras need 0.9.98. Not yet tested on a real FM-1: the crossfader setting the FM-1's volume, Hold and the row map; the mixer presets are not yet checked against the mixers.</p>
+<p>New in 0.9.98-dev.1 (a test build): <b>a DJ layout</b> in Perform (Effects | DJ). A deck per FM-1, each with its own tempo, Sync and nudge, channel kills, a DJ filter, and the FM-1's own screen, in that FM-1's theme colours. The FM-1 now tells the page each channel's phrase and song row, SYNC, live / song mode and the page volume; the page can set the FM-1's volume (the crossfader without a MIDI mixer, not saved), and live / song mode. Mixer presets for the TX-6 and the K.O. sidekick, or MIDI learn. Older firmware still works with the page; the DJ extras need 0.9.98. Not yet tested on a real FM-1: the crossfader setting the FM-1's volume, and Hold; the mixer presets are not yet checked against the mixers.</p>
 <p>New on this page: Songs &amp; kits has an FM-1 list: choose which FM-1 to read from and send to, or search for FM-1s again. It looks by itself when MIDI is already allowed.</p>
 <p>New in 0.9.97:<b>a master reverb</b>. Press FX for the master pages; REVERB has MIX (0 is off), SIZE (a small room to a long hall, about 0.4 to 6 s) and TONE (dark to bright). Each channel sets how much it sends to it on LO-FI K4 (RV SND), as the echo's send is on LO-FI K3; turning a send up while the mix is 0 sets the mix to 64. MIDI: CC 92 is each channel's reverb send (next to CC 91, the echo send); CC 21, 22 and 23 are the reverb's mix, size and tone. On this page: Perform › Master (the REVERB card) and a slider per channel in the Channels panel; effects files and backups keep it.</p>
 <p><b>Every effect is on one page only.</b> MASTER: ALL FX, COMP, FREEZE. FILTER: FX ON, TYPE, CUTOFF, RESO (the filter type is back next to the cutoff). LO-FI: CRUSH, DECIMATE, echo SEND, reverb SEND. ECHO: TIME, FEEDBACK, MIX, TONE. ECHO MOD: WOBBLE, SYNC, MODE. (0.9.96 had the echo send on FILTER K2, the filter type on LO-FI K3, the echo mix and time on MASTER too, and FREEZE on ECHO MOD.)</p>

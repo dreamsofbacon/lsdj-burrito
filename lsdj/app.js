@@ -314,7 +314,7 @@ function watch(d) {
   const canvas = gridOn() && tiles.get(d)?.canvas;
   if (canvas) {   /* its screen in its tile, while the grid shows and nothing else needs the link */
     w.mirror = new ScreenMirror(w.link, canvas, {every: 33, clock: visibleWindow, push: firmwareNumber(d.info.firmware) >= 990,
-      active: () => gridOn() && !busy && !installing() && !connecting && seen(canvas)});
+      active: () => gridOn() && stageMode !== 'dj' && !busy && !installing() && !connecting && seen(canvas)});   /* DJ: the decks' own */
     w.mirror.start();
   }
   const step = async () => {
@@ -1040,7 +1040,8 @@ function startMirror() {
   box.hidden = !!tile; note.hidden = true;
   mirror = new ScreenMirror(link, canvas, {every: 33, clock: visibleWindow,
     push: fwNum >= 990,   // FM-1_990: the FM-1 sends each new picture by itself
-    active: () => connected && !busy && !installing() && seen(canvas) && (isOut('screen') || !$('live-sec').hidden),
+    active: () => connected && !busy && !installing() && seen(canvas) && (isOut('screen') || !$('live-sec').hidden) &&
+      stageMode !== 'dj',   /* the DJ layout: each deck shows its FM-1's screen on the same link (one mirror a link) */
     onSupport: ok => {
       if (tile) return;
       box.hidden = !ok; note.hidden = ok;
@@ -1186,6 +1187,16 @@ setDjHooks({
   outputFor: key => devices.find(x => portKey(x) === key)?.output || null,
   access: () => ports?.access || null,
   takeClock: () => { if (syncMode !== 'off') { setSync('off'); drawSync('The DJ layout clocks the FM-1s now: Clock here is off.'); } },
+  /* a deck's FM-1 screen: a mirror of its own on the deck's link, as Perform › Screen (paused there meanwhile) */
+  screen: (key, l, canvas, onSupport) => {
+    const d = devices.find(x => portKey(x) === key);
+    const fw = d ? firmwareNumber(d.info.firmware) : 0;
+    if (fw && fw < 983) { onSupport(false); return null; }
+    const m = new ScreenMirror(l, canvas, {every: 33, clock: visibleWindow, push: fw >= 990, onSupport,
+      active: () => stageMode === 'dj' && !busy && !installing() && !connecting && seen(canvas) && djLinkFor(key) === l});
+    m.start();
+    return m;
+  },
 });
 mountDj($('dj-root'));
 let stageMode = 'fx';

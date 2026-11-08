@@ -7,7 +7,8 @@
 //   starts / stops its deck, the crossfader sets its two channel volumes (CC 7).
 import {OP} from '../lsdj/link.js';
 import {djState} from '../lsdj/dj-ui.js';
-import {unpackFx} from '../lsdj/fx-model.js';
+import {unpackFx, unpackSettings, packSettings, PRESETS} from '../lsdj/fx-model.js';
+import {pageColours} from '../lsdj/page-theme.js';
 import {crossfade} from '../lsdj/dj.js';
 
 const $ = id => document.getElementById(id);
@@ -18,7 +19,8 @@ async function until(check, message, ms = 8000) {
   throw Error(message);
 }
 function fm1(n, title, fw = 'FM-1_997') {
-  const d = {n, title, midi: [], fxSets: [], mutes: [], levels: [], seqs: [], mapReads: [], level: 127, seq: 0};
+  const d = {n, title, midi: [], fxSets: [], mutes: [], levels: [], seqs: [], screens: 0, level: 127, seq: 0,
+    settings: packSettings({...unpackSettings(0x5a000000), theme: n % PRESETS.length})};   /* each its own theme */
   const fx = Array(68).fill(0);
   fx[36] = 5; fx[37] = 2; fx[42] = 0xf2; fx[38] = 1;
   d.input = Object.assign(new EventTarget(), {id: `in-${n}`, name: 'FM-1', state: 'connected', onmidimessage: null});
@@ -32,13 +34,13 @@ function fm1(n, title, fw = 'FM-1_997') {
     if (op === OP.FX_GET) return send(fx);
     if (op === OP.FX_SET) { d.fxSets.push(body); return send(); }
     if (op === OP.MUTE_SET) { d.mutes.push(body[0]); return send(); }
-    if (op === OP.SETTINGS_GET) return send([0, 0, 0, 0x5a]);
+    if (op === OP.SETTINGS_GET) return send([0, 8, 16, 24].map(s => (d.settings >>> s) & 255));
+    if (op >= OP.SCREEN_INFO && op <= OP.SCREEN_FRAME) d.screens++;   /* (no screen here: the deck says so) */
     if (op === OP.THEME_GET) return send(Array(16).fill(0));
     const dj = fw >= 'FM-1_998' ? [0x82, 5, 5, 5, 5, 2, 2, 2, 2, 3, d.seq, d.level] : [];
     if (op === OP.LIVE) return send([1, 1, 120, 0, d.mutes.at(-1) || 0, 0, 0, ...fx, ...dj]);
     if (fw >= 'FM-1_998' && op === OP.VOLUME_SET) { d.levels.push(body[0]); d.level = body[0]; return send(); }
     if (fw >= 'FM-1_998' && op === OP.SEQ_SET) { d.seqs.push(body[0]); d.seq = body[0]; return send(); }
-    if (fw >= 'FM-1_998' && op === OP.SONG_ROWS) { d.mapReads.push(body[0]); return send([body[0], ...Array.from({length: 64}, (_, i) => i % 4 ? 0xFF : (body[0] + i / 4) & 0x3F)]); }
     return send([], 1);
   }};
   return d;
@@ -118,7 +120,7 @@ export async function runDjUiTests() {
     assert(sent.ch.every(c => c.type === 1 && c.cutoff < 60), `all four channels low-pass: ${JSON.stringify(sent.ch.map(c => [c.type, c.cutoff]))}`);
     filt.value = '0'; filt.dispatchEvent(new Event('input'));
 
-    // 4b. 0.9.98 on B: no mixer, so the crossfader sets B's volume (VOLUME_SET); Hold (SEQ_SET); the song row map
+    // 4b. 0.9.98 on B: no mixer, so the crossfader sets B's volume (VOLUME_SET); Hold (SEQ_SET)
     const want = x => Math.round(crossfade(x, djState().mixer.curve)[1] * 127);
     await until(() => B.level === want(0.5), `B's volume from the crossfader in the middle: ${B.levels}, want ${want(0.5)}`);
     const xf0 = document.querySelector('.dj-xfader');
@@ -133,12 +135,18 @@ export async function runDjUiTests() {
     assert([...document.querySelectorAll('.dj-deck')][0].querySelector('button[title="Needs 0.9.98 on the FM-1"]')?.disabled, 'A (0.9.97): Hold off, with a note');
     hold.click();
     await until(() => B.seqs.at(-1) === 1, `Hold: SEQ_SET live: ${B.seqs}`);
-    await until(() => deckBEl.querySelectorAll('.dj-maprow').length === 16, 'B: the song row map, 16 rows', 4000);
-    const rowsShown = [...deckBEl.querySelectorAll('.dj-maprow')];
-    assert(/^00 00 -- -- --/.test(rowsShown[0].textContent.replace(/(..)(?=.)/g, '$1 ')), `row 00: chain 00 in PU1: ${rowsShown[0].textContent}`);
+    assert(!document.querySelector('.dj-map, .dj-maprow'), 'no song row map');
+
+    // 4c. each deck: its own FM-1's screen, asked on that FM-1's link (these fakes have none: the deck says so),
+    // and its own FM-1's theme colours
+    await until(() => A.screens > 0 && B.screens > 0, `each deck asks its own FM-1 for its screen: A ${A.screens}, B ${B.screens}`, 4000);
+    const decksEl = [...document.querySelectorAll('.dj-deck')];
+    await until(() => decksEl.every(e => /did not send its screen/.test(e.textContent)), 'no screen on these fakes: each deck says so', 4000);
+    const accent = d => pageColours(PRESETS[unpackSettings(d.settings).theme])['--accent'];
+    await until(() => decksEl.every(e => e.classList.contains('themed')), 'both decks themed', 4000);
+    assert(decksEl[0].style.getPropertyValue('--accent') === accent(A) && decksEl[1].style.getPropertyValue('--accent') === accent(B) && accent(A) !== accent(B),
+      `each deck in its FM-1's colours: ${decksEl.map(e => e.style.getPropertyValue('--accent'))} want ${accent(A)} ${accent(B)}`);
     B.midi.length = 0;
-    rowsShown[2].click();
-    assert(B.midi.some(m => m[0] === 0xc0 && m[1] === 2), `a click on row 02 cues it (program change 2): ${B.midi}`);
 
     // 5. the TX-6: its track 1 button stops deck A; the crossfader sets its channel 1 and 2 volumes
     const mixerSel = document.querySelector('.dj-mixer select[aria-label="Mixer"]');
@@ -163,7 +171,7 @@ export async function runDjUiTests() {
     assert(!document.body.classList.contains('dj') && getComputedStyle($('pan-chans')).display !== 'none', 'Effects layout back');
     await until(() => B.level === 127, `the Effects layout: B at full volume: ${B.levels}`);
     djState().decks.forEach(d => d.clock?.stop());
-    return 'PASS DJ layout: switch, decks on FM-1s, Start and clocks per deck, the next bar, its own tempo, Sync, stem kill, DJ filter, Perform › Clock off, 0.9.98 (crossfader to FM-1 volume, Hold, song row map), TX-6 button and crossfader, fader mirrored, full volume after';
+    return 'PASS DJ layout: switch, decks on FM-1s, Start and clocks per deck, the next bar, its own tempo, Sync, stem kill, DJ filter, Perform › Clock off, 0.9.98 (crossfader to FM-1 volume, Hold), each deck its FM-1 screen and colours, TX-6 button and crossfader, fader mirrored, full volume after';
   } finally {
     if (descriptor) Object.defineProperty(navigator, 'requestMIDIAccess', descriptor); else delete navigator.requestMIDIAccess;
   }

@@ -12,19 +12,22 @@
 //   The mixer: a preset (mixers.js) or MIDI learn. Its controls drive the decks; the page's faders and crossfader
 //   set its channel volumes when it takes them. Without a mixer the crossfader sets each FM-1's volume (0.9.98:
 //   VOLUME_SET, times the MASTER knob; put back to full when the deck is emptied, the mixer changes or the layout
-//   closes). 0.9.98 also gives: Hold (LSDj's live mode: each channel loops its chain), the song row map (click a row
-//   to cue it), a SYNC check, and beat lights from the FM-1's own phrase rows when this page isn't clocking it.
+//   closes). 0.9.98 also gives: Hold (LSDj's live mode: each channel loops its chain), a SYNC check, and beat lights
+//   from the FM-1's own phrase rows when this page isn't clocking it.
+//   Each FM-1 deck shows its FM-1's screen (as Perform › Screen; FM-1_983 and newer), on that FM-1's link.
 import {startClock, clampBpm, PPQN, CLOCK, START, CONTINUE, STOP} from './midiclock.js';
 import {BAR, BEAT, NUDGE, position, offset, syncBend, nextOn, crossfade, CURVES, djFilter, tapper, clockMeter} from './dj.js';
 import {PRESETS, preset, readMidi, actionFor, out, learnRule, saveLearned, loadLearned} from './mixers.js';
-import {unpackFx, packFx, unpackReverb, packReverb, packReverbSends, CHANNELS, firmwareNumber} from './fx-model.js';
+import {unpackFx, packFx, unpackReverb, packReverb, packReverbSends, CHANNELS, firmwareNumber, unpackSettings, PRESETS as THEME_COLOURS, CUSTOM_THEME} from './fx-model.js';
+import {pageColours} from './page-theme.js';
 
 const el = (tag, props = {}, ...kids) => { const e = Object.assign(document.createElement(tag), props); e.append(...kids.filter(k => k != null)); return e; };
 const store = {get: (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* this visit */ } }};
 const NAMES = ['A', 'B'];
 /* app.js: devices() -> [{key, label, fw}] (the FM-1s plugged in), linkFor(key) -> a Link or null, access() -> MIDIAccess
-   or null, outputFor(key) -> the FM-1's MIDI output, takeClock() (Perform › Clock goes off: two clocks would fight) */
-let hooks = {devices: () => [], linkFor: () => null, access: () => null, outputFor: () => null, takeClock: () => {}};
+   or null, outputFor(key) -> the FM-1's MIDI output, takeClock() (Perform › Clock goes off: two clocks would fight),
+   screen(key, link, canvas, onSupport) -> a started screen mirror ({stop}) on that link, or null */
+let hooks = {devices: () => [], linkFor: () => null, access: () => null, outputFor: () => null, takeClock: () => {}, screen: () => null};
 export function setDjHooks(h) { hooks = {...hooks, ...h}; }
 
 const now = () => performance.now();
@@ -34,8 +37,8 @@ const mixer = {id: store.get('dj-mixer', 'none'), inId: store.get('dj-mixer-in',
   xfader: 0.5, curve: store.get('dj-curve', 'smooth'), faders: {}, input: null, note: ''};
 const decks = [0, 1].map(i => ({i, key: '', kind: '', bpm: master.bpm, clock: null, live: null, fx: null, rv: null, base: null,
   kill: 0, killOnBar: store.get('dj-killbar', '0') === '1', filter: 0, filterBy: 'fm1', throwBy: 'fm1', row: 0, sendTimer: 0, ui: null,
-  level: null, levelSent: 127, levelBusy: false, map: null, mapFrom: -1, mapAt: 0}));
-let root = null, ticker = 0, polling = 0;
+  level: null, levelSent: 127, levelBusy: false, scr: null, scrLink: null, scrOk: true}));
+let root = null, ticker = 0, polling = 0, shown = false;
 /* the deck's FM-1 firmware number (998: 0.9.98), 0 for other gear */
 const fwOf = d => d.kind === 'fm1' ? firmwareNumber(hooks.devices().find(x => x.key === d.key)?.fw) || 0 : 0;
 const hex2 = n => n.toString(16).toUpperCase().padStart(2, '0');
@@ -105,7 +108,8 @@ async function assign(d, value) {
   d.clock?.stop(); d.clock?.close(); d.clock = null;
   if (d.kind === 'fm1' && d.levelSent !== 127) void fullVolume(d.key);   /* the FM-1 leaving the deck: full volume again */
   d.key = ''; d.kind = ''; d.live = null; d.fx = null; d.rv = null; d.base = null; d.kill = 0; d.filter = 0;
-  d.level = null; d.levelSent = 127; d.map = null; d.mapFrom = -1;
+  d.level = null; d.levelSent = 127; d.scrOk = true; d.themeAt = 0;
+  paintDeck(d, null);
   if (value) { const [kind, ...k] = value.split(':'); d.kind = kind; d.key = k.join(':'); }
   draw();
   if (d.kind !== 'fm1') return;
@@ -119,6 +123,7 @@ async function assign(d, value) {
     }
     d.base = structuredClone({ch: d.fx.ch, echo: d.fx.echo, rv: d.rv});
   } catch (e) { say(`Deck ${NAMES[d.i]}: ${e.message}`); }
+  await deckTheme(d, l);
   draw();
 }
 function deckPlay(d) {
@@ -237,18 +242,36 @@ async function deckHold(d) {
   } catch (e) { say(`Deck ${NAMES[d.i]}: ${e.message}`); }
   drawDeck(d);
 }
-/* 0.9.98: 16 song rows around where the deck plays, read again when it moves on or every few seconds */
-async function readMap(d, l) {
-  const rows = (d.live?.songRows || []).filter((r, c) => r != null && (d.live.playing >> c) & 1);
-  const at = rows.length ? Math.min(...rows) : d.row;
-  const from = Math.max(0, Math.min(240, at - 4));
-  if (d.map && Math.abs(from - d.mapFrom) < 6 && now() - d.mapAt < 4000) return;
-  const map = await l.songRows(from);
-  if (map) { d.map = map; d.mapFrom = from; d.mapAt = now(); }
+/* each FM-1 deck in its FM-1's colours (its THEME setting; CUSTOM: its own colours), as the page takes the theme of
+   the FM-1 in use (page-theme.js). Read when the deck is chosen and every so often after (a theme changed on it). */
+const THEME_VARS = Object.keys(pageColours(Array(8).fill(0)));
+async function deckTheme(d, l) {
+  d.themeAt = now();
+  try {
+    const id = unpackSettings(await l.settingsGet()).theme;
+    const colours = id === CUSTOM_THEME ? await l.themeGet() : THEME_COLOURS[id];
+    if (d.kind === 'fm1' && hooks.linkFor(d.key) === l) paintDeck(d, colours ? pageColours(colours) : null);
+  } catch { /* the colours stay as they are */ }
+}
+function paintDeck(d, vars) {
+  const box = d.ui?.box;
+  if (!box) return;
+  THEME_VARS.forEach(k => box.style.removeProperty(k));
+  if (vars) Object.entries(vars).forEach(([k, v]) => box.style.setProperty(k, v));
+  box.classList.toggle('themed', !!vars);
+}
+/* each FM-1 deck's screen, while the DJ layout shows: a mirror on the deck's FM-1 link, started again when that
+   link changes (another FM-1 taken into use, a watcher started or ended), stopped when the deck is emptied */
+function deckScreen(d) {
+  const want = shown && d.kind === 'fm1' && d.ui?.screen ? hooks.linkFor(d.key) : null;
+  if (want === d.scrLink && (!want || d.scr || !d.scrOk)) return;   /* (no screen on its firmware: not asked again) */
+  d.scr?.stop(); d.scr = null; d.scrLink = want;
+  if (want) d.scr = hooks.screen(d.key, want, d.ui.screen, ok => { if (d.scrOk !== ok) { d.scrOk = ok; drawDeck(d); } });
 }
 /* each FM-1 deck's LIVE, a few times a second: its own tempo, what plays, its mutes (0.9.98: rows, SYNC, mode) */
 async function poll() {
   for (const d of decks) {
+    deckScreen(d);
     if (d.kind !== 'fm1') continue;
     const l = hooks.linkFor(d.key);
     if (!l) continue;
@@ -256,7 +279,7 @@ async function poll() {
       d.live = await l.live();
       if (d.live.level != null && !d.levelBusy) d.levelSent = d.live.level;
       if (d.live.level != null && d.levelSent !== (d.level ?? 127)) void sendLevel(d);   /* power cycled, or another page */
-      if (fwOf(d) >= 998) { await readMap(d, l); drawMap(d); }
+      if (now() - (d.themeAt || 0) > 8000) await deckTheme(d, l);
     } catch { d.live = null; }
   }
 }
@@ -397,26 +420,12 @@ function drawDeck(d) {
     u.body.append(el('div', {className: 'dj-row'}, el('label', {}, 'Row ', row), btn('Cue row', () => cueRow(d), {title: 'Plays that song row at the next bar (FM-1: PC CUE on)'}),
       u.hold = btn(held ? 'Held' : 'Hold', () => void deckHold(d), {disabled: !has98, className: held ? 'on' : '',
         title: has98 ? 'LSDj live mode: each channel loops its chain until you cue another. Again: song mode.' : 'Needs 0.9.98 on the FM-1'}),
-      has98 ? null : el('span', {className: 'hint', textContent: 'Hold and the row map need 0.9.98.'})));
-    if (has98) { u.map = el('div', {className: 'dj-map mono', role: 'group', ariaLabel: `Deck ${NAMES[d.i]} song rows`}); u.body.append(u.map); drawMap(d); }
-    else u.map = null;
+      has98 ? null : el('span', {className: 'hint', textContent: 'Hold needs 0.9.98.'})));
+    u.body.append(d.scrOk ? el('div', {className: 'dj-screen-box'}, u.screen)
+      : el('p', {className: 'hint', textContent: fw >= 983 ? 'This FM-1 did not send its screen. Choose the deck again to retry.' : `This FM-1's screen shows here with FM-1_983 or newer (it runs ${fw ? `FM-1_${fw}` : 'older firmware'}).`}));
     u.info = el('p', {className: 'hint dj-info'});
     u.body.append(u.info);
   }
-}
-/* the song row map: 16 rows, a chain per channel (-- empty); the rows playing marked; a click cues that row */
-function drawMap(d) {
-  const u = d.ui;
-  if (!u?.map) return;
-  if (!d.map) { u.map.replaceChildren(el('span', {className: 'hint', textContent: 'Reading the song…'})); return; }
-  const at = d.live?.songRows || [], playing = d.live?.playing || 0;
-  u.map.replaceChildren(...d.map.map((chains, i) => {
-    const r = d.mapFrom + i, here = chains.map((c, ch) => (playing >> ch) & 1 && at[ch] === r);
-    const b = btn('', () => { d.row = r; cueRow(d); drawDeck(d); }, {className: `dj-maprow${here.some(Boolean) ? ' here' : ''}${r === d.row ? ' cued' : ''}`,
-      disabled: r > 127, title: r > 127 ? 'A program change cues rows 00–7F only' : `Cue row ${hex2(r)}`});
-    b.append(el('b', {textContent: hex2(r)}), ...chains.map((c, ch) => el('span', {className: here[ch] ? 'on' : '', textContent: c == null ? '--' : hex2(c)})));
-    return b;
-  }));
 }
 function drawMixer() {
   if (!root) return;
@@ -470,6 +479,7 @@ function draw() {
     d.ui.pick.replaceChildren(...deckChoices().map(([v, t]) => new Option(t, v)));
     d.ui.pick.value = d.key ? `${d.kind}:${d.key}` : '';
     drawDeck(d);
+    deckScreen(d);
   });
   drawMixer();
 }
@@ -514,18 +524,22 @@ export function mountDj(box) {
     const pick = el('select', {onchange: () => void assign(d, pick.value)});
     pick.setAttribute('aria-label', `Deck ${NAMES[d.i]}`);
     const body = el('div', {className: 'dj-deck-body'});
-    d.ui = {pick, body};
-    return el('section', {className: 'dj-deck', ariaLabel: `Deck ${NAMES[d.i]}`}, el('h4', {}, `Deck ${NAMES[d.i]} `, pick), body);
+    const screen = el('canvas', {width: 160, height: 144, className: 'dj-screen', role: 'img', ariaLabel: `Deck ${NAMES[d.i]}: the FM-1's screen`});
+    const box = el('section', {className: 'dj-deck', ariaLabel: `Deck ${NAMES[d.i]}`}, el('h4', {}, `Deck ${NAMES[d.i]} `, pick), body);
+    d.ui = {pick, body, screen, box};
+    return box;
   };
   box.replaceChildren(el('div', {className: 'dj-grid'}, deckBox(decks[0]), el('section', {className: 'dj-mixer', ariaLabel: 'Master and mixer'}), deckBox(decks[1])),
     statusEl,
-    el('p', {className: 'hint', textContent: 'Each deck follows this page\'s clock at its own tempo. On each FM-1: LSDj PROJECT › SYNC = MIDI (or KEYBD with 0.9.97), GLO › MIDI › CLOCK IN = ALL or USB, TRANSPORT ON; for Cue row and the row map, PC CUE ON. The audio goes through your mixer as usual; without one, the crossfader sets each FM-1\'s volume (0.9.98).'}));
+    el('p', {className: 'hint', textContent: 'Each deck follows this page\'s clock at its own tempo. On each FM-1: LSDj PROJECT › SYNC = MIDI (or KEYBD with 0.9.97), GLO › MIDI › CLOCK IN = ALL or USB, TRANSPORT ON; for Cue row, PC CUE ON. The audio goes through your mixer as usual; without one, the crossfader sets each FM-1\'s volume (0.9.98).'}));
   if (mixer.inId) setMixerIn(mixer.inId);
   draw();
 }
 /* the DJ layout shown or hidden: the readouts and FM-1 polls run only while it shows */
 export function djShown(on) {
   clearInterval(ticker); clearInterval(polling); ticker = polling = 0;
+  shown = on;
+  decks.forEach(deckScreen);   /* the screens run only while the layout shows */
   if (!on) { decks.forEach(d => deckLevel(d, null)); return; }   /* the Effects layout: the FM-1s at full volume */
   applyVolumes();
   draw();
