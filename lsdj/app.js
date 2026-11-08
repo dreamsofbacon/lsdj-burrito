@@ -781,6 +781,7 @@ function buildFx() {
   bar.append(all);
   box.classList.toggle('all', allPages);
   $('pan-chans').classList.toggle('allpages', allPages);
+  queueFit();
   /* the column heads: the channel, what is on, under the cursor, playing */
   const head = $('fx-channels'); head.replaceChildren(document.createElement('div'), document.createElement('div'));
   CHANNELS.forEach((name, c) => {
@@ -790,6 +791,62 @@ function buildFx() {
   });
   refresh();
 }
+/* All on a screen of fixed size (CSS --allfit: Perform's stage, the panel in its own window): the pages fill the
+   Channels panel, 2 x 2 (a row of four when it is very wide, a column when very tall), and the text is sized, as
+   large as fits, so there are no scrollbars. Again whenever the panel changes size. */
+function fitAll() {
+  const box = $('fx-pages'), panel = $('pan-chans');
+  if (!box || !panel) return;
+  const win = box.ownerDocument.defaultView;
+  const on = allPages && win.getComputedStyle(box).getPropertyValue('--allfit').trim() === '1';
+  box.classList.toggle('fit', on); panel.classList.toggle('allfit', on);
+  if (!on) { box.style.removeProperty('--allfs'); box.style.removeProperty('--allc'); return; }
+  const n = box.querySelectorAll('.fx-card').length;
+  const fits = () => panel.scrollHeight <= panel.clientHeight + 1 && panel.scrollWidth <= panel.clientWidth + 1 &&
+    [...box.querySelectorAll('.fx-card')].every(c => c.scrollHeight <= c.clientHeight + 1 && c.scrollWidth <= c.clientWidth + 1);
+  const largest = cols => {   // the largest text, times the panel's own size, that fits with this many columns
+    box.style.setProperty('--allc', cols);
+    let lo = .3, hi = 1.6;
+    for (let i = 0; i < 9; i++) {
+      const mid = (lo + hi) / 2;
+      box.style.setProperty('--allfs', mid + 'em');
+      if (fits()) lo = mid; else hi = mid;
+    }
+    return lo;
+  };
+  /* 2 x 2 unless a row (or a column) of the pages gives clearly larger text */
+  let best = {cols: Math.min(2, n), fs: largest(Math.min(2, n))};
+  for (const cols of n > 2 ? [n, 1] : []) { const fs = largest(cols); if (fs > best.fs * 1.15) best = {cols, fs}; }
+  box.style.setProperty('--allc', best.cols); box.style.setProperty('--allfs', best.fs + 'em');
+  if (best.fs < .55) {   // too small to read (a tiny window): the pages as usual, the panel scrolls
+    box.classList.remove('fit'); panel.classList.remove('allfit');
+    box.style.removeProperty('--allfs'); box.style.removeProperty('--allc');
+  }
+}
+let fitQueued = false, fitWatch = null, fitWin = null;
+function queueFit() {
+  const panel = $('pan-chans'); if (!panel) return;
+  const win = panel.ownerDocument.defaultView;
+  if (fitWin !== win) {   // the panel moved to its own window or back: watch it there
+    fitWatch?.disconnect();
+    fitWatch = new win.ResizeObserver(() => queueFit()); fitWatch.observe(panel); fitWin = win;
+  }
+  if (fitQueued) return;
+  fitQueued = true;
+  win.requestAnimationFrame(() => { fitQueued = false; fitAll(); });
+}
+/* Perform's stage (wide screens): laid out at 1920 x 1080, then scaled to the window as a whole (CSS zoom), so
+   every panel keeps its proportions and nothing scrolls on any screen size. */
+const STAGE = '(min-width:961px) and (min-height:440px) and (orientation:landscape)';
+function stageZoom() {
+  const on = document.body.classList.contains('perform') && matchMedia(STAGE).matches && CSS.supports('zoom', '1');
+  document.body.classList.toggle('stage-zoom', on);
+  if (on) document.body.style.setProperty('--stagez', String(Math.min(innerHeight, innerWidth * 9 / 16) / 1080));
+  else document.body.style.removeProperty('--stagez');
+  queueFit();
+}
+addEventListener('resize', stageZoom);
+new MutationObserver(stageZoom).observe(document.body, {attributes: true, attributeFilter: ['class']});
 /* Everything shown from fx (and the live state): values, the page, the cursor, mutes. */
 function refresh(hot = []) {
   if (!fx) return;
