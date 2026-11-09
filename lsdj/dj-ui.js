@@ -555,7 +555,7 @@ function drawDeck(d) {
     if (view === 'rows') { u.map = el('div', {className: 'dj-map mono', role: 'group', ariaLabel: `Deck ${NAMES[d.i]} song rows`}); box.append(u.map); }
     else box.append(d.scrOk ? u.screen
       : el('p', {className: 'hint dj-view-note', textContent: fw >= 983 ? 'This FM-1 did not send its screen. Choose the deck again to retry.' : `This FM-1's screen shows here with FM-1_983 or newer (it runs ${fw ? `FM-1_${fw}` : 'older firmware'}).`}));
-    display.append(box);
+    display.append(el('div', {className: 'dj-view-area'}, box));   /* the box at the screen's shape, as big as fits */
     top.append(el('div', {className: 'seg dj-view', role: 'group', ariaLabel: `Deck ${NAMES[d.i]}: show`},
       viewBtn('screen', 'Screen', "The FM-1's screen"),
       viewBtn('rows', 'Rows', has98 ? 'The song rows: tap one to cue it at the next bar' : 'Needs 0.9.98 on the FM-1', !has98)), display);
