@@ -140,7 +140,7 @@ export async function runDjUiTests() {
     // itself; a new master tempo is followed; on a stopped deck it takes the tempo at once; typing a tempo lets go
     const deckBEl0 = () => [...document.querySelectorAll('.dj-deck')][1];
     const syncB = () => deckBEl0().querySelector('.dj-sync');
-    assert(deckB.synced && syncB().classList.contains('on') && syncB().textContent === 'Sync', 'Sync lit while on');
+    assert(deckB.synced && syncB().classList.contains('on') && syncB().textContent === 'SYNC', 'Sync lit while on');
     const barGap = () => offset(deckB.clock.phase(), djState().master.clock.phase());
     await until(() => Math.abs(barGap()) < 0.75, `B on the master's bar: ${barGap()}`, 4000);
     deckB.clock.bend(1.6); await sleep(400); deckB.clock.bend(1);   /* pushed off, as a drift would */
@@ -170,7 +170,7 @@ export async function runDjUiTests() {
     killNoi.click();
     await until(() => A.mutes.at(-1) === 8, `NOI muted on A: ${A.mutes}`);
     assert(B.mutes.length === 0, 'B untouched');
-    const filt = [...document.querySelectorAll('.dj-deck')][0].querySelector('.dj-filter');
+    const filt = document.querySelectorAll('.dj-mixer .dj-filter')[0];   /* deck A's FILTER, on its mixer strip */
     filt.value = '-40'; filt.dispatchEvent(new Event('input'));
     await until(() => A.fxSets.length > 0, 'the filter sent');
     const words = []; const b = A.fxSets.at(-1); for (let i = 0; i < b.length; i += 4) words.push((b[i] | b[i + 1] << 8 | b[i + 2] << 16 | b[i + 3] << 24) >>> 0);
@@ -193,6 +193,21 @@ export async function runDjUiTests() {
     await until(() => /\+4\.00 %/.test([...document.querySelectorAll('.dj-deck')][1].querySelector('.dj-pitch-txt').textContent), 'the display: +4.00 %', 1000);
     pitchB.dispatchEvent(new MouseEvent('dblclick'));
     assert(djState().decks[1].bpm === 120, `double-click: the master's tempo: ${djState().decks[1].bpm}`);
+
+    // 4a'. the jog wheel: turned clockwise, deck A runs faster while it turns, then back; anticlockwise, slower
+    location.hash = '#live-sec'; await sleep(300);   /* (shown: the wheel has a size) */
+    const deckA0 = djState().decks[0], jogA = [...document.querySelectorAll('.dj-deck')][0].querySelector('.dj-jogwheel');
+    const jr = jogA.getBoundingClientRect(), jx = jr.left + jr.width / 2, jy = jr.top + jr.height / 2, rad = jr.width * 0.4;
+    const jogAt = deg => ({clientX: jx + rad * Math.cos(deg * Math.PI / 180), clientY: jy + rad * Math.sin(deg * Math.PI / 180), pointerId: 1, bubbles: true});
+    jogA.dispatchEvent(new PointerEvent('pointerdown', jogAt(-90)));
+    jogA.dispatchEvent(new PointerEvent('pointermove', jogAt(-60)));
+    assert(deckA0.clock.factor > 1 && deckA0.nudging, `jog clockwise: faster: ${deckA0.clock.factor}`);
+    await sleep(250);
+    assert(deckA0.clock.factor === 1 && !deckA0.nudging, `jog stopped turning: back to its tempo: ${deckA0.clock.factor}`);
+    jogA.dispatchEvent(new PointerEvent('pointermove', jogAt(-90)));
+    assert(deckA0.clock.factor < 1, `jog anticlockwise: slower: ${deckA0.clock.factor}`);
+    jogA.dispatchEvent(new PointerEvent('pointerup', jogAt(-90)));
+    assert(deckA0.clock.factor === 1, 'let go: back to its tempo');
 
     // 4b. 0.9.98 on B: no mixer, so the crossfader sets B's volume (VOLUME_SET); Hold (SEQ_SET)
     const want = x => Math.round(crossfade(x, djState().mixer.curve)[1] * 127);
@@ -250,7 +265,8 @@ export async function runDjUiTests() {
     assert(B.mapReads.join().startsWith('0,16,32,48'), `one 16-row block a request, in order: ${B.mapReads}`);
     assert(boxSize(decksEl[1]) === sizeScreen, `the same size on Rows as on Screen (box w,h, deck h): ${boxSize(decksEl[1])} vs ${sizeScreen}`);
     const map = decksEl[1].querySelector('.dj-map');
-    assert(map.scrollWidth > map.clientWidth && rowsShown0Top(map), 'columns of 16 rows, more sideways');
+    /* columns of 16 rows (row 10 level with row 00, to its right); four fit here, or the rest sideways */
+    assert(rowsShown0Top(map) && (map.scrollWidth > map.clientWidth || map.querySelectorAll('.dj-maprow')[48].getBoundingClientRect().right <= map.getBoundingClientRect().right + 1), `columns of 16 rows: ${map.scrollWidth} / ${map.clientWidth}`);
     assert(viewBtn(decksEl[1], 'Rows').classList.contains('on') && !decksEl[1].querySelector('.dj-screen'), 'B: Rows on, no screen');
     const rowsShown = [...decksEl[1].querySelectorAll('.dj-maprow')];
     assert(/^00 00 -- -- --/.test(rowsShown[0].textContent.replace(/(..)(?=.)/g, '$1 ')), `row 00: chain 00 in PU1: ${rowsShown[0].textContent}`);
@@ -265,7 +281,7 @@ export async function runDjUiTests() {
 
     // 4e. Tap pressed quickly: the tempo follows, and the layout is not redrawn (each tap redrew both decks, their
     // rows and the mixer, and froze Colin's page); then Whole BPM: every tempo snaps to a whole number
-    const tapBtn = () => [...document.querySelectorAll('.dj-mixer button')].find(b => b.textContent === 'Tap');
+    const tapBtn = () => [...document.querySelectorAll('.dj-mixer button')].find(b => b.textContent === 'TAP');
     const kept = [tapBtn(), ...document.querySelectorAll('.dj-deck-body > *')];
     for (let i = 0; i < 16; i++) { tapBtn().click(); await sleep(i % 2 ? 230 : 270); }
     const tapped = djState().master.bpm, big = () => document.querySelector('.dj-mixer .dj-bpm.big').textContent;
