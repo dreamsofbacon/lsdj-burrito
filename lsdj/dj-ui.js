@@ -75,7 +75,7 @@ function setMasterBpm(b) {
 function setWhole(on) {
   master.whole = on; store.set('dj-whole', on ? '1' : '0');
   setMasterBpm(master.bpm);
-  decks.forEach(d => setDeckBpm(d, d.bpm));
+  decks.forEach(d => d.synced ? followMaster(d) : setDeckBpm(d, d.bpm));   /* (synced: the master's, now whole) */
   draw();   /* the boxes' steps */
 }
 function masterPlay() {
@@ -124,7 +124,7 @@ function deckClock(d) {
 async function assign(d, value) {
   d.clock?.stop(); d.clock?.close(); d.clock = null;
   if (d.kind === 'fm1' && d.levelSent !== 127) void fullVolume(d.key);   /* the FM-1 leaving the deck: full volume again */
-  d.key = ''; d.kind = ''; d.live = null; d.fx = null; d.rv = null; d.base = null; d.kill = 0; d.filter = 0;
+  d.key = ''; d.kind = ''; d.live = null; d.fx = null; d.rv = null; d.base = null; d.kill = 0; d.filter = 0; setSynced(d, false); deckBend(d, 1); d.nudging = false;
   d.level = null; d.levelSent = 127; d.scrOk = true; d.themeAt = 0; d.map = null; d.mapFrom = -1; d.mapFill = null;
   paintDeck(d, null);
   if (value) { const [kind, ...k] = value.split(':'); d.kind = kind; d.key = k.join(':'); }
@@ -147,24 +147,58 @@ function deckPlay(d) {
   if (!d.key) return;
   const c = deckClock(d);
   if (c.running) { c.stop(); draw(); return; }
+  if (d.synced) followMaster(d);   /* (the master's tempo; starting on its bar puts the bars together) */
   c.setTempo(d.bpm);
   const m = masterNow();
   if (m.phase == null && master.source === 'page') { const at = now() + 60; masterClock().start(at); c.start(at); }
   else c.start(nextOn(m.phase, m.bpm, now()));   /* on the master's next bar */
   draw();
 }
+/* Sync: a lock, lit while on (as DJ software has). On: the deck takes the master's tempo at once and keeps
+   following it (a tap, a new master tempo, an outside clock), and while both play its bar is kept on the master's:
+   a gap of more than LOCK_SLACK clocks is closed by a short bend. On a stopped deck too: the tempo now, and Play
+   starts it on the master's bar. Typing the deck's tempo, or a nudge, lets go (back to hand beatmatching). */
+const LOCK_SLACK = 0.75;
 function deckSync(d) {
-  if (!d.clock?.running) return say(`Deck ${NAMES[d.i]} isn't playing: Play starts it on the master's bar.`);
-  const t = now(), m = masterNow(t);
-  d.bpm = m.bpm; d.clock.setTempo(d.bpm);
-  if (m.phase == null) return draw();
-  const {factor, ms} = syncBend(offset(d.clock.phase(t), m.phase), d.bpm);
-  if (factor !== 1) { d.clock.bend(factor); setTimeout(() => d.clock?.bend(1), ms); }
-  draw();
+  setSynced(d, !d.synced);
+  if (!d.synced) return say(`Deck ${NAMES[d.i]}: Sync off.`);
+  followMaster(d, true);
+  say(`Deck ${NAMES[d.i]}: synced to the master, ${bpmText(d.bpm)} BPM` + (d.clock?.running ? '.' : ': Play starts it on the master\'s bar.'));
 }
-const nudge = (d, dir) => { if (d.clock?.running) d.clock.bend(dir ? 1 + dir * NUDGE : 1); };
-function setDeckBpm(d, b) {   /* (the numbers only, as setMasterBpm) */
+function setSynced(d, on) {
+  d.synced = on;
+  d.ui?.sync?.classList.toggle('on', on); d.ui?.sync?.setAttribute('aria-pressed', String(on));
+}
+/* one bend at a time: a new one (Sync again, a nudge) replaces the one under way, and its end can't cut the new one */
+function deckBend(d, factor, ms = 0) {
+  clearTimeout(d.bendTimer); d.bendTimer = 0;
+  d.clock?.bend(factor);
+  if (ms) d.bendTimer = setTimeout(() => { d.bendTimer = 0; d.clock?.bend(1); }, ms);
+}
+/* a synced deck: the master's tempo; its bar onto the master's (at once: any gap; later: past the slack) */
+function followMaster(d, atOnce = false) {
+  const t = now(), m = masterNow(t);
+  if (m.bpm && d.bpm !== clampBpm(m.bpm)) { d.bpm = clampBpm(m.bpm); d.clock?.setTempo(d.bpm); showDeckBpm(d); }
+  if (!d.clock?.running || m.phase == null || d.bendTimer || d.nudging) return;
+  const gap = offset(d.clock.phase(t), m.phase);
+  if (gap == null || Math.abs(gap) < (atOnce ? 0.05 : LOCK_SLACK)) return;
+  const {factor, ms} = syncBend(gap, d.bpm);
+  if (factor !== 1) deckBend(d, factor, ms);
+}
+/* nudge: faster / slower while held; it lets go of Sync (by hand from then on) */
+const nudge = (d, dir) => {
+  if (!d.clock?.running) return;
+  if (dir && d.synced) { setSynced(d, false); say(`Deck ${NAMES[d.i]}: Sync off (nudged by hand).`); }
+  d.nudging = !!dir;
+  deckBend(d, dir ? 1 + dir * NUDGE : 1);
+};
+/* the deck's tempo typed (or Whole BPM): the numbers only, as setMasterBpm; it lets go of Sync */
+function setDeckBpm(d, b) {
+  if (d.synced) setSynced(d, false);
   d.bpm = tempoOf(b); d.clock?.setTempo(d.bpm);
+  showDeckBpm(d);
+}
+function showDeckBpm(d) {
   const i = d.ui?.bpmIn;
   if (i && i.ownerDocument.activeElement !== i) i.value = d.bpm;
 }
@@ -445,7 +479,8 @@ function drawDeck(d) {
     u.phase, u.gap,
     el('div', {className: 'dj-row'},
       btn(running ? '■ Stop' : '▶ Play', () => deckPlay(d), {className: running ? 'on' : '', title: 'Starts on the master\'s next bar'}),
-      btn('Sync', () => deckSync(d), {title: 'The master\'s tempo, then catch up to its bar'}),
+      u.sync = btn('Sync', () => deckSync(d), {className: d.synced ? 'on' : '', ariaPressed: String(!!d.synced),
+        title: 'Lock to the master: its tempo, and its bar while both play. Again: off. Typing a tempo or a nudge lets go.'}),
       holdBtn('− nudge', () => nudge(d, -1), () => nudge(d, 0), {title: 'Slower while held'}),
       holdBtn('nudge +', () => nudge(d, 1), () => nudge(d, 0), {title: 'Faster while held'})));
   if (fm1) {
@@ -590,6 +625,7 @@ function draw() {
 function tick() {
   const t = now(), m = masterNow(t);
   if (mixer.ui?.big) { const s = m.bpm ? bpmText(m.bpm) : '—'; if (mixer.ui.big.textContent !== s) mixer.ui.big.textContent = s; }   /* the master's tempo */
+  decks.forEach(d => { if (d.synced) followMaster(d); });   /* Sync: the master's tempo and bar, kept */
   decks.forEach(d => {
     const u = d.ui;
     if (!u?.bpm) return;

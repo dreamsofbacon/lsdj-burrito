@@ -9,7 +9,7 @@ import {OP} from '../lsdj/link.js';
 import {djState} from '../lsdj/dj-ui.js';
 import {unpackFx, unpackSettings, packSettings, PRESETS} from '../lsdj/fx-model.js';
 import {pageColours} from '../lsdj/page-theme.js';
-import {crossfade} from '../lsdj/dj.js';
+import {crossfade, offset} from '../lsdj/dj.js';
 
 const $ = id => document.getElementById(id);
 const assert = (v, message) => { if (!v) throw Error(message); };
@@ -109,6 +109,35 @@ export async function runDjUiTests() {
     assert(Math.abs(deckB.clock.phase() / djState().decks[0].clock.phase() - 1) > 0, 'B runs at its own tempo');
     [...document.querySelectorAll('.dj-deck')][1].querySelectorAll('.dj-row button')[1].click();   /* Sync */
     assert(deckB.bpm === 120, `Sync: the master's tempo: ${deckB.bpm}`);
+
+    // 3b. Sync is a lock (Colin: flaky, and nothing on a stopped deck): lit; B pushed off the bar comes back by
+    // itself; a new master tempo is followed; on a stopped deck it takes the tempo at once; typing a tempo lets go
+    const deckBEl0 = () => [...document.querySelectorAll('.dj-deck')][1];
+    const syncB = () => deckBEl0().querySelectorAll('.dj-row button')[1];
+    assert(deckB.synced && syncB().classList.contains('on') && syncB().textContent === 'Sync', 'Sync lit while on');
+    const barGap = () => offset(deckB.clock.phase(), djState().master.clock.phase());
+    await until(() => Math.abs(barGap()) < 0.75, `B on the master's bar: ${barGap()}`, 4000);
+    deckB.clock.bend(1.6); await sleep(400); deckB.clock.bend(1);   /* pushed off, as a drift would */
+    assert(Math.abs(barGap()) > 2, `B pushed off the bar: ${barGap()}`);
+    await until(() => Math.abs(barGap()) < 0.75, `locked: back on the master's bar by itself: ${barGap()}`, 5000);
+    const masterIn = document.querySelector('.dj-mixer .dj-bpm-in');
+    masterIn.value = '124'; masterIn.dispatchEvent(new Event('change'));
+    await until(() => deckB.bpm === 124 && deckB.clock.bpm === 124, `the master to 124: B follows: ${deckB.bpm}`, 1000);
+    masterIn.value = '120'; masterIn.dispatchEvent(new Event('change'));
+    await until(() => deckB.bpm === 120, 'back to 120', 1000);
+    syncB().click();
+    assert(!deckB.synced && !syncB().classList.contains('on'), 'Sync again: off');
+    deckBEl0().querySelector('.dj-row button').click();   /* B stopped */
+    assert(!deckB.clock.running, 'B stopped');
+    const bpmB0 = deckBEl0().querySelector('.dj-bpm-in');
+    bpmB0.value = '131'; bpmB0.dispatchEvent(new Event('change'));
+    syncB().click();
+    assert(deckB.synced && deckB.bpm === 120 && bpmB0.value === '120', `Sync on a stopped deck: the master's tempo at once: ${deckB.bpm}`);
+    bpmB0.value = '125'; bpmB0.dispatchEvent(new Event('change'));
+    assert(!deckB.synced && !syncB().classList.contains('on') && deckB.bpm === 125, 'typing a tempo lets go of Sync');
+    bpmB0.value = '120'; bpmB0.dispatchEvent(new Event('change'));
+    deckBEl0().querySelector('.dj-row button').click();   /* B playing again, on the master's bar */
+    await until(() => deckB.clock.running, 'B playing again', 3000);
 
     // 4. a stem kill (NOI on A, now) and the DJ filter (A to low-pass): sent to A only
     const killNoi = [...document.querySelectorAll('.dj-deck')][0].querySelectorAll('.dj-kill')[3];
@@ -228,7 +257,7 @@ export async function runDjUiTests() {
     assert(!document.body.classList.contains('dj') && getComputedStyle($('pan-chans')).display !== 'none', 'Effects layout back');
     await until(() => B.level === 127, `the Effects layout: B at full volume: ${B.levels}`);
     djState().decks.forEach(d => d.clock?.stop());
-    return 'PASS DJ layout: switch, decks on FM-1s, Start and clocks per deck, the next bar, its own tempo, Sync, stem kill, DJ filter, Perform › Clock off, 0.9.98 (crossfader to FM-1 volume, Hold), each deck its FM-1 colours and Screen | Rows (screen, song row map, click to cue), Tap quickly (no redraw), Whole BPM, TX-6 button and crossfader, fader mirrored, full volume after';
+    return 'PASS DJ layout: switch, decks on FM-1s, Start and clocks per deck, the next bar, its own tempo, Sync (a lock: lit, keeps the bar, follows the master, on a stopped deck, lets go when typed), stem kill, DJ filter, Perform › Clock off, 0.9.98 (crossfader to FM-1 volume, Hold), each deck its FM-1 colours and Screen | Rows (screen, song row map, click to cue), Tap quickly (no redraw), Whole BPM, TX-6 button and crossfader, fader mirrored, full volume after';
   } finally {
     if (descriptor) Object.defineProperty(navigator, 'requestMIDIAccess', descriptor); else delete navigator.requestMIDIAccess;
   }
