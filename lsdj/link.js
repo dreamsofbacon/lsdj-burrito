@@ -52,8 +52,12 @@ export class Link {
   constructor(input, output) {
     this.input = input; this.output = output; this.waiting = null; this.queue = Promise.resolve();
     this.onPixels = null;   // FM-1_985: rows the FM-1 sends by itself after SCREEN_SYNC (lsdj/screen.js); FM-1_990: and SCREEN_FRAME
+    /* when the FM-1 last sent anything on this link (a reply, screen rows): one reply missed is not a lost FM-1
+       while it is still talking (app.js: lost only after HEARD_MS of silence) */
+    this.heard = Date.now();
     input.onmidimessage = e => {
       const m = e.data;
+      if (m[0] === 0xF0 && m[1] === 0x7D && m[2] === 0x47 && m[3] === 0x53) this.heard = Date.now();
       if (m.length > 7 && (m[4] === OP.SCREEN_PIXELS || m[4] === OP.SCREEN_FRAME) && m[0] === 0xF0 && m[1] === 0x7D && m[2] === 0x47 && m[3] === 0x53) {
         this.onPixels?.(m); return;
       }
@@ -276,7 +280,7 @@ export async function findFm1s(access, {known = [], wait = 500} = {}) {
     if (!free.length) break;
     let hit = null;
     const before = free.map(i => i.onmidimessage);
-    free.forEach(input => input.onmidimessage = e => {
+    const ours = free.map(input => input.onmidimessage = e => {
       const r = parse(Array.from(e.data));
       if (!hit && r && r.op === OP.INFO && r.status === 0 && r.data.length >= 35) hit = {input, info: infoFrom(r.data)};
     });
@@ -285,7 +289,8 @@ export async function findFm1s(access, {known = [], wait = 500} = {}) {
         try { output.send(frame(OP.INFO)); } catch { break; }
         for (const end = Date.now() + wait / 2; !hit && Date.now() < end;) await new Promise(r => setTimeout(r, 15));
       }
-    } finally { free.forEach((i, n) => { i.onmidimessage = before[n]; }); }
+    /* (put back only where nothing took the input meanwhile: a Link made during the probe keeps its own) */
+    } finally { free.forEach((i, n) => { if (i.onmidimessage === ours[n]) i.onmidimessage = before[n]; }); }
     if (hit?.info.protocol === 1) { found.push({input: hit.input, output, name: output.name, info: hit.info}); used.add(hit.input); used.add(output); }
   }
   return found;

@@ -414,7 +414,15 @@ async function readMap(d, l) {
   if (f.rows.length >= MAP_ROWS) { d.mapAt = now(); d.mapFill = null; }
 }
 /* each FM-1 deck's LIVE, a few times a second: its own tempo, what plays, its mutes (0.9.98: rows, SYNC, mode) */
+/* one round at a time: a round that takes longer than the 400 ms (the label, theme and rows reads on top of LIVE)
+   skips the next one, instead of stacking requests up on the FM-1 links */
+let pollBusy = false;
 async function poll() {
+  if (pollBusy) return;
+  pollBusy = true;
+  try { await pollRound(); } finally { pollBusy = false; }
+}
+async function pollRound() {
   for (const d of decks) {
     deckScreen(d);
     if (d.kind !== 'fm1') continue;

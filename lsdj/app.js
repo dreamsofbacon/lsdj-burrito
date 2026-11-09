@@ -104,6 +104,11 @@ async function connectOnce(input, output, how, fast) {
    also checks the ports, and LOST_POLLS unanswered polls in a row count as lost too. Then the page
    goes back to Not connected, and connects again by itself when the FM-1's port comes back. */
 const LOST_POLLS = 4;
+/* ...and only once the FM-1 has said nothing at all on that link for HEARD_MS: replies go missing now and then on
+   a busy link (the DJ layout: two polls, the screen, the label reads on one FM-1), while it is still answering the
+   rest. Gone for real, it falls silent, and is lost a moment after the 4th miss as before. */
+const HEARD_MS = 4000;
+const silent = l => !l || Date.now() - (l.heard ?? 0) >= HEARD_MS;
 let missed = 0, lostAt = 0, watching = null, reconnecting = false;
 const samePort = (a, b) => !!a && !!b && (a === b || (a.id != null && a.id === b.id));
 const portGone = () => [link?.input, link?.output].some(p => p?.state === 'disconnected');
@@ -326,7 +331,7 @@ function watch(d) {
         /* played, unless by a controller on this page (that is not someone at the FM-1) */
         if (w.base !== null && key !== w.base && Date.now() - (padAt.get(portKey(d)) || 0) > QUIET_MS) { w.at = Date.now(); maybeFollow(d); }
         w.base = key;
-      } catch { if (++w.missed >= LOST_POLLS) { unwatch(d); scanSoon(); return; } }
+      } catch { if (++w.missed >= LOST_POLLS && silent(w.link)) { unwatch(d); scanSoon(); return; } }
     }
     if (watchers.get(d) === w) visibleWindow().setTimeout(step, WATCH_MS);
   };
@@ -1017,7 +1022,7 @@ async function tick() {
       (bat ? `<span class="badge" title="The FM-1's battery (3 bars: full)">${bat.usb ? 'USB power' : 'Battery ' + '▮'.repeat(bat.bars) + '▯'.repeat(3 - bat.bars)}</span>` : '');
   } catch (e) {   /* a missed poll: try again on the next; LOST_POLLS in a row: the FM-1 is gone */
     if (portGone()) lost(UNPLUGGED);
-    else if (e.cause === 'timeout' && ++missed >= LOST_POLLS) lost('The FM-1 stopped answering. Check the cable and that LSDJ Burrito is running, then press Connect.');
+    else if (e.cause === 'timeout' && ++missed >= LOST_POLLS && silent(link)) lost('The FM-1 stopped answering. Check the cable and that LSDJ Burrito is running, then press Connect.');
   }
 }
 /* The live poll: one after another, timed by a window on screen (the page, or one of its own

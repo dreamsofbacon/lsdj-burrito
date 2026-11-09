@@ -16,7 +16,7 @@ export async function runDisconnectUiTests() {
   const descriptor = Object.getOwnPropertyDescriptor(navigator, 'requestMIDIAccess');
   const access = new EventTarget();
   const input = {id: 'in-1', name: 'FM-1 test', state: 'connected'};
-  let silent = false, infos = 0, lives = 0;
+  let silent = false, dropLive = false, infos = 0, lives = 0;
   const bytes = Array(68).fill(0);
   bytes[36] = 5; bytes[37] = 2; bytes[42] = 0xf2; bytes[43] = 70; bytes[38] = 1;
   const output = {id: 'out-1', name: 'FM-1 test', state: 'connected', send(message) {
@@ -29,7 +29,7 @@ export async function runDisconnectUiTests() {
     if (op === OP.FX_GET) return send(bytes);
     if (op === OP.SETTINGS_GET) return send(le32(0x5a000000));
     if (op === OP.THEME_GET) return send(Array(16).fill(0));
-    if (op === OP.LIVE) { lives++; return send([0, 1, 120, 0, 0, 0, 0, ...bytes]); }
+    if (op === OP.LIVE) { lives++; if (dropLive) return; return send([0, 1, 120, 0, 0, 0, 0, ...bytes]); }
     return send([], 1);   // MIDI options, the screen: not on this firmware
   }};
   access.inputs = new Map([['in', input]]); access.outputs = new Map([['out', output]]);
@@ -66,6 +66,18 @@ export async function runDisconnectUiTests() {
     plug('connected');
     await until(() => isConnected(), 'reconnected after the poll saw it');
 
+    // 3b. a busy link (the DJ layout): LIVE replies go missing for 6 s while the FM-1 keeps talking (screen rows):
+    //     still connected, no "stopped answering"
+    dropLive = true;
+    const chatter = setInterval(() => input.onmidimessage?.({data: [0xf0, 0x7d, 0x47, 0x53, OP.SCREEN_PIXELS, 0, ...Array(40).fill(0), 0xf7]}), 200);
+    const missedFrom = lives;
+    await sleep(6000);
+    clearInterval(chatter); dropLive = false;
+    assert(lives - missedFrom >= 4, `the poll kept asking: ${lives - missedFrom}`);
+    assert(isConnected() && !/stopped answering/.test(device()), `a busy FM-1 that still talks stays connected: ${device()}`);
+    const back = lives;
+    await until(() => lives > back + 2, 'the poll carries on');
+
     // 4. no answers: lost after a few polls, ports still there
     silent = true;
     await until(() => !isConnected(), `stopped answering: ${device()}`, 200);
@@ -81,7 +93,7 @@ export async function runDisconnectUiTests() {
     silent = false;
     await $('connect-btn').onclick();
     assert(isConnected(), 'connected at the end');
-    return 'PASS disconnect browser: unplugged (statechange), port gone (poll), no answers (4 polls), reconnects by itself, says when it comes back silent, no screen draw line';
+    return 'PASS disconnect browser: unplugged (statechange), port gone (poll), no answers (4 polls), a busy FM-1 missing LIVE replies but still talking stays connected, reconnects by itself, says when it comes back silent, no screen draw line';
   } finally {
     if (descriptor) Object.defineProperty(navigator, 'requestMIDIAccess', descriptor);
     else delete navigator.requestMIDIAccess;
