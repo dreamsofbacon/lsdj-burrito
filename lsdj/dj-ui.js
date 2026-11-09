@@ -131,7 +131,7 @@ async function assign(d, value) {
   if (d.kind === 'fm1' && d.levelSent !== 127) void fullVolume(d.key);   /* the FM-1 leaving the deck: full volume again */
   d.key = ''; d.kind = ''; d.live = null; d.fx = null; d.rv = null; d.base = null; d.kill = 0; d.filter = 0; setSynced(d, false); deckBend(d, 1); d.nudging = false;
   d.savHead = null; d.sav = null; d.savMatch = null; d.savAt = 0; d.seenPlaying = false; d.idlePolls = 0;
-  d.syncTried = null; d.clockOut = false; d.warn = {}; setWarn(d, 'midi', '');
+  d.syncTried = null; d.clockOut = false; d.warn = {}; d.ownRow = null; setWarn(d, 'midi', '');
   d.level = null; d.levelSent = 127; d.scrOk = true; d.themeAt = 0; d.map = null; d.mapFrom = -1; d.mapFill = null;
   paintDeck(d, null);
   if (value) { const [kind, ...k] = value.split(':'); d.kind = kind; d.key = k.join(':'); }
@@ -447,7 +447,7 @@ async function pollRound() {
     if (!l) continue;
     try {
       d.live = await l.live();
-      fm1Stopped(d);
+      fm1Stopped(d); ownAnchor(d);
       await lsdjSync(d, l);
       if (d.live.level != null && !d.levelBusy) d.levelSent = d.live.level;
       if (d.live.level != null && d.levelSent !== (d.level ?? 127)) void sendLevel(d);   /* power cycled, or another page */
@@ -877,10 +877,7 @@ function tick() {
     /* not clocked by this page: the FM-1's own phrase row (0.9.98; a phrase is a bar, 4 rows a beat), as last polled */
     const own = ph == null ? fm1Row(d) : null;
     u.bpm.textContent = own != null ? String(d.live.bpm) : bpmText(d.bpm * (d.clock?.factor || 1));
-    [...u.phase.children].forEach((s, b) => s.classList.toggle('on', pos ? pos.beat === b : own != null && (own >> 2) === b));
-    /* the jog's mark: once round a bar */
-    const turn = ph != null ? (((ph % BAR) + BAR) % BAR) / BAR : own != null ? own / 16 : null;
-    if (u.jog && turn != null) u.jog.style.setProperty('--turn', `${(turn * 360).toFixed(1)}deg`);
+    void pos;   /* (the beat lights and the jog: animate, every frame) */
     /* the pitch against the master: the fader (unless held) and its percentage */
     const pv = pitchValue(d), pt = `${pv > 0 ? '+' : pv < 0 ? '−' : '±'}${(Math.abs(pv) / 100).toFixed(2)} %`;
     if (u.pitchTxt && u.pitchTxt.textContent !== pt) u.pitchTxt.textContent = pt;
@@ -892,6 +889,41 @@ function tick() {
       d.live.level != null && d.live.level < 127 ? `volume ${Math.round(d.live.level / 1.27)} % from this page` : ''].filter(Boolean).join(' · ');
     if (u.hold && d.live?.live != null) { u.hold.textContent = d.live.live ? 'Held' : 'Hold'; u.hold.classList.toggle('on', d.live.live); }
   });
+}
+/* The jog wheels and beat lights, every frame the screen draws (requestAnimationFrame), not on the 50 ms tick: they
+   turned in 20 steps a second, unevenly. Colin saw deck A's skip. */
+let animating = 0;
+function animate() {
+  animating = requestAnimationFrame(animate);
+  const t = now();
+  for (const d of decks) {
+    const u = d.ui;
+    if (!u?.phase || !u.jog?.isConnected) continue;
+    const p = deckPos(d, t), beat = p == null ? -1 : Math.floor(p / BEAT) % 4;
+    if (beat !== u.beatShown) { u.beatShown = beat; [...u.phase.children].forEach((s, b) => s.classList.toggle('on', b === beat)); }
+    if (p != null) u.jog.style.setProperty('--turn', `${(p / BAR * 360).toFixed(1)}deg`);   /* once round a bar */
+  }
+}
+/* where a deck is in its bar, in clocks (0 .. BAR), or null when it isn't playing: this page's clock for it, or the
+   FM-1's own phrase row (LIVE, 0.9.98) carried on at its tempo between polls, which come every 0.4 s or so, and less
+   evenly on a busy link (the FM-1 in use also has Perform's own poll): a row is 6 clocks, 4 a beat */
+const ROW = BEAT / 4;
+function deckPos(d, t) {
+  const ph = d.clock?.phase(t) ?? null;
+  if (ph != null) return ((ph % BAR) + BAR) % BAR;
+  if (d.ownRow == null || !d.live?.bpm) return null;
+  const rows = d.ownRow + (t - d.ownAt) * d.live.bpm * 4 / 60000;
+  return ((rows * ROW) % BAR + BAR) % BAR;
+}
+/* each LIVE (pollRound): the estimate pulled half-way to where the FM-1 says it is (the row it reports started up to a
+   poll ago: its middle), so it never jumps a little each poll; a big difference (a cue, a jump): taken at once */
+function ownAnchor(d) {
+  const r = d.clock?.running ? null : fm1Row(d), t = now();
+  if (r == null || !d.live?.bpm) { d.ownRow = null; return; }
+  if (d.ownRow == null) { d.ownRow = r + 0.5; d.ownAt = t; return; }
+  const est = d.ownRow + (t - d.ownAt) * d.live.bpm * 4 / 60000;
+  let err = ((r + 0.5 - est) % 16 + 24) % 16 - 8;   /* (-8 .. 8 rows, round the phrase) */
+  d.ownRow = Math.abs(err) > 3 ? r + 0.5 : est + err / 2; d.ownAt = t;
 }
 /* the first playing channel's phrase row, from LIVE (0.9.98), or null */
 function fm1Row(d) {
@@ -1020,7 +1052,7 @@ function applyDjTheme() {
 }
 /* the DJ layout shown or hidden: the readouts and FM-1 polls run only while it shows */
 export function djShown(on) {
-  clearInterval(ticker); clearInterval(polling); ticker = polling = 0;
+  clearInterval(ticker); clearInterval(polling); cancelAnimationFrame(animating); ticker = polling = animating = 0;
   shown = on;
   applyDjTheme();   /* the page in the DJ colours only while the layout shows */
   decks.forEach(deckScreen);   /* the screens run only while the layout shows */
@@ -1028,6 +1060,7 @@ export function djShown(on) {
   applyVolumes();
   draw();
   ticker = setInterval(tick, 50);
+  animating = requestAnimationFrame(animate);
   polling = setInterval(() => void poll(), 400);
 }
 /* the FM-1s plugged in changed: the choices follow; a deck whose FM-1 went away is emptied */

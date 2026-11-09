@@ -1025,12 +1025,17 @@ function changedKeys(a, b) {
 async function tick() {
   if (!link || busy || !anyVisible() || (virtual && virtualPaused())) return;   /* a paused virtual FM-1 answers nothing */
   if (portGone()) return lost(UNPLUGGED);
+  /* the DJ layout: its decks poll their FM-1s (dj-ui.js); this poll only keeps the FM-1 in use known (and lost when
+     gone), every other time, without the reverb and theme reads: they queued the deck's own polls behind them on the
+     same link, and deck A's jog and beat lights came unevenly (Colin) */
+  const dj = stageMode === 'dj';
+  if (dj && ++ticks % 2) return;
   try {
-    if (++ticks % 8 === 0) await followThemeSetting();
+    if (!dj && ++ticks % 8 === 0) await followThemeSetting();
     const l = await link.live();
     { const key = liveKey(l); if (lastKey !== null && key !== lastKey) activeAt = Date.now(); lastKey = key; }   /* played: Follow stays */
     const live = unpackFx(l.fx);
-    live.reverb = fx.reverb && ticks % 2 === 0 ? await readReverb()
+    live.reverb = fx.reverb && ticks % 2 === 0 && !dj ? await readReverb()
       : fx.reverb && {...fx.reverb, rvSend: fx.reverb.rvSend && [...fx.reverb.rvSend]};   /* every other poll */
     live.freeze = l.freeze; cursorCh = l.cursor < 4 ? l.cursor : cursorCh; bpm = l.bpm;
     fm1Page = l.page < pagesForFx(live, fwNum).length ? l.page : live.page;

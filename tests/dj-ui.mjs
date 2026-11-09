@@ -219,6 +219,12 @@ export async function runDjUiTests() {
     jogA.dispatchEvent(new PointerEvent('pointerup', jogAt(-90)));
     assert(deckA0.clock.factor === 1, 'let go: back to its tempo');
 
+    // 4a'''. the jog and beat lights move every frame the screen draws (they stepped on a 50 ms tick, and skipped)
+    { const turns = [];
+      for (let i = 0; i < 12; i++) { await new Promise(r => requestAnimationFrame(r)); turns.push(parseFloat(jogA.style.getPropertyValue('--turn'))); }
+      const moves = turns.slice(1).filter((v, i) => v !== turns[i]).length;
+      assert(moves >= 9, `deck A's jog turns every frame: ${moves} of 11 frames moved (${turns.map(v => v.toFixed(1)).join(' ')})`); }
+
     // 4a''. stopped on the FM-1 itself: once A's FM-1 has played and then says twice running that nothing plays,
     // the page stops deck A too (the jog and beat lights with it); while it plays, nothing changes
     A.playing = 0x0f;
@@ -492,7 +498,7 @@ export async function runDjUiTests() {
     play(1);
     document.querySelector('#stage-mode [data-mode="fx"]').click();
     djState().decks.forEach(d => d.clock?.stop());
-    return 'PASS DJ layout: switch, decks on FM-1s, Start and clocks per deck, the next bar, its own tempo, Sync (a lock: lit, keeps the bar, follows the master, on a stopped deck, lets go when typed), stem kill, DJ filter, Perform › Clock off, 0.9.98 (crossfader to FM-1 volume, Hold), DJ colours (the page and panel; FM-1 decks keep theirs), each deck its FM-1 colours, its label (the .sav sent, the open song, changed since), Screen | Rows (screen, song row map, click to cue), Tap quickly (no redraw), Whole BPM, TX-6 button and crossfader, fader mirrored, full volume after, an ArduinoBoy deck (speed notes, its channel, Start and clocks, FM-1 controls hidden), the crate (a .sav onto deck A while B plays on, untouched; Grab B), an FM-1 pulled and back (the deck takes it back, playing, also on new port ids with its .sav label; the Log), stopped on the FM-1 (the deck stops too), each deck sets its FM-1 up (MIDI settings, LSDj SYNC to KEYBD; the warning strip)';
+    return 'PASS DJ layout: switch, decks on FM-1s, Start and clocks per deck, the next bar, its own tempo, Sync (a lock: lit, keeps the bar, follows the master, on a stopped deck, lets go when typed), stem kill, DJ filter, Perform › Clock off, 0.9.98 (crossfader to FM-1 volume, Hold), DJ colours (the page and panel; FM-1 decks keep theirs), each deck its FM-1 colours, its label (the .sav sent, the open song, changed since), Screen | Rows (screen, song row map, click to cue), Tap quickly (no redraw), Whole BPM, TX-6 button and crossfader, fader mirrored, full volume after, an ArduinoBoy deck (speed notes, its channel, Start and clocks, FM-1 controls hidden), the crate (a .sav onto deck A while B plays on, untouched; Grab B), an FM-1 pulled and back (the deck takes it back, playing, also on new port ids with its .sav label; the Log), stopped on the FM-1 (the deck stops too), each deck sets its FM-1 up (MIDI settings, LSDj SYNC to KEYBD; the warning strip), the jog every frame';
   } finally {
     if (descriptor) Object.defineProperty(navigator, 'requestMIDIAccess', descriptor); else delete navigator.requestMIDIAccess;
   }
