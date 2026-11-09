@@ -9,7 +9,9 @@ const SCOPE = self.registration.scope, CACHE = 'burrito-v2 ' + SCOPE;
 const FILES = [
   './', 'index.html', 'manifest.webmanifest', 'manifest-dev.webmanifest', 'favicon.ico', 'LICENSE',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png', 'icons/apple-touch-icon.png', 'icons/favicon-32.png',
-  'licenses/Apache-2.0.txt', 'licenses/GPL-3.0.txt', 'licenses/MIT-Peanut-GB.txt',
+  'licenses/Apache-2.0.txt', 'licenses/GPL-3.0.txt', 'licenses/MIT-Peanut-GB.txt', 'licenses/OFL-IBM-Plex.txt', 'licenses/OFL-Silkscreen.txt',
+  'fonts/Silkscreen-Regular-Latin.woff2', 'fonts/IBMPlexSans-Regular-Latin1.woff2', 'fonts/IBMPlexSans-SemiBold-Latin1.woff2', 'fonts/IBMPlexSans-Bold-Latin1.woff2',
+  'fonts/IBMPlexMono-Regular-Latin1.woff2', 'fonts/IBMPlexMono-SemiBold-Latin1.woff2',
   'lsdj/app.js', 'lsdj/fx-diagram.js', 'lsdj/fx-model.js', 'lsdj/gamepad.js', 'lsdj/install-ui.js', 'lsdj/install.js', 'lsdj/link.js',
   'lsdj/lsdj-app.js', 'lsdj/lsdj-firmware.js', 'lsdj/lsdj-rom.js', 'lsdj/midiclock.js', 'lsdj/dj.js', 'lsdj/dj-ui.js', 'lsdj/mixers.js', 'lsdj/crate.js', 'lsdj/crate-ui.js', 'lsdj/conn-log.js', 'lsdj/page-theme.js', 'lsdj/popout.js', 'lsdj/pwa.js',
   'lsdj/save-file.js', 'lsdj/screen.js', 'lsdj/ui.js', 'lsdj/zip.js',
