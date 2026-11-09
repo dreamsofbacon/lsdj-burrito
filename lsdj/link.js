@@ -127,6 +127,8 @@ export class Link {
       throw new LinkError('Installed cartridge changed or failed its transfer checksum. Nothing was prepared.');
     return out;
   }
+  /* CHUNK bytes of the save as the FM-1 holds it now, from off (a multiple of CHUNK): a copy, LSDj keeps playing */
+  async saveRead(off) { return (await this.req(OP.READ, le32(off), {retries: 2})).data.slice(0, CHUNK); }
   async exportSave(progress = () => {}) {
     const out = new Uint8Array(SAVE_SIZE);
     for (let off = 0; off < SAVE_SIZE; off += CHUNK) {

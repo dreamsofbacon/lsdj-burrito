@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // lsdj/lsdj-sav.js: LSDj saves and .lsdsng songs, with made-up songs only (node tests/lsdj-sav.mjs).
 import assert from 'node:assert/strict';
-import {parseSav, songBytes, compressSong, buildSav, songsOf, readLsdsng, writeLsdsng, lsdsngOf, nameBytes, nameText,
+import {parseSav, savHeader, HEADER, HEADER_SIZE, songBytes, compressSong, buildSav, songsOf, readLsdsng, writeLsdsng, lsdsngOf, nameBytes, nameText,
   SavError, SAV_SIZE, SONG_SIZE, BLOCK_SIZE, BLOCK_COUNT, DEFAULT_WAVE, DEFAULT_INSTRUMENT} from '../lsdj/lsdj-sav.js';
 
 let seed = 1;
@@ -48,6 +48,10 @@ assert.throws(() => compressSong(new Uint8Array(10)), SavError);
   assert.deepEqual(songBytes(sav, 3), songs[0].song); assert.deepEqual(songBytes(sav, 0), songs[1].song);
   const used = sav.songs.reduce((n, s) => n + s.blocks, 0);
   assert.equal(sav.freeBlocks, BLOCK_COUNT - used);
+  /* the header alone (a DJ deck reads it from the FM-1): the same songs, open song and free blocks */
+  const head = savHeader(bytes.slice(HEADER, HEADER + HEADER_SIZE));
+  assert.deepEqual(head, {active: sav.active, songs: sav.songs.map(({slot, name, version, blocks}) => ({slot, name, version, blocks})), freeBlocks: sav.freeBlocks});
+  assert.equal(HEADER_SIZE, 512); assert.equal(savHeader(new Uint8Array(512)), null);
   assert.deepEqual(readLsdsng(lsdsngOf(sav, 3)).song, songs[0].song);
   /* rename, delete, add: build again from the list */
   const list = songsOf(sav);
@@ -82,4 +86,4 @@ assert.throws(() => parseSav(new Uint8Array(SAV_SIZE)), /not an LSDj save/);
   assert.throws(() => readLsdsng(new Uint8Array(5)), SavError);
 }
 
-console.log('PASS lsdj-sav: names, compress round trip (defaults, C0/E0 runs, blocks), saves built and read, rename/delete/add, too big, damaged');
+console.log('PASS lsdj-sav: names, the header alone (savHeader), compress round trip (defaults, C0/E0 runs, blocks), saves built and read, rename/delete/add, too big, damaged');

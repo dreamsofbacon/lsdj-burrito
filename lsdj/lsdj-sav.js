@@ -125,6 +125,23 @@ export function parseSav(bytes) {
     freeBlocks: table.reduce((n, s) => n + (s === FREE), 0)};
 }
 
+/* The save's header alone: its HEADER_SIZE bytes from HEADER (names, versions, the open song, the block table), as a
+   DJ deck reads it from the FM-1 (lsdj/dj-ui.js) -> {active, songs: [{slot, name, version, blocks}], freeBlocks}
+   as parseSav gives them, or null when LSDj has not set the save up. */
+export const HEADER = NAMES, HEADER_SIZE = BLOCKS - NAMES;
+export function savHeader(head) {
+  if (!(head instanceof Uint8Array) || head.length < HEADER_SIZE) return null;
+  const at = a => a - HEADER;
+  if (head[at(INIT)] !== 0x6a || head[at(INIT) + 1] !== 0x6b) return null;
+  const table = head.subarray(at(TABLE), at(TABLE) + BLOCK_COUNT), songs = [];
+  for (let slot = 0; slot < SLOTS; slot++) {
+    const blocks = table.reduce((n, s) => n + (s === slot), 0);
+    if (blocks) songs.push({slot, name: nameText(head.subarray(slot * 8, slot * 8 + 8)), version: head[at(VERSIONS) + slot], blocks});
+  }
+  const active = head[at(ACTIVE)];
+  return {active: active < SLOTS ? active : null, songs, freeBlocks: table.reduce((n, s) => n + (s === FREE), 0)};
+}
+
 /* The song in slot (0..31), decompressed. */
 export function songBytes(sav, slot) {
   const s = sav.songs.find(x => x.slot === slot);

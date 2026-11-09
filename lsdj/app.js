@@ -2,9 +2,9 @@
 // The page: connect to the FM-1's running LSDJ Burrito firmware (lsdj/link.js)
 // for live effects, songs, colours and settings. Never writes firmware.
 import {startGamepad, loadMaps, mapFor, saveMap, loadPick, savePick, assign, takenFrom, isDefaultMap, defaultMapFor, inputName, GB_ORDER, SLOTS} from './gamepad.js';
-import {Link, midiPorts, findFm1s, LinkError, SAVE_SIZE} from './link.js';
+import {Link, midiPorts, findFm1s, LinkError, SAVE_SIZE, crc32} from './link.js';
 import {confirmSaveImport} from './save-file.js';
-import {mountSongsUi, setSongsHooks, drawSongsDevices} from './songs-ui.js';
+import {mountSongsUi, setSongsHooks, drawSongsDevices, songsState} from './songs-ui.js';
 import {showDeviceTheme, setMatching, matching} from './page-theme.js';
 import {setBeforeInstall, installing, usbMidiUnavailable} from './install-ui.js';
 import {CHANNELS, pagesForFx, PARAM, paramGet, paramSet, valueText, channelSummary, unpackFx, packFx, unpackReverb, packReverb, packReverbSends, PRESETS, THEMES, COLOR_NAMES, toHex, fromHex,
@@ -13,7 +13,7 @@ import {CHANNELS, pagesForFx, PARAM, paramGet, paramSet, valueText, channelSumma
 import {fxDiagram, pageFor} from './fx-diagram.js';
 import {zipStore} from './zip.js';
 import {startClock, startRelay, clampBpm} from './midiclock.js';
-import {mountDj, setDjHooks, djShown, djDevicesChanged} from './dj-ui.js';
+import {mountDj, setDjHooks, djShown, djDevicesChanged, rememberSav} from './dj-ui.js';
 import {romFromSlot} from './lsdj-rom.js';
 import {ScreenMirror} from './screen.js';
 import {popOut, onPopChange, isOut, docs, seen, anyVisible, visibleWindow} from './popout.js';
@@ -1136,9 +1136,16 @@ async function exclusive(fn) {
   busy = true;
   try { return await fn(link); } finally { busy = false; }
 }
+/* a .sav sent to the FM-1 in use: its name on that FM-1's DJ deck (dj-ui.js rememberSav; the CRC says later
+   whether the FM-1 still holds it) */
+function sentSav(bytes, name) { if (!virtual && current) rememberSav(portKey(current), name, crc32(bytes)); }
 setSongsHooks({
   readSave: pr => exclusive(l => l.exportSave(pr)),
-  sendSave: (bytes, pr) => exclusive(l => l.importSave(bytes, pr)),
+  sendSave: (bytes, pr) => exclusive(async l => {
+    await l.importSave(bytes, pr);
+    const from = songsState().from;
+    sentSav(bytes, from && from !== 'the FM-1' ? from : 'Songs sent from this page');
+  }),
   readRom: async pr => romFromSlot(await readInstalledCartridge(pr)),
   cartInfo: () => exclusive(l => l.cartridgeInfo()),
   /* the FM-1 list in Songs & kits: returns the label of the FM-1 now in use */
@@ -1274,6 +1281,7 @@ $('import').onchange = e => {
     const note = bytes.length > SAVE_SIZE ? ' The final 16 bytes were excluded with your confirmation; the original file is unchanged.' : '';
     say('save-status', 'Sending songs to the FM-1…' + note);
     await link.importSave(payload, progress());
+    sentSav(payload, file.name);
     say('save-status', `Imported ${file.name}. LSDj restarted with it.${note}`, 'ok');
   });
 };

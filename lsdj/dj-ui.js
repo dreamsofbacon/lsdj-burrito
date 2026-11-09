@@ -21,6 +21,7 @@ import {BAR, BEAT, NUDGE, position, offset, syncBend, nextOn, crossfade, CURVES,
 import {PRESETS, preset, readMidi, actionFor, out, learnRule, saveLearned, loadLearned} from './mixers.js';
 import {unpackFx, packFx, unpackReverb, packReverb, packReverbSends, CHANNELS, firmwareNumber, unpackSettings, PRESETS as THEME_COLOURS, CUSTOM_THEME} from './fx-model.js';
 import {pageColours} from './page-theme.js';
+import {savHeader, HEADER, HEADER_SIZE, BLOCK_COUNT} from './lsdj-sav.js';
 
 const el = (tag, props = {}, ...kids) => { const e = Object.assign(document.createElement(tag), props); e.append(...kids.filter(k => k != null)); return e; };
 const store = {get: (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* this visit */ } }};
@@ -125,9 +126,11 @@ async function assign(d, value) {
   d.clock?.stop(); d.clock?.close(); d.clock = null;
   if (d.kind === 'fm1' && d.levelSent !== 127) void fullVolume(d.key);   /* the FM-1 leaving the deck: full volume again */
   d.key = ''; d.kind = ''; d.live = null; d.fx = null; d.rv = null; d.base = null; d.kill = 0; d.filter = 0; setSynced(d, false); deckBend(d, 1); d.nudging = false;
+  d.savHead = null; d.sav = null; d.savMatch = null; d.savAt = 0;
   d.level = null; d.levelSent = 127; d.scrOk = true; d.themeAt = 0; d.map = null; d.mapFrom = -1; d.mapFill = null;
   paintDeck(d, null);
   if (value) { const [kind, ...k] = value.split(':'); d.kind = kind; d.key = k.join(':'); }
+  drawLabel(d);
   draw();
   if (d.kind !== 'fm1') return;
   applyVolumes();
@@ -141,6 +144,7 @@ async function assign(d, value) {
     d.base = structuredClone({ch: d.fx.ch, echo: d.fx.echo, rv: d.rv});
   } catch (e) { say(`Deck ${NAMES[d.i]}: ${e.message}`); }
   await deckTheme(d, l);
+  await deckSav(d, l).catch(() => {});
   draw();
 }
 function deckPlay(d) {
@@ -297,6 +301,43 @@ async function deckHold(d) {
   } catch (e) { say(`Deck ${NAMES[d.i]}: ${e.message}`); }
   drawDeck(d);
 }
+/* ---------- the save on a deck's FM-1: the deck's label ----------
+   The .sav this page last sent to that FM-1 (rememberSav, from Songs & kits; kept in this browser), and from the
+   save's header (lsdj-sav.js savHeader: 4 READs of 128 bytes, copies, LSDj keeps playing) the song open in LSDj,
+   the songs in the save and the room left. The header is read when the deck is chosen and every SAV_MS after;
+   INFO (its save CRC, a sum over the whole save worked out on the FM-1) is asked only when the header changed, to
+   say whether the FM-1 still holds the .sav sent. A read caught while LSDj writes its save shows until the next. */
+const SAV_MS = 5000, SAVS = 'dj-savs';
+const savsSent = () => { try { return JSON.parse(store.get(SAVS, '{}')) || {}; } catch { return {}; } };
+export function rememberSav(key, name, crc) {
+  const m = savsSent(); m[key] = {name, crc}; store.set(SAVS, JSON.stringify(m));
+  decks.forEach(d => { if (d.key === key) { d.savHead = null; d.savAt = 0; drawLabel(d); } });   /* read again next poll */
+}
+async function deckSav(d, l) {
+  const key = d.key;
+  d.savAt = now();
+  const head = new Uint8Array(HEADER_SIZE);
+  for (let o = 0; o < HEADER_SIZE; o += 128) head.set(await l.saveRead(HEADER + o), o);
+  if (d.key !== key || (d.savHead && head.every((b, i) => b === d.savHead[i]))) return;
+  d.savHead = head; d.sav = savHeader(head);
+  const sent = savsSent()[key];
+  d.savMatch = sent ? (await l.info()).saveCrc === sent.crc : null;
+  if (d.key === key) drawLabel(d);
+}
+function drawLabel(d) {
+  const u = d.ui;
+  if (!u?.label) return;
+  u.label.hidden = d.kind !== 'fm1';
+  if (u.label.hidden) return;
+  const sent = savsSent()[d.key], s = d.sav, open = s?.active != null ? s.songs.find(x => x.slot === s.active) : null;
+  u.labelFile.textContent = sent ? sent.name + (d.savMatch === false ? ' (changed since)' : '') : 'Its own songs';
+  u.labelFile.title = !sent ? 'No .sav sent to this FM-1 from this page yet (Songs & kits › Send to the FM-1)'
+    : d.savMatch === false ? 'Sent from this page; its songs have changed since (saved or edited in LSDj, or another file)' : 'The .sav sent to this FM-1 from this page';
+  u.labelSong.textContent = !d.savHead ? 'Reading its songs…' : !s ? 'No LSDj songs on it yet' : [
+    open ? `Song ${open.name || '(no name)'} .${hex2(open.version)}` : 'Song not saved yet',
+    `${s.songs.length} song${s.songs.length === 1 ? '' : 's'}`, `${Math.round(100 * s.freeBlocks / BLOCK_COUNT)} % free`].join(' · ');
+  u.labelSong.title = s ? s.songs.map(x => `${hex2(x.slot)} ${x.name || '(no name)'}${x.slot === s.active ? ' (open)' : ''}`).join('\n') : '';
+}
 /* each FM-1 deck in its FM-1's colours (its THEME setting; CUSTOM: its own colours), as the page takes the theme of
    the FM-1 in use (page-theme.js). Read when the deck is chosen and every so often after (a theme changed on it). */
 const THEME_VARS = Object.keys(pageColours(Array(8).fill(0)));
@@ -363,6 +404,7 @@ async function poll() {
       if (d.live.level != null && !d.levelBusy) d.levelSent = d.live.level;
       if (d.live.level != null && d.levelSent !== (d.level ?? 127)) void sendLevel(d);   /* power cycled, or another page */
       if (now() - (d.themeAt || 0) > 8000) await deckTheme(d, l);
+      if (now() - (d.savAt || 0) > SAV_MS) await deckSav(d, l).catch(() => {});   /* (an import under way: next time) */
       if (deckView(d) === 'rows') { await readMap(d, l); drawMap(d); }   /* (read only while the rows show) */
     } catch { d.live = null; }
   }
@@ -665,8 +707,11 @@ export function mountDj(box) {
     pick.setAttribute('aria-label', `Deck ${NAMES[d.i]}`);
     const body = el('div', {className: 'dj-deck-body'});
     const screen = el('canvas', {width: 160, height: 144, className: 'dj-screen', role: 'img', ariaLabel: `Deck ${NAMES[d.i]}: the FM-1's screen`});
-    const box = el('section', {className: 'dj-deck', ariaLabel: `Deck ${NAMES[d.i]}`}, el('h4', {}, `Deck ${NAMES[d.i]} `, pick), body);
-    d.ui = {pick, body, screen, box};
+    /* the label: the .sav and the song (drawLabel), kept across redraws of the body */
+    const labelFile = el('b', {className: 'dj-label-file'}), labelSong = el('span', {className: 'dj-label-song'});
+    const label = el('div', {className: 'dj-label', hidden: true}, labelFile, labelSong);
+    const box = el('section', {className: 'dj-deck', ariaLabel: `Deck ${NAMES[d.i]}`}, el('h4', {}, `Deck ${NAMES[d.i]} `, pick), label, body);
+    d.ui = {pick, body, screen, box, label, labelFile, labelSong};
     return box;
   };
   box.replaceChildren(el('div', {className: 'dj-grid'}, deckBox(decks[0]), el('section', {className: 'dj-mixer', ariaLabel: 'Master and mixer'}), deckBox(decks[1])),

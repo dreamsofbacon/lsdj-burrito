@@ -5,8 +5,8 @@
 //   deck's tempo; the second deck starts on the first's bar; Sync takes the master's tempo; a stem kill mutes;
 //   the DJ filter sets all four channels' filters; Perform › Clock goes off; the TX-6 preset: a track button
 //   starts / stops its deck, the crossfader sets its two channel volumes (CC 7).
-import {OP} from '../lsdj/link.js';
-import {djState} from '../lsdj/dj-ui.js';
+import {OP, crc32} from '../lsdj/link.js';
+import {djState, rememberSav} from '../lsdj/dj-ui.js';
 import {unpackFx, unpackSettings, packSettings, PRESETS} from '../lsdj/fx-model.js';
 import {pageColours} from '../lsdj/page-theme.js';
 import {crossfade, offset} from '../lsdj/dj.js';
@@ -18,9 +18,21 @@ async function until(check, message, ms = 8000) {
   for (const end = Date.now() + ms; Date.now() < end;) { if (check()) return; await sleep(50); }
   throw Error(message);
 }
+/* a save with only its header filled in (names, versions, the open song, the block table): what a deck reads */
+function fakeSave(songs, active) {
+  const s = new Uint8Array(0x20000);
+  s[0x813e] = 0x6a; s[0x813f] = 0x6b; s[0x8140] = active ?? 0xff; s.fill(0xff, 0x8141, 0x8200);
+  let b = 0;
+  for (const x of songs) {
+    [...x.name].forEach((c, i) => s[0x8000 + x.slot * 8 + i] = c.charCodeAt(0)); s[0x8100 + x.slot] = x.version;
+    s.fill(x.slot, 0x8141 + b, 0x8141 + b + x.blocks); b += x.blocks;
+  }
+  return s;
+}
 function fm1(n, title, fw = 'FM-1_997') {
   const d = {n, title, midi: [], fxSets: [], mutes: [], levels: [], seqs: [], mapReads: [], screens: 0, level: 127, seq: 0,
-    settings: packSettings({...unpackSettings(0x5a000000), theme: n % PRESETS.length})};   /* each its own theme */
+    settings: packSettings({...unpackSettings(0x5a000000), theme: n % PRESETS.length}),   /* each its own theme */
+    infos: 0, reads: 0, save: fakeSave([{slot: 0, name: 'TECHNO', version: 2, blocks: 10}], 0)};
   const fx = Array(68).fill(0);
   fx[36] = 5; fx[37] = 2; fx[42] = 0xf2; fx[38] = 1;
   d.input = Object.assign(new EventTarget(), {id: `in-${n}`, name: 'FM-1', state: 'connected', onmidimessage: null});
@@ -30,7 +42,9 @@ function fm1(n, title, fw = 'FM-1_997') {
     for (let i = 5; i + 1 < message.length - 1; i += 2) body.push(message[i] | (message[i + 1] & 1) << 7);
     const send = (data = [], status = 0) => queueMicrotask(() => d.input.onmidimessage?.({
       data: [0xf0, 0x7d, 0x47, 0x53, op, status, ...data.flatMap(b => [b & 127, b >> 7]), 0xf7]}));
-    if (op === OP.INFO) { const info = Array(35).fill(0); info[0] = 1; [...fw].forEach((c, i) => info[1 + i] = c.charCodeAt(0)); [...title].forEach((c, i) => info[9 + i] = c.charCodeAt(0)); return send(info); }
+    if (op === OP.INFO) { d.infos++; const info = Array(35).fill(0); info[0] = 1; [...fw].forEach((c, i) => info[1 + i] = c.charCodeAt(0)); [...title].forEach((c, i) => info[9 + i] = c.charCodeAt(0));
+      const crc = crc32(d.save); [0, 8, 16, 24].forEach((s, i) => info[29 + i] = (crc >>> s) & 255); return send(info); }
+    if (op === OP.READ) { const off = body[0] | body[1] << 8 | body[2] << 16 | body[3] << 24; d.reads++; return send([...d.save.subarray(off, off + 128)]); }
     if (op === OP.FX_GET) return send(fx);
     if (op === OP.FX_SET) { d.fxSets.push(body); return send(); }
     if (op === OP.MUTE_SET) { d.mutes.push(body[0]); return send(); }
@@ -179,6 +193,23 @@ export async function runDjUiTests() {
     assert(decksEl[0].style.getPropertyValue('--accent') === accent(A) && decksEl[1].style.getPropertyValue('--accent') === accent(B) && accent(A) !== accent(B),
       `each deck in its FM-1's colours: ${decksEl.map(e => e.style.getPropertyValue('--accent'))} want ${accent(A)} ${accent(B)}`);
 
+    // 4c2. the deck labels: the FM-1's songs from its save's header (READs: LSDj keeps playing); a .sav sent from this
+    // page names the deck, "(changed since)" once the FM-1's save no longer matches; INFO (a sum over the whole save
+    // on the FM-1) is not asked while the header stays the same
+    const labelOf = e => [e.querySelector('.dj-label-file').textContent, e.querySelector('.dj-label-song').textContent];
+    await until(() => decksEl.every(e => labelOf(e)[1] === 'Song TECHNO .02 · 1 song · 95 % free'), `labels: ${decksEl.map(e => labelOf(e).join(' / '))}`, 7000);
+    assert(labelOf(decksEl[0])[0] === 'Its own songs', `nothing sent to A from here: ${labelOf(decksEl[0])}`);
+    const readsSent = B.reads, infosSent = B.infos;
+    rememberSav('out-2', 'techno-set.sav', crc32(B.save));
+    await until(() => B.reads >= readsSent + 4 && B.infos > infosSent, 'read again after the send, INFO once', 7000); await sleep(200);
+    await until(() => labelOf(decksEl[1])[0] === 'techno-set.sav', `B named after the .sav sent to it: ${labelOf(decksEl[1])}`, 7000);
+    const infos0 = B.infos, reads0 = B.reads;
+    await sleep(5600);
+    assert(B.infos === infos0 && B.reads > reads0, `the header read again (${B.reads - reads0} READs), INFO not asked (${B.infos - infos0})`);
+    B.save = fakeSave([{slot: 0, name: 'TECHNO', version: 3, blocks: 10}, {slot: 1, name: 'HOUSE', version: 0, blocks: 6}], 1);
+    await until(() => labelOf(decksEl[1]).join(' / ') === 'techno-set.sav (changed since) / Song HOUSE .00 · 2 songs · 92 % free',
+      `B's save changed: ${labelOf(decksEl[1])}`, 7000);
+
     // 4d. Screen | Rows: A (0.9.97) has no Rows; B shows its song row map, a click cues that row; back to Screen
     const viewBtn = (e, t) => [...e.querySelectorAll('.dj-view button')].find(b => b.textContent === t);
     assert(viewBtn(decksEl[0], 'Rows')?.disabled && viewBtn(decksEl[0], 'Screen')?.classList.contains('on'), 'A (0.9.97): Rows off, Screen on');
@@ -257,7 +288,7 @@ export async function runDjUiTests() {
     assert(!document.body.classList.contains('dj') && getComputedStyle($('pan-chans')).display !== 'none', 'Effects layout back');
     await until(() => B.level === 127, `the Effects layout: B at full volume: ${B.levels}`);
     djState().decks.forEach(d => d.clock?.stop());
-    return 'PASS DJ layout: switch, decks on FM-1s, Start and clocks per deck, the next bar, its own tempo, Sync (a lock: lit, keeps the bar, follows the master, on a stopped deck, lets go when typed), stem kill, DJ filter, Perform › Clock off, 0.9.98 (crossfader to FM-1 volume, Hold), each deck its FM-1 colours and Screen | Rows (screen, song row map, click to cue), Tap quickly (no redraw), Whole BPM, TX-6 button and crossfader, fader mirrored, full volume after';
+    return 'PASS DJ layout: switch, decks on FM-1s, Start and clocks per deck, the next bar, its own tempo, Sync (a lock: lit, keeps the bar, follows the master, on a stopped deck, lets go when typed), stem kill, DJ filter, Perform › Clock off, 0.9.98 (crossfader to FM-1 volume, Hold), each deck its FM-1 colours, its label (the .sav sent, the open song, changed since), Screen | Rows (screen, song row map, click to cue), Tap quickly (no redraw), Whole BPM, TX-6 button and crossfader, fader mirrored, full volume after';
   } finally {
     if (descriptor) Object.defineProperty(navigator, 'requestMIDIAccess', descriptor); else delete navigator.requestMIDIAccess;
   }
