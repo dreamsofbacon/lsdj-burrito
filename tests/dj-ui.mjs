@@ -42,8 +42,9 @@ function fm1(n, title, fw = 'FM-1_997') {
     if (message[0] !== 0xf0) { const m = [...message]; m.ts = ts; d.midi.push(m); return; }   /* ts: when it plays */
     const op = message[4], body = [];
     for (let i = 5; i + 1 < message.length - 1; i += 2) body.push(message[i] | (message[i + 1] & 1) << 7);
-    const send = (data = [], status = 0) => queueMicrotask(() => d.input.onmidimessage?.({
-      data: [0xf0, 0x7d, 0x47, 0x53, op, status, ...data.flatMap(b => [b & 127, b >> 7]), 0xf7]}));
+    const reply = (data = [], status = 0) => () => d.input.onmidimessage?.({   /* d.slow[op]: ms before that op's reply (a busy FM-1) */
+      data: [0xf0, 0x7d, 0x47, 0x53, op, status, ...data.flatMap(b => [b & 127, b >> 7]), 0xf7]});
+    const send = (data, status) => d.slow?.[op] ? void setTimeout(reply(data, status), d.slow[op]) : queueMicrotask(reply(data, status));
     if (op === OP.INFO) { d.infos++; const info = Array(35).fill(0); info[0] = 1; [...fw].forEach((c, i) => info[1 + i] = c.charCodeAt(0)); [...title].forEach((c, i) => info[9 + i] = c.charCodeAt(0));
       const crc = crc32(d.save); [0, 8, 16, 24].forEach((s, i) => info[29 + i] = (crc >>> s) & 255); return send(info); }
     if (op === OP.READ) { const off = body[0] | body[1] << 8 | body[2] << 16 | body[3] << 24; d.reads++; return send([...d.save.subarray(off, off + 128)]); }
@@ -486,6 +487,20 @@ export async function runDjUiTests() {
     B.sync = 1;
     await until(() => !warnB().hidden && /CLOCK OUT on/.test(warnB().textContent), `LSDJ + CLOCK OUT: the warning: ${warnB().textContent}`, 3000);
     assert(B.syncSets.length === 1, 'LSDJ with CLOCK OUT on: not changed');
+    /* a leading FM-1 (SYNC = LSDJ, CLOCK OUT on) taken by a deck while its MIDI settings come back late: its SYNC is
+       never touched before they're known (it was set to KEYBD, and stopped sending its clock: Colin) */
+    B.midiWord = (0x4D000000 | 1 | 8 | 1 << 15 | 1 << 17) >>> 0; B.slow = {[OP.SETTINGS_GET]: 1200}; B.sync = 1;   /* (its colours read late: the deck's polls come in before its MIDI settings are read) */
+    choose(pickB, ''); choose(pickB, 'fm1:out-2');
+    await sleep(2500);
+    assert(B.syncSets.length === 1 && B.sync === 1, `a leading FM-1 taken by a deck, its settings late: SYNC left LSDJ: ${B.syncSets} (${B.sync})`);
+    B.slow = null;
+    /* the master clock's own FM-1: never changed, even with CLOCK OUT off; the strip says to turn CLOCK OUT on */
+    B.midiWord = (0x4D000000 | 1 | 8 | 1 << 17) >>> 0;
+    choose(document.querySelector('.dj-mixer select[aria-label="Master clock"]'), 'in-2');
+    choose(pickB, ''); choose(pickB, 'fm1:out-2');
+    await until(() => !warnB().hidden && /master clock, but its CLOCK OUT is off/.test(warnB().textContent), `the master's FM-1, CLOCK OUT off: the strip: ${warnB().textContent}`, 4000);
+    assert(B.syncSets.length === 1 && B.sync === 1, `the master clock's FM-1: SYNC left LSDJ: ${B.syncSets}`);
+    choose(document.querySelector('.dj-mixer select[aria-label="Master clock"]'), 'page');
     /* 0.9.98-dev.1 (no SYNC_SET) with SYNC = MIDI: nothing set, the strip says how */
     B.dev2 = false; B.sync = 3; B.midiWord = (0x4D000000 | 1 | 8 | 1 << 17) >>> 0;
     choose(pickB, ''); choose(pickB, 'fm1:out-2');

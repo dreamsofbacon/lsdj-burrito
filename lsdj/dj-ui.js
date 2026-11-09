@@ -131,7 +131,7 @@ async function assign(d, value) {
   if (d.kind === 'fm1' && d.levelSent !== 127) void fullVolume(d.key);   /* the FM-1 leaving the deck: full volume again */
   d.key = ''; d.kind = ''; d.live = null; d.fx = null; d.rv = null; d.base = null; d.kill = 0; d.filter = 0; setSynced(d, false); deckBend(d, 1); d.nudging = false;
   d.savHead = null; d.sav = null; d.savMatch = null; d.savAt = 0; d.seenPlaying = false; d.idlePolls = 0;
-  d.syncTried = null; d.clockOut = false; d.warn = {}; d.ownRow = null; setWarn(d, 'midi', '');
+  d.syncTried = null; d.clockOut = null; d.midiKnown = false; d.warn = {}; d.ownRow = null; setWarn(d, 'midi', '');
   d.level = null; d.levelSent = 127; d.scrOk = true; d.themeAt = 0; d.map = null; d.mapFrom = -1; d.mapFill = null;
   paintDeck(d, null);
   if (value) { const [kind, ...k] = value.split(':'); d.kind = kind; d.key = k.join(':'); }
@@ -945,9 +945,10 @@ async function deckMidi(d, l) {
   const key = d.key;
   let w = null;
   try { w = await l.midiGet(); } catch { return; }
-  if (w == null || d.key !== key) return;
+  if (d.key !== key) return;
+  if (w == null) { d.clockOut = null; d.midiKnown = true; return; }   /* (no MIDI settings: CLOCK OUT unknown, SYNC = LSDJ left) */
   const m = unpackMidi(w), fix = [];
-  d.clockOut = !!m.clockOut;
+  d.clockOut = !!m.clockOut; d.midiKnown = true;
   if (m.clockIn !== 1 && m.clockIn !== 2) { fix.push('CLOCK IN to ALL'); m.clockIn = 1; }
   if (!m.transport) { fix.push('TRANSPORT ON'); m.transport = 1; }
   if (!m.pcCue) { fix.push('PC CUE ON'); m.pcCue = 1; }
@@ -959,12 +960,23 @@ async function deckMidi(d, l) {
 }
 /* LSDj's SYNC, each poll (LIVE, 0.9.98): set to KEYBD while LSDj is stopped (0.9.98-dev.2 SYNC_SET), once a value;
    SYNC = LSDJ with CLOCK OUT on is left (that FM-1 leads: choose it as the master clock) */
+/* this deck's FM-1 is the one the master clock comes from (Master › Clock from its input) */
+const isMasterFm1 = d => master.source !== 'page' && hooks.linkFor(d.key)?.input?.id === master.source;
 async function lsdjSync(d, l) {
   const s = d.live?.sync;
   if (fwOf(d) < 998) return;   /* (older firmware doesn't say: the help says how) */
   if (s == null) return setWarn(d, 'sync', 'This FM-1 can\'t read this LSDj\'s SYNC: set PROJECT › SYNC = KEYBD on LSDj.');
   if (s === 'keybd') { d.syncTried = null; return setWarn(d, 'sync', ''); }
-  if (s === 'lsdj' && d.clockOut) return setWarn(d, 'sync', 'LSDj SYNC is LSDJ with CLOCK OUT on: this FM-1 leads, so it won\'t follow this deck. Choose it as the master clock, or set SYNC = KEYBD.');
+  /* nothing changed before the FM-1's MIDI settings are read (deckMidi, a moment after the deck takes it): a poll
+     before that saw CLOCK OUT as off and set a leading FM-1 (SYNC = LSDJ) to KEYBD, and it stopped sending its clock
+     to the other deck (Colin). The master clock's own FM-1 is never changed. */
+  if (!d.midiKnown) return;
+  const master_ = isMasterFm1(d);
+  if (s === 'lsdj' && (d.clockOut !== false || master_)) {
+    return setWarn(d, 'sync', master_ ? (d.clockOut === false ? 'This FM-1 is the master clock, but its CLOCK OUT is off: set GLO › MIDI › CLOCK OUT = USB.' : '')
+      : 'LSDj SYNC is LSDJ with CLOCK OUT on: this FM-1 leads, so it won\'t follow this deck. Choose it as the master clock, or set SYNC = KEYBD.');
+  }
+  if (master_) return;
   if (d.clock?.running || d.live.playing) return;   /* (playing: MIDI is the FM-1's own switch, back after Stop) */
   if (d.syncTried === s) return;
   d.syncTried = s;
