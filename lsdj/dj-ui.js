@@ -3,7 +3,7 @@
 // clocks: lsdj/midiclock.js). app.js mounts it and gives it the FM-1s (setDjHooks).
 //   A deck is an FM-1 plugged in, or any other MIDI output (a drum machine, a DAW, a Game Boy on an ArduinoBoy: its
 //   own deck type, with LSDj's speed notes; abSpeed). The page clocks each deck
-//   itself, at its own tempo (LSDj PROJECT › SYNC = MIDI, GLO › MIDI › CLOCK IN = ALL or USB, TRANSPORT ON): Sync
+//   itself, at its own tempo (LSDj PROJECT › SYNC = KEYBD, the FM-1 switching it to MIDI; CLOCK IN, TRANSPORT and PC CUE: each deck sets them, deckMidi / lsdjSync): Sync
 //   matches the master's tempo and closes the gap to its bar by a short bend; nudge bends while held; Play starts on
 //   the master's next bar. The master is a clock on this page (tempo, tap, Play / Stop) or one heard on a MIDI input
 //   (a mixer, a DAW, an FM-1 with SYNC = LSDJ and CLOCK OUT = USB): its tempo and bar are followed.
@@ -13,14 +13,14 @@
 //   The mixer: a preset (mixers.js) or MIDI learn. Its controls drive the decks; the page's faders and crossfader
 //   set its channel volumes when it takes them. Without a mixer the crossfader sets each FM-1's volume (0.9.98:
 //   VOLUME_SET, times the MASTER knob; put back to full when the deck is emptied, the mixer changes or the layout
-//   closes). 0.9.98 also gives: Hold (LSDj's live mode: each channel loops its chain), a SYNC check, and beat lights
+//   closes). 0.9.98 also gives: Hold (LSDj's live mode: each channel loops its chain), LSDj's SYNC set (0.9.98-dev.2) or warned of, and beat lights
 //   from the FM-1's own phrase rows when this page isn't clocking it.
 //   Each FM-1 deck shows, as chosen (Screen | Rows): its FM-1's screen (as Perform › Screen; FM-1_983 and newer),
 //   on that FM-1's link, or (0.9.98) the song row map: click a row to cue it.
 import {startClock, clampBpm, PPQN, CLOCK, START, CONTINUE, STOP} from './midiclock.js';
 import {BAR, BEAT, NUDGE, position, offset, syncBend, nextOn, crossfade, CURVES, djFilter, tapper, clockMeter} from './dj.js';
 import {PRESETS, preset, readMidi, actionFor, out, learnRule, saveLearned, loadLearned} from './mixers.js';
-import {unpackFx, packFx, unpackReverb, packReverb, packReverbSends, CHANNELS, firmwareNumber, unpackSettings, PRESETS as THEME_COLOURS, CUSTOM_THEME, THEMES} from './fx-model.js';
+import {unpackFx, packFx, unpackReverb, packReverb, packReverbSends, CHANNELS, firmwareNumber, unpackSettings, PRESETS as THEME_COLOURS, CUSTOM_THEME, THEMES, unpackMidi, packMidi} from './fx-model.js';
 import {pageColours} from './page-theme.js';
 import {mountCrate, setCrateHooks, dropOnDeck, crateRedraw, CRATE_TYPE} from './crate-ui.js';
 import {savHeader, HEADER, HEADER_SIZE, BLOCK_COUNT} from './lsdj-sav.js';
@@ -130,6 +130,7 @@ async function assign(d, value) {
   if (d.kind === 'fm1' && d.levelSent !== 127) void fullVolume(d.key);   /* the FM-1 leaving the deck: full volume again */
   d.key = ''; d.kind = ''; d.live = null; d.fx = null; d.rv = null; d.base = null; d.kill = 0; d.filter = 0; setSynced(d, false); deckBend(d, 1); d.nudging = false;
   d.savHead = null; d.sav = null; d.savMatch = null; d.savAt = 0; d.seenPlaying = false; d.idlePolls = 0;
+  d.syncTried = null; d.clockOut = false; d.warn = {}; setWarn(d, 'midi', '');
   d.level = null; d.levelSent = 127; d.scrOk = true; d.themeAt = 0; d.map = null; d.mapFrom = -1; d.mapFill = null;
   paintDeck(d, null);
   if (value) { const [kind, ...k] = value.split(':'); d.kind = kind; d.key = k.join(':'); }
@@ -151,6 +152,7 @@ async function assign(d, value) {
   } catch (e) { say(`Deck ${NAMES[d.i]}: ${e.message}`); }
   await deckTheme(d, l);
   await deckSav(d, l).catch(() => {});
+  await deckMidi(d, l);   /* the FM-1's MIDI settings for the deck (LSDj's SYNC: each poll, lsdjSync) */
   draw();
 }
 function deckPlay(d) {
@@ -445,6 +447,7 @@ async function pollRound() {
     try {
       d.live = await l.live();
       fm1Stopped(d);
+      await lsdjSync(d, l);
       if (d.live.level != null && !d.levelBusy) d.levelSent = d.live.level;
       if (d.live.level != null && d.levelSent !== (d.level ?? 127)) void sendLevel(d);   /* power cycled, or another page */
       if (now() - (d.themeAt || 0) > 8000) await deckTheme(d, l);
@@ -885,7 +888,7 @@ function tick() {
     u.gap.textContent = gap != null ? (Math.abs(gap) < 0.5 ? 'in sync' : `${gap > 0 ? 'behind' : 'ahead'} ${(Math.abs(gap) / 6).toFixed(1)} rows`)
       : own != null ? `own clock · row ${hex2(own)}` : d.clock?.running ? 'no master' : 'stopped';
     if (u.info) u.info.textContent = !d.live ? '' : [`On the FM-1: ${d.live.bpm} BPM · playing ${CHANNELS.filter((n, c) => (d.live.playing >> c) & 1).join(' ') || 'nothing'}`,
-      d.live.level != null && d.live.level < 127 ? `volume ${Math.round(d.live.level / 1.27)} % from this page` : '', syncNote(d)].filter(Boolean).join(' · ');
+      d.live.level != null && d.live.level < 127 ? `volume ${Math.round(d.live.level / 1.27)} % from this page` : ''].filter(Boolean).join(' · ');
     if (u.hold && d.live?.live != null) { u.hold.textContent = d.live.live ? 'Held' : 'Hold'; u.hold.classList.toggle('on', d.live.live); }
   });
 }
@@ -897,13 +900,58 @@ function fm1Row(d) {
   return c == null ? null : l.rows[c] & 15;
 }
 /* 0.9.98: LSDj's SYNC said plainly when it won't follow this page's clock */
-function syncNote(d) {
+/* ---------- the deck's FM-1 set up for this page's clock, by itself (Colin: fix it, don't ask) ----------
+   Decks that wouldn't start, and FM-1s that wouldn't play by themselves after DJing, came from LSDj's SYNC and the
+   FM-1's MIDI settings. The right setup: LSDj PROJECT › SYNC = KEYBD (the FM-1 switches it to MIDI for the page's
+   Start and back after Stop, so START on the FM-1 plays in between), and the FM-1's CLOCK IN = ALL (or USB),
+   TRANSPORT ON, PC CUE ON (CUE and Rows). Whatever can't be set is said on the deck's warning strip. */
+const SYNC_NAME = {off: 'OFF', lsdj: 'LSDJ', midi: 'MIDI', keybd: 'KEYBD'};
+/* the FM-1's MIDI settings, once a deck assignment: only what the deck needs changes (CLOCK OUT and the rest kept);
+   live, not stored (no flash write while a deck may play: set again each time a deck takes the FM-1) */
+async function deckMidi(d, l) {
+  const key = d.key;
+  let w = null;
+  try { w = await l.midiGet(); } catch { return; }
+  if (w == null || d.key !== key) return;
+  const m = unpackMidi(w), fix = [];
+  d.clockOut = !!m.clockOut;
+  if (m.clockIn !== 1 && m.clockIn !== 2) { fix.push('CLOCK IN to ALL'); m.clockIn = 1; }
+  if (!m.transport) { fix.push('TRANSPORT ON'); m.transport = 1; }
+  if (!m.pcCue) { fix.push('PC CUE ON'); m.pcCue = 1; }
+  if (!fix.length) return;
+  try {
+    await l.midiSet(packMidi(m));
+    say(`Deck ${NAMES[d.i]}: set the FM-1's ${fix.join(', ')} (the deck needs them).`);
+  } catch (e) { setWarn(d, 'midi', `The FM-1's MIDI settings couldn't be set (${e.message}): GLO › MIDI › CLOCK IN = ALL, TRANSPORT ON, PC CUE ON.`); }
+}
+/* LSDj's SYNC, each poll (LIVE, 0.9.98): set to KEYBD while LSDj is stopped (0.9.98-dev.2 SYNC_SET), once a value;
+   SYNC = LSDJ with CLOCK OUT on is left (that FM-1 leads: choose it as the master clock) */
+async function lsdjSync(d, l) {
   const s = d.live?.sync;
-  if (s === 'lsdj') return 'LSDj SYNC is LSDJ: it sends a clock and won\'t follow this page. PROJECT › SYNC = MIDI (or KEYBD), or choose it as the master clock.';
-  return '';
+  if (fwOf(d) < 998) return;   /* (older firmware doesn't say: the help says how) */
+  if (s == null) return setWarn(d, 'sync', 'This FM-1 can\'t read this LSDj\'s SYNC: set PROJECT › SYNC = KEYBD on LSDj.');
+  if (s === 'keybd') { d.syncTried = null; return setWarn(d, 'sync', ''); }
+  if (s === 'lsdj' && d.clockOut) return setWarn(d, 'sync', 'LSDj SYNC is LSDJ with CLOCK OUT on: this FM-1 leads, so it won\'t follow this deck. Choose it as the master clock, or set SYNC = KEYBD.');
+  if (d.clock?.running || d.live.playing) return;   /* (playing: MIDI is the FM-1's own switch, back after Stop) */
+  if (d.syncTried === s) return;
+  d.syncTried = s;
+  const r = await l.syncSet('keybd').catch(() => 'no');
+  if (r === 'ok') { setWarn(d, 'sync', ''); say(`Deck ${NAMES[d.i]}: set LSDj's SYNC from ${SYNC_NAME[s]} to KEYBD (the FM-1 switches it to MIDI while this page plays it).`); }
+  else if (r === 'playing') d.syncTried = null;   /* (next poll) */
+  else if (s === 'midi' || s === 'lsdj')   /* 0.9.98-dev.1: OFF and KEYBD switch by themselves; these don't */
+    setWarn(d, 'sync', `LSDj SYNC is ${SYNC_NAME[s]}: set it to KEYBD on LSDj's PROJECT screen (0.9.98-dev.2 does it by itself), or the FM-1 ${s === 'lsdj' ? 'won\'t follow this deck' : 'won\'t play without this page'}.`);
+}
+/* the warning strip under the deck's name: what the page couldn't set up (one line each) */
+function setWarn(d, what, text) {
+  d.warn = {...d.warn, [what]: text};
+  const u = d.ui;
+  if (!u?.warn) return;
+  const lines = Object.values(d.warn).filter(Boolean);
+  u.warn.hidden = !lines.length;
+  if (u.warn.textContent !== lines.join(' ')) u.warn.textContent = lines.join(' ');
 }
 
-const HELP = 'Each deck follows this page\'s clock at its own tempo. On each FM-1: LSDj PROJECT › SYNC = MIDI (or KEYBD with 0.9.97), GLO › MIDI › CLOCK IN = ALL or USB, TRANSPORT ON; for CUE and Rows, PC CUE ON. The audio goes through your mixer as usual; without one, the crossfader sets each FM-1\'s volume (0.9.98). A Game Boy on an ArduinoBoy: choose its MIDI port as "(ArduinoBoy)", one port per deck. Turn a jog wheel to nudge its deck; the tempo fader sets its tempo against the master\'s.';
+const HELP = 'Each deck follows this page\'s clock at its own tempo. On each FM-1: LSDj PROJECT › SYNC = KEYBD (the FM-1 switches it to MIDI while a deck plays it, and back after, so START on the FM-1 plays by itself in between), GLO › MIDI › CLOCK IN = ALL or USB, TRANSPORT ON, PC CUE ON. Each deck sets these itself (LSDj SYNC with 0.9.98-dev.2) and says what it changed in the Log. The audio goes through your mixer as usual; without one, the crossfader sets each FM-1\'s volume (0.9.98). A Game Boy on an ArduinoBoy: choose its MIDI port as "(ArduinoBoy)", one port per deck. Turn a jog wheel to nudge its deck; the tempo fader sets its tempo against the master\'s.';
 /* Perform's DJ panel (index.html #dj-root): built once; the decks and mixer drawn again when things change */
 export function mountDj(box) {
   root = box;
@@ -916,8 +964,10 @@ export function mountDj(box) {
     /* the label: the .sav and the song (drawLabel), kept across redraws of the body */
     const labelFile = el('b', {className: 'dj-label-file'}), labelSong = el('span', {className: 'dj-label-song'});
     const label = el('div', {className: 'dj-label', hidden: true}, labelFile, labelSong);
+    /* the warning strip: what the page couldn't set up on this deck's FM-1 (setWarn), kept across redraws */
+    const warn = el('p', {className: 'dj-warn', role: 'status', hidden: true});
     const box = el('section', {className: 'dj-deck', ariaLabel: `Deck ${NAMES[d.i]}`}, el('h4', {className: 'dj-deck-head'},
-      el('span', {className: 'dj-deck-id', title: `Deck ${NAMES[d.i]}`}, el('span', {className: 'sr-only', textContent: 'Deck '}), NAMES[d.i]), pick), label, body);
+      el('span', {className: 'dj-deck-id', title: `Deck ${NAMES[d.i]}`}, el('span', {className: 'sr-only', textContent: 'Deck '}), NAMES[d.i]), pick), warn, label, body);
     /* the crate (crate-ui.js): a card dropped here loads onto this deck; meanwhile a cover with its progress */
     const loadText = el('span'), loadBar = el('progress', {value: 0, max: 1, hidden: true});
     const loadEl = el('div', {className: 'dj-loading', hidden: true, role: 'status'}, loadText, loadBar);
@@ -925,7 +975,7 @@ export function mountDj(box) {
     box.ondragover = e => { if ([...(e.dataTransfer?.types || [])].includes(CRATE_TYPE)) { e.preventDefault(); box.classList.add('drop'); } };
     box.ondragleave = () => box.classList.remove('drop');
     box.ondrop = e => { box.classList.remove('drop'); dropOnDeck(e, d.i); };
-    d.ui = {pick, body, screen, box, label, labelFile, labelSong, loadEl, loadText, loadBar};
+    d.ui = {pick, body, screen, box, warn, label, labelFile, labelSong, loadEl, loadText, loadBar};
     return box;
   };
   const themePick = sel([['page', 'Page colours'], ...THEMES.map((n, i) => [String(i), n]).filter(([i]) => THEME_COLOURS[+i])], djTheme,

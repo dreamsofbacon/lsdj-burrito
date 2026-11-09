@@ -8,7 +8,7 @@
 import {OP, crc32} from '../lsdj/link.js';
 import {djState, rememberSav} from '../lsdj/dj-ui.js';
 import {addToCrate} from '../lsdj/crate-ui.js';
-import {unpackFx, unpackSettings, packSettings, PRESETS} from '../lsdj/fx-model.js';
+import {unpackFx, unpackSettings, packSettings, PRESETS, unpackMidi} from '../lsdj/fx-model.js';
 import {pageColours} from '../lsdj/page-theme.js';
 import {crossfade, offset} from '../lsdj/dj.js';
 
@@ -33,7 +33,8 @@ function fakeSave(songs, active) {
 function fm1(n, title, fw = 'FM-1_997') {
   const d = {n, title, midi: [], fxSets: [], mutes: [], levels: [], seqs: [], mapReads: [], screens: 0, level: 127, seq: 0,
     settings: packSettings({...unpackSettings(0x5a000000), theme: n % PRESETS.length}),   /* each its own theme */
-    infos: 0, reads: 0, begins: 0, importing: null, save: fakeSave([{slot: 0, name: 'TECHNO', version: 2, blocks: 10}], 0)};
+    infos: 0, reads: 0, begins: 0, importing: null, save: fakeSave([{slot: 0, name: 'TECHNO', version: 2, blocks: 10}], 0),
+    midiWord: (0x4D000000 | 1 | 8 | 1 << 17) >>> 0, midiSets: [], sync: 5, syncSets: [], dev2: true};   /* MIDI: CLOCK IN ALL, TRANSPORT ON, PC CUE ON; LSDj SYNC KEYBD */
   const fx = Array(68).fill(0);
   fx[36] = 5; fx[37] = 2; fx[42] = 0xf2; fx[38] = 1;
   d.input = Object.assign(new EventTarget(), {id: `in-${n}`, name: 'FM-1', state: 'connected', onmidimessage: null});
@@ -57,7 +58,10 @@ function fm1(n, title, fw = 'FM-1_997') {
     if (op === OP.SETTINGS_GET) return send([0, 8, 16, 24].map(s => (d.settings >>> s) & 255));
     if (op >= OP.SCREEN_INFO && op <= OP.SCREEN_FRAME) d.screens++;   /* (no screen here: the deck says so) */
     if (op === OP.THEME_GET) return send(Array(16).fill(0));
-    const dj = fw >= 'FM-1_998' ? [0x82, 5, 5, 5, 5, 2, 2, 2, 2, 3, d.seq, d.level] : [];
+    const dj = fw >= 'FM-1_998' ? [0x82, 5, 5, 5, 5, 2, 2, 2, 2, d.sync, d.seq, d.level] : [];
+    if (op === OP.MIDI_GET) return send([0, 8, 16, 24].map(s => (d.midiWord >>> s) & 255));
+    if (op === OP.MIDI_SET) { d.midiWord = (body[0] | body[1] << 8 | body[2] << 16 | body[3] << 24) >>> 0; d.midiSets.push(d.midiWord); return send(); }
+    if (op === OP.SYNC_SET && fw >= 'FM-1_998' && d.dev2) { if (d.playing) return send([], 2); d.syncSets.push(body[0]); d.sync = body[0]; return send(); }
     if (op === OP.LIVE) return send([1, 1, 120, 0, d.mutes.at(-1) || 0, 0, d.playing || 0, ...fx, ...dj]);   /* d.playing: the channels playing (a bit each) */
     if (fw >= 'FM-1_998' && op === OP.VOLUME_SET) { d.levels.push(body[0]); d.level = body[0]; return send(); }
     if (fw >= 'FM-1_998' && op === OP.SEQ_SET) { d.seqs.push(body[0]); d.seq = body[0]; return send(); }
@@ -435,10 +439,41 @@ export async function runDjUiTests() {
     assert(/Deck B: its FM-1 \(out-2\) went away while playing/.test(logged) && /Deck B: its FM-1 \(out-2\) is back/.test(logged) && /disconnected/.test(logged),
       `the Log has it: ${logged}`);
     log.open = false;
+
+    // 10. each deck sets its FM-1 up for the page's clock by itself (0.9.98-dev.2): the MIDI settings it needs
+    // (CLOCK IN, TRANSPORT, PC CUE; CLOCK OUT kept) and LSDj's SYNC to KEYBD while stopped; what it can't, on the
+    // deck's warning strip
+    document.querySelector('#stage-mode [data-mode="dj"]').click();
+    const warnB = () => [...document.querySelectorAll('.dj-deck')][1].querySelector('.dj-warn');
+    const logNow = () => { const l = document.querySelector('.dj-log'); l.open = true; l.dispatchEvent(new Event('toggle')); const t = l.querySelector('.dj-log-text').textContent; l.open = false; return t; };
+    B.midiWord = (0x4D000000 | 3 | 1 << 15) >>> 0;   /* CLOCK IN TRS, TRANSPORT OFF, PC CUE OFF, CLOCK OUT USB */
+    B.sync = 3; B.dev2 = true; B.playing = 0; B.midiSets.length = 0; B.syncSets.length = 0;
+    choose(pickB, ''); choose(pickB, 'fm1:out-2');
+    await until(() => B.midiSets.length === 1, 'deck B sets its FM-1\'s MIDI settings');
+    const mB = unpackMidi(B.midiSets[0]);
+    assert(mB.clockIn === 1 && mB.transport === 1 && mB.pcCue === 1 && mB.clockOut === 1, `CLOCK IN ALL, TRANSPORT ON, PC CUE ON, CLOCK OUT kept: ${JSON.stringify(mB)}`);
+    await until(() => B.syncSets.join() === '5' && B.sync === 5, `LSDj's SYNC MIDI -> KEYBD: ${B.syncSets}`, 4000);
+    await sleep(1200);
+    assert(B.syncSets.length === 1 && B.midiSets.length === 1 && warnB().hidden, `once each, no warning: ${B.syncSets} ${B.midiSets.length} ${warnB().textContent}`);
+    const logB = logNow();
+    assert(/Deck B: set the FM-1's CLOCK IN to ALL, TRANSPORT ON, PC CUE ON/.test(logB) && /Deck B: set LSDj's SYNC from MIDI to KEYBD/.test(logB), `logged: ${logB.slice(-400)}`);
+    /* SYNC = LSDJ with CLOCK OUT on: that FM-1 leads; left as it is, said on the strip */
+    B.sync = 1;
+    await until(() => !warnB().hidden && /CLOCK OUT on/.test(warnB().textContent), `LSDJ + CLOCK OUT: the warning: ${warnB().textContent}`, 3000);
+    assert(B.syncSets.length === 1, 'LSDJ with CLOCK OUT on: not changed');
+    /* 0.9.98-dev.1 (no SYNC_SET) with SYNC = MIDI: nothing set, the strip says how */
+    B.dev2 = false; B.sync = 3; B.midiWord = (0x4D000000 | 1 | 8 | 1 << 17) >>> 0;
+    choose(pickB, ''); choose(pickB, 'fm1:out-2');
+    await until(() => !warnB().hidden && /SYNC is MIDI: set it to KEYBD/.test(warnB().textContent), `dev.1, SYNC MIDI: the warning: ${warnB().textContent}`, 3000);
+    assert(B.syncSets.length === 1 && B.midiSets.length === 1, 'dev.1: nothing more sent');
+    /* fixed by hand on LSDj: the strip goes */
+    B.sync = 5;
+    await until(() => warnB().hidden, 'SYNC KEYBD: the strip goes', 3000);
+    B.dev2 = true;
     play(1);
     document.querySelector('#stage-mode [data-mode="fx"]').click();
     djState().decks.forEach(d => d.clock?.stop());
-    return 'PASS DJ layout: switch, decks on FM-1s, Start and clocks per deck, the next bar, its own tempo, Sync (a lock: lit, keeps the bar, follows the master, on a stopped deck, lets go when typed), stem kill, DJ filter, Perform › Clock off, 0.9.98 (crossfader to FM-1 volume, Hold), DJ colours (the page and panel; FM-1 decks keep theirs), each deck its FM-1 colours, its label (the .sav sent, the open song, changed since), Screen | Rows (screen, song row map, click to cue), Tap quickly (no redraw), Whole BPM, TX-6 button and crossfader, fader mirrored, full volume after, an ArduinoBoy deck (speed notes, its channel, Start and clocks, FM-1 controls hidden), the crate (a .sav onto deck A while B plays on, untouched; Grab B), an FM-1 pulled and back (the deck takes it back, playing; the Log), stopped on the FM-1 (the deck stops too)';
+    return 'PASS DJ layout: switch, decks on FM-1s, Start and clocks per deck, the next bar, its own tempo, Sync (a lock: lit, keeps the bar, follows the master, on a stopped deck, lets go when typed), stem kill, DJ filter, Perform › Clock off, 0.9.98 (crossfader to FM-1 volume, Hold), DJ colours (the page and panel; FM-1 decks keep theirs), each deck its FM-1 colours, its label (the .sav sent, the open song, changed since), Screen | Rows (screen, song row map, click to cue), Tap quickly (no redraw), Whole BPM, TX-6 button and crossfader, fader mirrored, full volume after, an ArduinoBoy deck (speed notes, its channel, Start and clocks, FM-1 controls hidden), the crate (a .sav onto deck A while B plays on, untouched; Grab B), an FM-1 pulled and back (the deck takes it back, playing; the Log), stopped on the FM-1 (the deck stops too), each deck sets its FM-1 up (MIDI settings, LSDj SYNC to KEYBD; the warning strip)';
   } finally {
     if (descriptor) Object.defineProperty(navigator, 'requestMIDIAccess', descriptor); else delete navigator.requestMIDIAccess;
   }

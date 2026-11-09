@@ -54,5 +54,13 @@ for (const [name, d, words, batt] of [
   assert.deepEqual(sent.at(-1), {op: OP.SONG_ROWS, body: [0x20]}); }
 { const {link} = fake(() => [1, []]);   /* 0.9.97 and older */
   assert.equal(await link.volumeSet(10), false); assert.equal(await link.seqSet(false), false); assert.equal(await link.songRows(0), null); }
+/* SYNC_SET (0.9.98-dev.2): KEYBD 5, MIDI 3; 'playing' (status 2), 'no' (status 1: older firmware, unknown LSDj) */
+{ let status = 0;
+  const {link, sent} = fake(() => [status, []]);
+  assert.equal(await link.syncSet('keybd'), 'ok'); assert.deepEqual(sent.at(-1), {op: OP.SYNC_SET, body: [5]});
+  assert.equal(await link.syncSet('midi'), 'ok'); assert.deepEqual(sent.at(-1), {op: OP.SYNC_SET, body: [3]});
+  status = 2; assert.equal(await link.syncSet('keybd'), 'playing');
+  status = 1; assert.equal(await link.syncSet('keybd'), 'no');
+  await assert.rejects(link.syncSet('lsdj'), /KEYBD or MIDI only/); }
 
-console.log('PASS link DJ: LIVE at every length (11 / 17 words, battery, 0.9.98 rows, song rows, SYNC, SEQ, volume), VOLUME_SET, SEQ_SET, SONG_ROWS, older firmware');
+console.log('PASS link DJ: LIVE at every length (11 / 17 words, battery, 0.9.98 rows, song rows, SYNC, SEQ, volume), VOLUME_SET, SEQ_SET, SONG_ROWS, SYNC_SET (ok, playing, no), older firmware');

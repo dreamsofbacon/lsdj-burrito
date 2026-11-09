@@ -10,7 +10,7 @@ export const OP = {INFO: 0x01, READ: 0x02, BEGIN: 0x03, CHUNK: 0x04, COMMIT: 0x0
   STORE: 0x16, MIDI_GET: 0x17, MIDI_SET: 0x18, FEAT_GET: 0x19, FEAT_SET: 0x1A, LIVE: 0x20,
   CART_INFO: 0x22, CART_READ: 0x23, MUTE_SET: 0x24, SCREEN_INFO: 0x25, SCREEN_ROW: 0x26,
   SCREEN_SYNC: 0x27, SCREEN_PIXELS: 0x28, SCREEN_FRAME: 0x29, REVERB_GET: 0x2A, REVERB_SET: 0x2B, PAD_SET: 0x2C,
-  REVERB_SENDS_GET: 0x2D, REVERB_SENDS_SET: 0x2E, VOLUME_SET: 0x2F, SEQ_SET: 0x30, SONG_ROWS: 0x31};
+  REVERB_SENDS_GET: 0x2D, REVERB_SENDS_SET: 0x2E, VOLUME_SET: 0x2F, SEQ_SET: 0x30, SONG_ROWS: 0x31, SYNC_SET: 0x32};
 export const STATUS = ['ok', 'bad request', 'wrong state', 'checksum mismatch', 'flash error'];
 export const CHUNK = 128;
 export const SAVE_SIZE = 131072;
@@ -229,6 +229,14 @@ export class Link {
     return !(await this.req(OP.VOLUME_SET, [Math.max(0, Math.min(127, Math.round(level)))], {retries: 1, allow: [0, 1]})).status;
   }
   async seqSet(live) { return !(await this.req(OP.SEQ_SET, [live ? 1 : 0], {retries: 2, allow: [0, 1]})).status; }
+  /* 0.9.98-dev.2: LSDj's PROJECT › SYNC set to 'keybd' or 'midi' (kept in the song). 'ok'; 'playing' (LSDj plays:
+     only while stopped); 'no' (older firmware, or an LSDj whose addresses this FM-1 doesn't know) */
+  async syncSet(sync) {
+    const v = {keybd: 5, midi: 3}[sync];
+    if (v == null) throw Error(`SYNC ${sync}: KEYBD or MIDI only`);
+    const s = (await this.req(OP.SYNC_SET, [v], {retries: 2, allow: [0, 1, 2]})).status;
+    return s === 0 ? 'ok' : s === 2 ? 'playing' : 'no';
+  }
   /* 16 song rows from row (each: 4 chains, null empty), or null */
   async songRows(row) {
     const r = await this.req(OP.SONG_ROWS, [row & 255], {retries: 2, allow: [0, 1], accept: r => r.status || r.data[0] === (row & 255)});
