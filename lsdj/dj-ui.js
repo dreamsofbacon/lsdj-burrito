@@ -18,6 +18,7 @@
 //   Each FM-1 deck shows, as chosen (Screen | Rows): its FM-1's screen (as Perform › Screen; FM-1_983 and newer),
 //   on that FM-1's link, or (0.9.98) the song row map: click a row to cue it.
 import {startClock, clampBpm, PPQN, CLOCK, START, CONTINUE, STOP} from './midiclock.js';
+import {sameFm1} from './link.js';
 import {BAR, BEAT, NUDGE, position, offset, syncBend, nextOn, crossfade, CURVES, djFilter, tapper, clockMeter} from './dj.js';
 import {PRESETS, preset, readMidi, actionFor, out, learnRule, saveLearned, loadLearned} from './mixers.js';
 import {unpackFx, packFx, unpackReverb, packReverb, packReverbSends, CHANNELS, firmwareNumber, unpackSettings, PRESETS as THEME_COLOURS, CUSTOM_THEME, THEMES, unpackMidi, packMidi} from './fx-model.js';
@@ -1030,27 +1031,40 @@ export function djShown(on) {
   polling = setInterval(() => void poll(), 400);
 }
 /* the FM-1s plugged in changed: the choices follow; a deck whose FM-1 went away is emptied */
+let seenFm1s = new Map();   /* key -> {title, fw, crc}: what each FM-1 in the list last said, for knowing it again */
 export function djDevicesChanged() {
   const list = hooks.devices();
-  /* its FM-1 gone (pulled, restarted, or it didn't answer a search): the deck empties, and remembers it, playing
+  /* its FM-1 gone (pulled, a USB hiccup, or it didn't answer a search): the deck empties, and remembers it, playing
      and Sync included, so it takes it back by itself when it's found again (until another is chosen here) */
   for (const d of decks) if (d.kind === 'fm1' && !list.some(x => x.key === d.key)) {
-    d.gone = {key: d.key, playing: !!d.clock?.running, synced: !!d.synced};
+    const was = seenFm1s.get(d.key);
+    d.gone = {key: d.key, playing: !!d.clock?.running, synced: !!d.synced, others: new Set(list.map(x => x.key)),
+      info: was && {title: was.title, firmware: was.fw, saveCrc: was.crc}};
     logEvent(`Deck ${NAMES[d.i]}: its FM-1 (${d.key}) went away${d.gone.playing ? ' while playing' : ''}.`);
     if (statusEl) statusEl.textContent = `Deck ${NAMES[d.i]}: its FM-1 went away. It comes back to this deck by itself when it's found again.`;
     void assign(d, '');
   }
   for (const d of decks) {
     const g = d.gone;
-    if (!g || d.key || !list.some(x => x.key === g.key) || decks.some(o => o.key === g.key)) continue;
+    if (!g || d.key) continue;
+    /* the same ports, or (Windows numbers them again when it comes back) a new FM-1 on no deck, not one of those
+       there when it went, that runs the same firmware and LSDj (its songs' checksum deciding between two) */
+    const free = list.filter(x => !decks.some(o => o.key === x.key));
+    const back = free.find(x => x.key === g.key) || sameFm1(free.filter(x => !g.others.has(x.key)), g.info, x => ({title: x.title, firmware: x.fw, saveCrc: x.crc}));
+    if (!back) continue;
     d.gone = null;
-    logEvent(`Deck ${NAMES[d.i]}: its FM-1 (${g.key}) is back${g.playing ? ', playing again from the next bar' : ''}.`);
+    if (back.key !== g.key) {   /* its .sav label follows it to the new ports */
+      const m = savsSent();
+      if (m[g.key]) { m[back.key] = m[g.key]; delete m[g.key]; store.set(SAVS, JSON.stringify(m)); }
+    }
+    logEvent(`Deck ${NAMES[d.i]}: its FM-1 is back${back.key !== g.key ? ` on new ports (${g.key} -> ${back.key})` : ` (${g.key})`}${g.playing ? ', playing again from the next bar' : ''}.`);
     if (statusEl) statusEl.textContent = `Deck ${NAMES[d.i]}: its FM-1 is back.`;
-    void assign(d, `fm1:${g.key}`).then(() => {
+    void assign(d, `fm1:${back.key}`).then(() => {
       if (g.synced && !d.synced) deckSync(d);
       if (g.playing && !d.clock?.running) deckPlay(d);
     });
   }
+  for (const x of list) seenFm1s.set(x.key, {title: x.title, fw: x.fw, crc: x.crc});
   draw();
   crateRedraw();
 }

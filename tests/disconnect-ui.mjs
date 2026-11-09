@@ -88,7 +88,7 @@ export async function runDisconnectUiTests() {
 
     // 5. still there but not answering when it comes back: says so, stays disconnected
     plug('disconnected'); silent = true; plug('connected');
-    await until(() => /did not answer/.test(device()), `back but silent: ${device()}`, 300);
+    await until(() => /did not answer/.test(device()), `back but silent: ${device()}`, 450);   /* (tries over ~17 s) */
     assert(!isConnected(), 'not connected while silent');
     silent = false;
     await $('connect-btn').onclick();

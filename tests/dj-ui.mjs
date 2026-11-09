@@ -436,9 +436,28 @@ export async function runDjUiTests() {
     const log = document.querySelector('.dj-log');
     log.open = true; log.dispatchEvent(new Event('toggle'));
     const logged = log.querySelector('.dj-log-text').textContent;
-    assert(/Deck B: its FM-1 \(out-2\) went away while playing/.test(logged) && /Deck B: its FM-1 \(out-2\) is back/.test(logged) && /disconnected/.test(logged),
+    assert(/Deck B: its FM-1 \(out-2\) went away while playing/.test(logged) && /Deck B: its FM-1 is back \(out-2\)/.test(logged) && /disconnected/.test(logged),
       `the Log has it: ${logged}`);
     log.open = false;
+
+    // 9b. ...and back on new port ids (Windows numbers an FM-1's ports again when it comes back): known by what it
+    //     runs (firmware, LSDj, its songs' checksum); its .sav label follows; then back on its first ids for step 10
+    const savLabel = k => { try { return JSON.parse(localStorage.getItem('dj-savs') || '{}')[k]; } catch { return null; } };
+    rememberSav('out-2', 'Friday set', 1234);
+    const renumber = async (inId, outId, key) => {
+      access.inputs.delete(key.from); access.outputs.delete(key.from); port(B.input, 'disconnected'); port(B.output, 'disconnected');
+      await until(() => !dB.key && dB.gone, `deck B empties: ${dB.key}`, 6000);
+      B.input.id = inId; B.output.id = outId;
+      access.inputs.set(key.to, B.input); access.outputs.set(key.to, B.output); port(B.input, 'connected'); port(B.output, 'connected');
+      await until(() => dB.key === outId && dB.clock?.running, `deck B takes its FM-1 back on ${outId}, playing: ${dB.key} ${dB.clock?.running}`, 8000);
+    };
+    await renumber('in-2b', 'out-2b', {from: 'b', to: 'b2'});
+    assert(savLabel('out-2b')?.name === 'Friday set' && !savLabel('out-2'), `its .sav label follows: ${JSON.stringify(savLabel('out-2b'))}`);
+    log.open = true; log.dispatchEvent(new Event('toggle'));
+    assert(/Deck B: its FM-1 is back on new ports \(out-2 -> out-2b\)/.test(log.querySelector('.dj-log-text').textContent), 'logged: back on new ports');
+    log.open = false;
+    assert(djState().decks[0].key === 'out-1', 'deck A untouched');
+    await renumber('in-2', 'out-2', {from: 'b2', to: 'b'});
 
     // 10. each deck sets its FM-1 up for the page's clock by itself (0.9.98-dev.2): the MIDI settings it needs
     // (CLOCK IN, TRANSPORT, PC CUE; CLOCK OUT kept) and LSDj's SYNC to KEYBD while stopped; what it can't, on the
@@ -473,7 +492,7 @@ export async function runDjUiTests() {
     play(1);
     document.querySelector('#stage-mode [data-mode="fx"]').click();
     djState().decks.forEach(d => d.clock?.stop());
-    return 'PASS DJ layout: switch, decks on FM-1s, Start and clocks per deck, the next bar, its own tempo, Sync (a lock: lit, keeps the bar, follows the master, on a stopped deck, lets go when typed), stem kill, DJ filter, Perform › Clock off, 0.9.98 (crossfader to FM-1 volume, Hold), DJ colours (the page and panel; FM-1 decks keep theirs), each deck its FM-1 colours, its label (the .sav sent, the open song, changed since), Screen | Rows (screen, song row map, click to cue), Tap quickly (no redraw), Whole BPM, TX-6 button and crossfader, fader mirrored, full volume after, an ArduinoBoy deck (speed notes, its channel, Start and clocks, FM-1 controls hidden), the crate (a .sav onto deck A while B plays on, untouched; Grab B), an FM-1 pulled and back (the deck takes it back, playing; the Log), stopped on the FM-1 (the deck stops too), each deck sets its FM-1 up (MIDI settings, LSDj SYNC to KEYBD; the warning strip)';
+    return 'PASS DJ layout: switch, decks on FM-1s, Start and clocks per deck, the next bar, its own tempo, Sync (a lock: lit, keeps the bar, follows the master, on a stopped deck, lets go when typed), stem kill, DJ filter, Perform › Clock off, 0.9.98 (crossfader to FM-1 volume, Hold), DJ colours (the page and panel; FM-1 decks keep theirs), each deck its FM-1 colours, its label (the .sav sent, the open song, changed since), Screen | Rows (screen, song row map, click to cue), Tap quickly (no redraw), Whole BPM, TX-6 button and crossfader, fader mirrored, full volume after, an ArduinoBoy deck (speed notes, its channel, Start and clocks, FM-1 controls hidden), the crate (a .sav onto deck A while B plays on, untouched; Grab B), an FM-1 pulled and back (the deck takes it back, playing, also on new port ids with its .sav label; the Log), stopped on the FM-1 (the deck stops too), each deck sets its FM-1 up (MIDI settings, LSDj SYNC to KEYBD; the warning strip)';
   } finally {
     if (descriptor) Object.defineProperty(navigator, 'requestMIDIAccess', descriptor); else delete navigator.requestMIDIAccess;
   }

@@ -267,6 +267,17 @@ export function infoFrom(d) {
   return {protocol: d[0], firmware: str(1, 9), title: str(9, 25), saveSize: rd32(d, 25), saveCrc: rd32(d, 29), importing: d[33], liveKnown: !!(d[34] & 1)};
 }
 
+/* An FM-1 known again on new ports (Windows numbers them again when it comes back, and its port name can change:
+   "Felucca", "3 - Felucca"): among these candidates, the one whose INFO (infoOf(x) -> {title, firmware, saveCrc})
+   says what `info` said, the songs' checksum deciding between two of the same; else null (the user chooses). */
+export function sameFm1(list, info, infoOf = x => x) {
+  if (!info) return null;
+  const same = list.filter(x => infoOf(x)?.title === info.title && infoOf(x)?.firmware === info.firmware);
+  if (same.length <= 1) return same[0] || null;
+  const crc = same.filter(x => infoOf(x).saveCrc === info.saveCrc);
+  return crc.length === 1 ? crc[0] : null;
+}
+
 /* Web MIDI: the FM-1's ports (its USB name is Felucca), or every port to choose from. */
 const isFm1Port = p => p.state !== 'disconnected' && /felucca|fm-?1|h.gelton/i.test(`${p.name} ${p.manufacturer}`);
 export async function midiPorts() {

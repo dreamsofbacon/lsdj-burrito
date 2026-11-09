@@ -2,7 +2,7 @@
 // The page: connect to the FM-1's running LSDJ Burrito firmware (lsdj/link.js)
 // for live effects, songs, colours and settings. Never writes firmware.
 import {startGamepad, loadMaps, mapFor, saveMap, loadPick, savePick, assign, takenFrom, isDefaultMap, defaultMapFor, inputName, GB_ORDER, SLOTS} from './gamepad.js';
-import {Link, midiPorts, findFm1s, LinkError, SAVE_SIZE, crc32} from './link.js';
+import {Link, midiPorts, findFm1s, LinkError, SAVE_SIZE, crc32, sameFm1} from './link.js';
 import {confirmSaveImport} from './save-file.js';
 import {mountSongsUi, setSongsHooks, drawSongsDevices, songsState} from './songs-ui.js';
 import {showDeviceTheme, setMatching, matching} from './page-theme.js';
@@ -126,6 +126,10 @@ function lost(message) {
   stopPoll(); mirror?.stop(); mirror = null; link?.close();
   if (![...padTargets.values()].some(v => v !== 'current' && v !== 'none')) { pad?.(); pad = null; }   /* none plays another FM-1 */
   soloAtLoss = devices.filter(d => !sameDev(d, current)).length === 0;
+  /* to know it again on new ports (Windows numbers an FM-1's ports again when it comes back): the others' ports
+     at this moment, and what it said it runs */
+  othersAtLoss = new Set(devices.filter(d => !sameDev(d, current)).flatMap(d => [d.input.id, d.output.id]));
+  lossInfo = current?.info ? {title: current.info.title, firmware: current.info.firmware, saveCrc: current.info.saveCrc} : null;
   current = null; syncWatchers(); drawDevPick();
   enable(false); say('device', message, 'warn');
 }
@@ -152,7 +156,7 @@ async function reconnect() {
   if (reconnecting) return;
   reconnecting = true;
   try {
-    for (const wait of [300, 1000, 2500]) {
+    for (const wait of [300, 1000, 2500, 5000, 8000]) {   /* (USB back a few seconds after a hub hiccup) */
       await new Promise(r => setTimeout(r, wait));
       if (connected || !lostAt || busy || installing()) return;
       await connectUsbQuietly({again: true});   /* the same FM-1 only, never another one plugged in */
@@ -265,11 +269,15 @@ const scanSoon = () => { clearTimeout(scanTimer); scanTimer = setTimeout(() => v
    again (a pulled cable): by its ports, or (its ports renamed) the only one when it was the only one: FM-1s
    share a port name, so with several a name proves nothing, and the page never takes another one. */
 let soloAtLoss = true;
+let othersAtLoss = new Set(), lossInfo = null;
 function choose(found, again = false) {
   const byId = lastDev && found.find(d => d.input.id === lastDev.inId && d.output.id === lastDev.outId);
   if (byId) return byId;
-  if (again) return soloAtLoss && found.length === 1 ? found[0] : null;
-  return found.length === 1 ? found[0] : null;
+  if (!again) return found.length === 1 ? found[0] : null;
+  if (soloAtLoss && found.length === 1) return found[0];
+  /* back on new ports: not one of the other FM-1s there at the loss, and the same firmware and LSDj (its songs'
+     checksum when that still leaves two) */
+  return sameFm1(found.filter(d => !othersAtLoss.has(d.input.id) && !othersAtLoss.has(d.output.id)), lossInfo, d => d.info);
 }
 /* what the page knew of each FM-1 it switched away from (this visit only) */
 const remembered = new Map();
@@ -1215,7 +1223,7 @@ function djLinkFor(key) {
   return l;
 }
 setDjHooks({
-  devices: () => devices.map((d, i) => ({key: portKey(d), label: `FM-1 ${i + 1}: ${d.info.title || 'no LSDj'}`, fw: d.info.firmware})),
+  devices: () => devices.map((d, i) => ({key: portKey(d), label: `FM-1 ${i + 1}: ${d.info.title || 'no LSDj'}`, fw: d.info.firmware, title: d.info.title, crc: d.info.saveCrc})),
   linkFor: djLinkFor,
   outputFor: key => devices.find(x => portKey(x) === key)?.output || null,
   access: () => ports?.access || null,
