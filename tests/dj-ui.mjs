@@ -110,7 +110,7 @@ export async function runDjUiTests() {
     assert(deckBox.style.getPropertyValue('--bg') !== midnight['--bg'] && getComputedStyle(deckBox).getPropertyValue('--bg').trim() === deckBox.style.getPropertyValue('--bg'),
       `deck A keeps its FM-1's colours under the DJ colours: ${deckBox.style.getPropertyValue('--bg')}`);
     A.midi.length = B.midi.length = 0;
-    const play = i => [...document.querySelectorAll('.dj-deck')][i].querySelector('.dj-row button').click();
+    const play = i => [...document.querySelectorAll('.dj-deck')][i].querySelector('.dj-play').click();
     play(0);
     assert($('sync-mode').value === 'off', `Perform › Clock off: ${$('sync-mode').value}`);
     await sleep(1000);
@@ -133,13 +133,13 @@ export async function runDjUiTests() {
     assert(fromBar < 0.5, `B's Start is timed on the master's bar: master at ${onMaster.toFixed(2)} clocks then`);
     await sleep(1000);
     assert(Math.abs(deckB.clock.phase() / djState().decks[0].clock.phase() - 1) > 0, 'B runs at its own tempo');
-    [...document.querySelectorAll('.dj-deck')][1].querySelectorAll('.dj-row button')[1].click();   /* Sync */
+    [...document.querySelectorAll('.dj-deck')][1].querySelector('.dj-sync').click();   /* Sync */
     assert(deckB.bpm === 120, `Sync: the master's tempo: ${deckB.bpm}`);
 
     // 3b. Sync is a lock (Colin: flaky, and nothing on a stopped deck): lit; B pushed off the bar comes back by
     // itself; a new master tempo is followed; on a stopped deck it takes the tempo at once; typing a tempo lets go
     const deckBEl0 = () => [...document.querySelectorAll('.dj-deck')][1];
-    const syncB = () => deckBEl0().querySelectorAll('.dj-row button')[1];
+    const syncB = () => deckBEl0().querySelector('.dj-sync');
     assert(deckB.synced && syncB().classList.contains('on') && syncB().textContent === 'Sync', 'Sync lit while on');
     const barGap = () => offset(deckB.clock.phase(), djState().master.clock.phase());
     await until(() => Math.abs(barGap()) < 0.75, `B on the master's bar: ${barGap()}`, 4000);
@@ -153,7 +153,7 @@ export async function runDjUiTests() {
     await until(() => deckB.bpm === 120, 'back to 120', 1000);
     syncB().click();
     assert(!deckB.synced && !syncB().classList.contains('on'), 'Sync again: off');
-    deckBEl0().querySelector('.dj-row button').click();   /* B stopped */
+    deckBEl0().querySelector('.dj-play').click();   /* B stopped */
     assert(!deckB.clock.running, 'B stopped');
     const bpmB0 = deckBEl0().querySelector('.dj-bpm-in');
     bpmB0.value = '131'; bpmB0.dispatchEvent(new Event('change'));
@@ -162,7 +162,7 @@ export async function runDjUiTests() {
     bpmB0.value = '125'; bpmB0.dispatchEvent(new Event('change'));
     assert(!deckB.synced && !syncB().classList.contains('on') && deckB.bpm === 125, 'typing a tempo lets go of Sync');
     bpmB0.value = '120'; bpmB0.dispatchEvent(new Event('change'));
-    deckBEl0().querySelector('.dj-row button').click();   /* B playing again, on the master's bar */
+    deckBEl0().querySelector('.dj-play').click();   /* B playing again, on the master's bar */
     await until(() => deckB.clock.running, 'B playing again', 3000);
 
     // 4. a stem kill (NOI on A, now) and the DJ filter (A to low-pass): sent to A only
@@ -176,7 +176,23 @@ export async function runDjUiTests() {
     const words = []; const b = A.fxSets.at(-1); for (let i = 0; i < b.length; i += 4) words.push((b[i] | b[i + 1] << 8 | b[i + 2] << 16 | b[i + 3] << 24) >>> 0);
     const sent = unpackFx(words);
     assert(sent.ch.every(c => c.type === 1 && c.cutoff < 60), `all four channels low-pass: ${JSON.stringify(sent.ch.map(c => [c.type, c.cutoff]))}`);
+    const knob = filt.closest('.dj-knob');
+    assert(filt.isConnected && parseFloat(knob.style.getPropertyValue('--deg')) < -80, `the knob turned left, not redrawn: ${knob.style.getPropertyValue('--deg')}`);
+    /* the knob dragged up: towards high-pass */
+    const kr = knob.getBoundingClientRect(), kx = kr.left + kr.width / 2, ky = kr.top + kr.height / 2;
+    knob.dispatchEvent(new PointerEvent('pointerdown', {clientX: kx, clientY: ky, pointerId: 1, bubbles: true}));
+    knob.dispatchEvent(new PointerEvent('pointermove', {clientX: kx, clientY: ky - 100, pointerId: 1, bubbles: true}));
+    knob.dispatchEvent(new PointerEvent('pointerup', {clientX: kx, clientY: ky - 100, pointerId: 1, bubbles: true}));
+    assert(djState().decks[0].filter > 0 && +filt.value === djState().decks[0].filter, `knob dragged up: high-pass ${djState().decks[0].filter}`);
     filt.value = '0'; filt.dispatchEvent(new Event('input'));
+
+    // 4a. the pitch fader: the deck's tempo against the master's (+4 %: 124.8); a double-click: the master's again
+    const pitchB = [...document.querySelectorAll('.dj-deck')][1].querySelector('.dj-pitch');
+    pitchB.value = '400'; pitchB.dispatchEvent(new Event('input'));
+    assert(djState().decks[1].bpm === 124.8 && !djState().decks[1].synced, `pitch +4 %: B at 124.8: ${djState().decks[1].bpm}`);
+    await until(() => /\+4\.00 %/.test([...document.querySelectorAll('.dj-deck')][1].querySelector('.dj-pitch-txt').textContent), 'the display: +4.00 %', 1000);
+    pitchB.dispatchEvent(new MouseEvent('dblclick'));
+    assert(djState().decks[1].bpm === 120, `double-click: the master's tempo: ${djState().decks[1].bpm}`);
 
     // 4b. 0.9.98 on B: no mixer, so the crossfader sets B's volume (VOLUME_SET); Hold (SEQ_SET)
     const want = x => Math.round(crossfade(x, djState().mixer.curve)[1] * 127);
@@ -337,4 +353,27 @@ export async function runDjUiTests() {
   } finally {
     if (descriptor) Object.defineProperty(navigator, 'requestMIDIAccess', descriptor); else delete navigator.requestMIDIAccess;
   }
+}
+
+/* for a look at the layout (screenshots; never in the suite): the DJ layout on two mocked FM-1s and a mocked
+   ArduinoBoy port, left in place */
+export async function djDemo() {
+  assert(['localhost', '127.0.0.1'].includes(location.hostname), 'Use a fresh local preview, never a real device');
+  const A = fm1(1, 'LSDj-AAA', 'FM-1_998'), B = fm1(2, 'LSDj-BBB', 'FM-1_998');
+  const access = new EventTarget();
+  access.inputs = new Map([['a', A.input], ['b', B.input]]);
+  access.outputs = new Map([['a', A.output], ['b', B.output], ['ab', {id: 'ab-out', name: 'Arduinoboy', state: 'connected', send() {}}]]);
+  Object.defineProperty(navigator, 'requestMIDIAccess', {configurable: true, value: async () => access});
+  await $('connect-btn').onclick();
+  await until(() => $('stage-pick').options.length >= 2, 'both FM-1s listed');
+  location.hash = '#live-sec';
+  document.querySelector('#stage-mode [data-mode="dj"]').click();
+  const [pickA, pickB] = [...document.querySelectorAll('.dj-deck h4 select')];
+  await until(() => [...pickA.options].some(o => o.value === 'fm1:out-2'), 'deck choices');
+  choose(pickA, 'fm1:out-1'); choose(pickB, 'fm1:out-2');
+  await until(() => djState().decks.every(d => d.fx), 'the decks read their FM-1s');
+  [...document.querySelectorAll('.dj-deck')][1].querySelector('.dj-view button:nth-child(2)').click();   /* B: Rows */
+  [...document.querySelectorAll('.dj-deck')][0].querySelector('.dj-play').click();
+  await sleep(1500);
+  return 'demo';
 }

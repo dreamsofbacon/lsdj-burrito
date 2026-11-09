@@ -166,27 +166,118 @@ table.fx th,table.fx td{padding:3px 6px;border-bottom:1px solid var(--line);text
 #pan-dj{display:none}
 body.dj #pan-dj{display:block}
 body.dj #live-sec>#pan-screen,body.dj #live-sec>#pan-wire,body.dj #live-sec>#pan-master,body.dj #live-sec>#pan-chans,body.dj #stage-nav{display:none}
-.dj-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(220px,.8fr) minmax(0,1fr);gap:12px;align-items:start}
+/* The DJ layout as hardware: two players and a mixer on one console. Each deck is drawn from its own colours (its
+   FM-1's theme, dj-ui.js paintDeck), the console and mixer from the DJ colours: --card is the metal, --bg the
+   displays, --accent the lights. */
+#pan-dj{position:relative}
+#pan-dj>.panel-head{position:absolute;top:6px;left:8px;margin:0;z-index:1}
+#pan-dj>.panel-head h3{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.dj-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(210px,.62fr) minmax(0,1fr);gap:10px;align-items:stretch;padding:10px;border-radius:18px;
+  background:linear-gradient(180deg,color-mix(in srgb,var(--bg) 55%,#000),color-mix(in srgb,var(--bg) 25%,#000));
+  box-shadow:inset 0 1px 0 #ffffff14,0 8px 24px #0007}
 @media (max-width:900px){.dj-grid{grid-template-columns:1fr}}
-.dj-deck,.dj-mixer{border:1px solid var(--line);border-radius:10px;padding:8px 10px;min-width:0}
+.dj-deck,.dj-mixer{--dj-inset:color-mix(in srgb,var(--bg) 35%,#000);margin:0;min-width:0;padding:10px 12px 12px;border-radius:14px;color:var(--ink);
+  border:1px solid color-mix(in srgb,var(--line) 40%,#000);
+  background:linear-gradient(180deg,color-mix(in srgb,var(--card) 90%,#fff) 0,var(--card) 18%,color-mix(in srgb,var(--card) 78%,#000) 100%);
+  box-shadow:inset 0 1px 0 #ffffff1f,inset 0 -2px 0 #0000004d,0 2px 6px #0006}
+.dj-deck{display:flex;flex-direction:column}
+.dj-deck-body{display:flex;flex-direction:column;flex:1;min-height:0}
+.dj-deck.empty .dj-deck-body{justify-content:center}
 .dj-deck h4,.dj-mixer h4{margin:2px 0 6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.dj-deck h4 select{flex:1;min-width:0}
+.dj-mixer h4{font-size:.72em;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:8px 0 4px}
+.dj-deck-head{flex-wrap:nowrap}
+.dj-deck-id{flex:none;display:grid;place-items:center;width:34px;height:34px;border-radius:50%;background:var(--accent);color:var(--accent-ink);
+  font:800 1.2em/1 system-ui,sans-serif;box-shadow:0 0 12px color-mix(in srgb,var(--accent) 55%,transparent),inset 0 -2px 0 #0003}
+.dj-deck-head select{flex:1;min-width:0;padding:5px 8px;font-size:.9em;background:var(--dj-inset);color:var(--ink);border-color:#000}
 .dj-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:6px 0}
-.dj-row button.on,.dj-kill.killed{background:var(--accent);color:var(--bg);border-color:var(--accent)}
-.dj-kill.killed{background:transparent;color:var(--muted);text-decoration:line-through;opacity:.6}
-.dj-tempo{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
-.dj-bpm{font:700 2.4em ui-monospace,monospace;letter-spacing:-.02em}
-.dj-bpm.big{font-size:2.8em;text-align:center}
+.dj-row button.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.dj-small{font-size:.75em;color:var(--muted)}
+.dj-small select{font-size:1em;padding:2px 6px}
+.dj-empty{text-align:center;margin:30px 0}
+/* the display: the tempo, the pitch against the master, beat lights, the gap; the screen or rows under them */
+.dj-display{--ink:#ececea;--muted:#9c9b96;color:var(--ink);background:var(--dj-inset);border:1px solid #000;border-radius:10px;padding:8px 10px;box-shadow:inset 0 2px 10px #000b,0 1px 0 #ffffff12}
+.dj-disp-top{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.dj-disp-bpm{display:flex;align-items:baseline;gap:5px}
+.dj-disp-bpm small,.dj-pitch-txt{font:600 .8em ui-monospace,monospace;color:var(--muted)}
+.dj-bpm{font:700 2.3em/1.05 ui-monospace,monospace;letter-spacing:-.02em;color:var(--accent);text-shadow:0 0 10px color-mix(in srgb,var(--accent) 45%,transparent)}
+.dj-bpm.big{display:block;font-size:2.6em;text-align:center;padding:6px 0;background:var(--dj-inset);border:1px solid #000;border-radius:8px;box-shadow:inset 0 2px 10px #000b}
+.dj-phase{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin:6px 0 4px}
+.dj-phase span{height:7px;border-radius:2px;background:color-mix(in srgb,var(--accent) 14%,#000)}
+.dj-phase span.on{background:var(--accent);box-shadow:0 0 8px var(--accent)}
+.dj-phase span:first-child.on{box-shadow:0 0 12px var(--accent),0 0 0 1px #fff6}
+.dj-gap{font-size:.78em;color:var(--muted);min-height:1.2em}
+.dj-jog .dj-view{display:flex;flex:none;margin:0}
+.dj-jog .dj-view button{background:transparent;color:var(--muted);font-size:.75em;letter-spacing:.06em}
+.dj-jog .dj-view button.on{background:var(--accent);color:var(--accent-ink)}
+.dj-jog .seg{border-color:#000;background:var(--dj-inset)}
+.dj-jog .dj-view-box{--ink:#ececea;--muted:#9c9b96;color:var(--ink);margin:0;max-width:none;border:3px solid #000;border-radius:10px;background:#000;
+  box-shadow:0 0 0 1px color-mix(in srgb,var(--accent) 45%,#000),0 0 14px color-mix(in srgb,var(--accent) 25%,transparent)}
+.dj-pitchcol .dj-bpm-in,.dj-mixer .dj-bpm-in,.dj-deck-head select,.dj-row-in{--ink:#ececea}
+/* the controls: pads and transport on the left, the pitch column on the right */
+.dj-deck-mid{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;margin-top:10px;flex:1}
+.dj-jog{display:flex;flex-direction:column;justify-content:center;gap:6px;min-width:0}
+.dj-deck-low{display:grid;grid-template-columns:auto minmax(0,1fr);gap:16px;margin-top:12px;align-items:end}
+.dj-pads{display:flex;flex-direction:column;gap:5px}
+.dj-padrow{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.dj-pad{flex:1 1 0;min-width:3em;padding:9px 6px;border-radius:7px;border:1px solid #000;color:var(--ink);font-size:.82em;font-weight:700;letter-spacing:.05em;
+  background:linear-gradient(180deg,color-mix(in srgb,var(--card) 88%,#fff),color-mix(in srgb,var(--card) 70%,#000));
+  box-shadow:inset 0 1px 0 #ffffff1f,0 2px 0 #000a;touch-action:manipulation;user-select:none}
+.dj-pad:active:not(:disabled),.dj-pad.on{transform:translateY(1px);box-shadow:inset 0 1px 0 #ffffff1f,0 1px 0 #000a}
+.dj-pad.on{background:var(--accent);color:var(--accent-ink);box-shadow:0 0 12px color-mix(in srgb,var(--accent) 60%,transparent)}
+/* a channel's pad lit while it plays, dark when killed */
+.dj-pad.dj-kill{background:color-mix(in srgb,var(--accent) 80%,#000);color:var(--accent-ink);box-shadow:0 0 8px color-mix(in srgb,var(--accent) 35%,transparent),0 2px 0 #000a}
+.dj-pad.dj-kill.killed{background:color-mix(in srgb,var(--card) 60%,#000);color:var(--muted);text-decoration:line-through;box-shadow:inset 0 1px 0 #ffffff12,0 2px 0 #000a}
+/* the filter knob (dj-ui.js showKnob sets --deg, --from and --sweep; the range input under it holds the value) */
+.dj-fx{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.dj-knob{position:relative;flex:none;width:56px;height:56px;border-radius:50%;cursor:grab;touch-action:none;
+  background:conic-gradient(from var(--from,0deg),var(--accent) 0 var(--sweep,0deg),color-mix(in srgb,var(--accent) 14%,#000) 0)}
+.dj-knob i{position:absolute;inset:5px;border-radius:50%;transform:rotate(var(--deg,0deg));
+  background:radial-gradient(circle at 50% 30%,color-mix(in srgb,var(--card) 60%,#888),color-mix(in srgb,var(--card) 40%,#000) 72%);box-shadow:0 2px 4px #000c,inset 0 1px 1px #fff3}
+.dj-knob i::after{content:'';position:absolute;left:50%;top:4px;width:3px;height:32%;margin-left:-1.5px;border-radius:2px;background:var(--ink)}
+.dj-knob:focus-within{outline:2px solid var(--accent);outline-offset:3px}
+.dj-knob .dj-filter{position:absolute;inset:auto;width:1px;height:1px;opacity:0;pointer-events:none}
+/* CUE and PLAY */
+.dj-transport{display:flex;gap:12px;align-items:flex-start}
+.dj-deck-ctl{display:flex;flex-direction:column;align-items:center;gap:8px}
+.dj-padrow.dj-small{gap:4px 12px}
+.dj-round-wrap{display:flex;flex-direction:column;align-items:center;gap:5px}
+.dj-round{width:64px;height:64px;padding:0;border-radius:50%;border:3px solid color-mix(in srgb,var(--accent) 40%,#000);color:var(--accent);font:800 1em system-ui,sans-serif;letter-spacing:.06em;
+  background:radial-gradient(circle at 50% 35%,color-mix(in srgb,var(--card) 50%,#666),color-mix(in srgb,var(--card) 30%,#000) 75%);box-shadow:0 3px 0 #000,0 0 0 2px #0006;touch-action:manipulation}
+.dj-round:active:not(:disabled){transform:translateY(2px);box-shadow:0 1px 0 #000,0 0 0 2px #0006}
+.dj-play{font-size:1.5em}
+.dj-play.on{border-color:var(--accent);box-shadow:0 3px 0 #000,0 0 18px color-mix(in srgb,var(--accent) 70%,transparent)}
+.dj-row-in{width:2.6em;padding:2px;text-align:center;background:var(--dj-inset);color:var(--accent);border:1px solid #000;border-radius:4px}
+/* the pitch column: Sync, the pitch fader (up is slower), the tempo typed, the nudges */
+.dj-pitchcol{display:flex;flex-direction:column;align-items:center;gap:6px;width:78px}
+.dj-sync{width:100%;padding:7px 0;border-radius:7px;border:1px solid #000;font-weight:800;letter-spacing:.08em;color:var(--ink);
+  background:linear-gradient(180deg,color-mix(in srgb,var(--card) 88%,#fff),color-mix(in srgb,var(--card) 70%,#000));box-shadow:inset 0 1px 0 #ffffff1f,0 2px 0 #000a}
+.dj-sync.on{background:var(--accent);color:var(--accent-ink);box-shadow:0 0 14px color-mix(in srgb,var(--accent) 65%,transparent)}
+.dj-pitch-wrap{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;min-height:150px}
+.dj-pitch{writing-mode:vertical-lr;direction:ltr;flex:1;width:36px;min-height:120px;margin:0;cursor:ns-resize;-webkit-appearance:none;appearance:none;
+  background:repeating-linear-gradient(to bottom,color-mix(in srgb,var(--muted) 70%,transparent) 0 1px,transparent 1px 12.5%) center/26px 100% no-repeat}
+.dj-pitch::-webkit-slider-runnable-track{width:8px;border-radius:4px;background:#000;box-shadow:inset 0 0 0 1px #ffffff1a}
+.dj-pitch::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:34px;height:18px;margin-left:-13px;border-radius:3px;border:1px solid #000;
+  background:linear-gradient(180deg,#777,#2b2b2b 42%,var(--accent) 47% 53%,#2b2b2b 58%,#555);box-shadow:0 2px 4px #000b}
+.dj-pitch::-moz-range-track{width:8px;border-radius:4px;background:#000}
+.dj-pitch::-moz-range-thumb{width:32px;height:16px;border-radius:3px;border:1px solid #000;background:linear-gradient(180deg,#777,#2b2b2b 42%,var(--accent) 47% 53%,#2b2b2b 58%,#555)}
+.dj-bpm-label{display:flex;flex-direction:column;align-items:center;gap:1px}
 .dj-bpm-in{width:5.5em}
-.dj-phase{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin:4px 0}
-.dj-phase span{height:12px;border-radius:3px;background:var(--line)}
-.dj-phase span.on{background:var(--accent)}
-.dj-phase span:first-child.on{box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 50%,transparent)}
-.dj-filter{flex:1;min-width:80px;accent-color:var(--accent)}
-.dj-xrow .dj-xfader{flex:1;accent-color:var(--accent)}
-.dj-meters{display:flex;gap:12px;justify-content:center;margin:8px 0}
+.dj-pitchcol .dj-bpm-in,.dj-mixer .dj-bpm-in{width:4.6em;padding:3px;text-align:center;background:var(--dj-inset);color:var(--ink);border:1px solid #000;border-radius:5px}
+.dj-nudges{display:flex;gap:4px;width:100%}
+.dj-nudges .dj-pad{min-width:0;padding:6px 0;font-size:1em}
+/* the mixer: LED meters, the crossfader as a cap in a slot */
+.dj-mixer select,.dj-mixer button:not(.on){background:color-mix(in srgb,var(--card) 80%,#000);color:var(--ink);border-color:#000}
+.dj-meters{display:flex;gap:14px;justify-content:center;margin:10px 0}
 .dj-meter{display:flex;flex-direction:column;align-items:center;gap:3px}
-.dj-meter span{width:18px;height:70px;border-radius:4px;background:linear-gradient(to top,var(--accent) calc(var(--v)*100%),var(--line) 0)}
+.dj-meter span{width:14px;height:96px;border-radius:3px;border:1px solid #000;
+  background:repeating-linear-gradient(to top,transparent 0 5px,#000a 5px 6px),linear-gradient(to top,var(--accent) calc(var(--v)*100%),color-mix(in srgb,var(--accent) 12%,#000) 0)}
+.dj-xrow .dj-xfader{flex:1;-webkit-appearance:none;appearance:none;height:30px;background:transparent;cursor:ew-resize}
+.dj-xfader::-webkit-slider-runnable-track{height:8px;border-radius:4px;background:#000;box-shadow:inset 0 0 0 1px #ffffff1a}
+.dj-xfader::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:20px;height:30px;margin-top:-11px;border-radius:3px;border:1px solid #000;
+  background:linear-gradient(90deg,#777,#2b2b2b 40%,var(--accent) 45% 55%,#2b2b2b 60%,#555);box-shadow:0 2px 4px #000b}
+.dj-xfader::-moz-range-track{height:8px;border-radius:4px;background:#000}
+.dj-xfader::-moz-range-thumb{width:18px;height:28px;border-radius:3px;border:1px solid #000;background:linear-gradient(90deg,#777,#2b2b2b 40%,var(--accent) 45% 55%,#2b2b2b 60%,#555)}
 .dj-learned{margin:4px 0;padding-left:18px;max-height:8em;overflow:auto}
 .dj-status{min-height:1.2em}
 /* a deck: Screen | Rows (its FM-1's screen, or the song row map), and its FM-1's theme colours (dj-ui.js paintDeck) */
@@ -215,10 +306,10 @@ body.dj #live-sec>#pan-screen,body.dj #live-sec>#pan-wire,body.dj #live-sec>#pan
 .dj-maprow:active:not(:disabled){background:color-mix(in srgb,var(--accent) 30%,transparent)}
 /* 80-FF: a program change cues 00-7F only */
 .dj-maprow:disabled{opacity:.35;cursor:not-allowed;background:repeating-linear-gradient(135deg,transparent 0 6px,color-mix(in srgb,var(--line) 70%,transparent) 6px 8px)}
-.dj-deck.themed{background:var(--card);color:var(--ink);border-color:var(--accent)}
+.dj-deck.themed{border-color:color-mix(in srgb,var(--accent) 55%,#000)}
 /* the DJ layout's own colours (DJ colours: dj-ui.js applyDjTheme sets the theme's vars on the panel and the page) */
 #pan-dj.dj-themed{background:var(--bg);color:var(--ink);border-color:var(--line)}
-#pan-dj.dj-themed .dj-mixer{background:var(--card);border-color:var(--accent)}
+#pan-dj.dj-themed .dj-mixer{border-color:color-mix(in srgb,var(--accent) 45%,#000)}
 .dj-top{display:flex;justify-content:flex-end;margin:0 0 6px}
 /* the deck label: the .sav sent to its FM-1, and the song open in LSDj (dj-ui.js drawLabel) */
 .dj-label{display:flex;flex-direction:column;gap:1px;margin:-2px 0 6px;min-width:0}
@@ -373,7 +464,14 @@ body:not(.connected) .pop-body{opacity:.5;pointer-events:none}
   body.perform #pan-wire{grid-area:wire}
   body.perform #pan-master{grid-area:master}
   body.perform #pan-chans{grid-area:chans;overflow:auto;display:flex;flex-direction:column}
-  body.perform.dj #pan-dj{grid-area:2/1/-1/-1;overflow:auto}
+  body.perform.dj #pan-dj{grid-area:2/1/-1/-1;overflow:auto;display:flex;flex-direction:column}
+  /* full screen: the console fills the stage; the screen or rows box takes the height left (one size for both) */
+  body.perform.dj #dj-root{flex:1;min-height:0;display:flex;flex-direction:column}
+  body.perform.dj .dj-grid{flex:1;min-height:0;grid-template-rows:minmax(0,1fr)}
+  body.perform.dj .dj-deck{min-height:0;overflow:hidden}
+  body.perform.dj .dj-mixer{min-height:0;overflow:auto}
+  body.perform.dj .dj-deck-mid,body.perform.dj .dj-jog{min-height:0}
+  body.perform.dj .dj-jog .dj-view-box{flex:1;min-height:120px;aspect-ratio:auto}
   body.perform #pan-chans #fx-pages{flex:1;min-height:0;align-content:start}
   body.perform #pan-chans .fx-card.shown{max-height:100%}
   body.perform #pan-chans .fx-card.shown h3{margin-bottom:0}
@@ -824,7 +922,7 @@ button.play{padding:0 5px;margin-right:3px;font-size:11px;line-height:1.5;min-wi
 <label class="check"><input id="rom-experimental" type="checkbox" disabled><span>I understand this firmware is experimental and may not start or sound right, and I have backed up my songs.</span></label>
 <div class="row"><button id="rom-build" type="button" class="primary" aria-describedby="rom-next" disabled>Prepare firmware</button><span class="hint">Builds the file on this computer. Nothing is installed yet.</span></div>
 <details><summary>What's in this version (0.9.98-dev.1)</summary>
-<p>New in 0.9.98-dev.1 (a test build): <b>a DJ layout</b> in Perform (Effects | DJ). A deck per FM-1, each with its own tempo, Sync and nudge, channel kills, a DJ filter, and a Screen | Rows switch: the FM-1's own screen, or the song's rows (click one to cue it); each deck in its FM-1's theme colours. The FM-1 now tells the page each channel's phrase and song row, SYNC, live / song mode and the page volume; the page can set the FM-1's volume (the crossfader without a MIDI mixer, not saved), and live / song mode. A deck can also be a Game Boy on an ArduinoBoy (mode 1, LSDJ slave sync): it follows the deck's clock, Play and Stop, with LSDj's speed (1, ½, ¼, ⅛). Mixer presets for the TX-6 and the K.O. sidekick, or MIDI learn. Older firmware still works with the page; the DJ extras need 0.9.98. Not yet tested on a real FM-1: the crossfader setting the FM-1's volume, Hold and Rows, and the ArduinoBoy deck; the mixer presets are not yet checked against the mixers.</p>
+<p>New in 0.9.98-dev.1 (a test build): <b>a DJ layout</b> in Perform (Effects | DJ). A deck per FM-1, each with its own tempo, Sync and nudge, channel kills, a DJ filter, and a Screen | Rows switch: the FM-1's own screen, or the song's rows (click one to cue it); each deck laid out as a player (a display, round CUE and PLAY, a pitch fader, a filter knob, pads) in its FM-1's theme colours. The FM-1 now tells the page each channel's phrase and song row, SYNC, live / song mode and the page volume; the page can set the FM-1's volume (the crossfader without a MIDI mixer, not saved), and live / song mode. A deck can also be a Game Boy on an ArduinoBoy (mode 1, LSDJ slave sync): it follows the deck's clock, Play and Stop, with LSDj's speed (1, ½, ¼, ⅛). Mixer presets for the TX-6 and the K.O. sidekick, or MIDI learn. Older firmware still works with the page; the DJ extras need 0.9.98. Not yet tested on a real FM-1: the crossfader setting the FM-1's volume, Hold and Rows, and the ArduinoBoy deck; the mixer presets are not yet checked against the mixers.</p>
 <p>New on this page: Songs &amp; kits has an FM-1 list: choose which FM-1 to read from and send to, or search for FM-1s again. It looks by itself when MIDI is already allowed.</p>
 <p>New in 0.9.97:<b>a master reverb</b>. Press FX for the master pages; REVERB has MIX (0 is off), SIZE (a small room to a long hall, about 0.4 to 6 s) and TONE (dark to bright). Each channel sets how much it sends to it on LO-FI K4 (RV SND), as the echo's send is on LO-FI K3; turning a send up while the mix is 0 sets the mix to 64. MIDI: CC 92 is each channel's reverb send (next to CC 91, the echo send); CC 21, 22 and 23 are the reverb's mix, size and tone. On this page: Perform › Master (the REVERB card) and a slider per channel in the Channels panel; effects files and backups keep it.</p>
 <p><b>Every effect is on one page only.</b> MASTER: ALL FX, COMP, FREEZE. FILTER: FX ON, TYPE, CUTOFF, RESO (the filter type is back next to the cutoff). LO-FI: CRUSH, DECIMATE, echo SEND, reverb SEND. ECHO: TIME, FEEDBACK, MIX, TONE. ECHO MOD: WOBBLE, SYNC, MODE. (0.9.96 had the echo send on FILTER K2, the filter type on LO-FI K3, the echo mix and time on MASTER too, and FREEZE on ECHO MOD.)</p>

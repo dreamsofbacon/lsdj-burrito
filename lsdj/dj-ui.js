@@ -229,7 +229,8 @@ function deckFilter(d, v) {
     d.fx.ch.forEach((c, n) => Object.assign(c, f.type ? f : {type: d.base.ch[n].type, cutoff: d.base.ch[n].cutoff, reso: d.base.ch[n].reso}));
     pushFx(d);
   }
-  drawDeck(d);
+  if (d.ui?.filt && +d.ui.filt.value !== v) d.ui.filt.value = v;
+  showKnob(d);   /* (only the knob: it's being turned) */
 }
 /* a throw: the deck's sends all the way up while held (the effect's mix up if it was silent), then back */
 function deckThrow(d, what, on) {
@@ -520,83 +521,161 @@ function deckChoices() {
     .flatMap(p => [[`gear:${p.id}`, `${p.name} (MIDI)`], [`ab:${p.id}`, `${p.name} (ArduinoBoy)`]]);
   return [['', 'Empty'], ...fm1s, ...gear];
 }
+/* a deck, laid out as a player (index.html .dj-deck): a display on top (the tempo, the pitch against the master, the
+   beat lights, the gap); the FM-1's screen or rows where the jog wheel would be, a pitch column beside it (Sync, the
+   pitch fader, the tempo typed, the nudges); under them the filter knob, the round CUE and PLAY, and the pads (kills,
+   throws, Hold). Each deck in its FM-1's colours. */
 function drawDeck(d) {
   const u = d.ui;
   if (!u) return;
   const fm1 = d.kind === 'fm1', fw = firmwareNumber(hooks.devices().find(x => x.key === d.key)?.fw);
   u.body.replaceChildren();
-  if (!d.key) { u.body.append(el('p', {className: 'hint', textContent: 'Choose an FM-1 or another MIDI device for this deck.'})); return; }
+  u.box.classList.toggle('empty', !d.key);
+  u.info = null; u.hold = null; u.map = null; u.rowIn = null; u.pitch = null;
+  if (!d.key) { u.body.append(el('p', {className: 'hint dj-empty', textContent: 'Choose an FM-1 or another MIDI device for this deck.'})); return; }
   const running = !!d.clock?.running;
-  const bpmIn = el('input', {type: 'number', min: 40, max: 295, step: master.whole ? 1 : 0.1, value: d.bpm, className: 'dj-bpm-in', onchange: () => setDeckBpm(d, +bpmIn.value)});
-  u.bpmIn = bpmIn;
-  bpmIn.setAttribute('aria-label', `Deck ${NAMES[d.i]} tempo`);
-  u.bpm = el('div', {className: 'dj-bpm'});
+
+  /* the display */
+  u.bpm = el('b', {className: 'dj-bpm'});
+  u.pitchTxt = el('span', {className: 'dj-pitch-txt'});
   u.phase = el('div', {className: 'dj-phase', ariaHidden: 'true'}, ...[0, 1, 2, 3].map(() => el('span')));
-  u.gap = el('div', {className: 'dj-gap hint'});
-  u.body.append(
-    el('div', {className: 'dj-tempo'}, u.bpm, el('label', {}, 'BPM ', bpmIn)),
-    u.phase, u.gap,
-    el('div', {className: 'dj-row'},
-      btn(running ? '■ Stop' : '▶ Play', () => deckPlay(d), {className: running ? 'on' : '', title: 'Starts on the master\'s next bar'}),
-      u.sync = btn('Sync', () => deckSync(d), {className: d.synced ? 'on' : '', ariaPressed: String(!!d.synced),
-        title: 'Lock to the master: its tempo, and its bar while both play. Again: off. Typing a tempo or a nudge lets go.'}),
-      holdBtn('− nudge', () => nudge(d, -1), () => nudge(d, 0), {title: 'Slower while held'}),
-      holdBtn('nudge +', () => nudge(d, 1), () => nudge(d, 0), {title: 'Faster while held'})));
+  u.gap = el('div', {className: 'dj-gap'});
+  const disp = el('div', {className: 'dj-display'},
+    el('div', {className: 'dj-disp-top'}, el('div', {className: 'dj-disp-bpm'}, u.bpm, el('small', {textContent: 'BPM'})), u.pitchTxt),
+    u.phase, u.gap);
+  let jog = null;
+  if (fm1) {
+    /* Screen | Rows: the FM-1's screen, or the song row map (click a row to cue it), in one fixed-size box
+       (index.html .dj-view-box: its size and shape are CSS variables), so the deck never changes size */
+    const has98 = fw >= 998, view = deckView(d);
+    const viewBtn = (v, text, title, disabled = false) => btn(text, () => setView(d, v),
+      {className: view === v ? 'on' : '', disabled, title, ariaPressed: String(view === v)});
+    const box = el('div', {className: `dj-view-box ${view}`});
+    if (view === 'rows') { u.map = el('div', {className: 'dj-map mono', role: 'group', ariaLabel: `Deck ${NAMES[d.i]} song rows`}); box.append(u.map); }
+    else box.append(d.scrOk ? u.screen
+      : el('p', {className: 'hint dj-view-note', textContent: fw >= 983 ? 'This FM-1 did not send its screen. Choose the deck again to retry.' : `This FM-1's screen shows here with FM-1_983 or newer (it runs ${fw ? `FM-1_${fw}` : 'older firmware'}).`}));
+    jog = el('div', {className: 'dj-jog'}, box, el('div', {className: 'seg dj-view', role: 'group', ariaLabel: `Deck ${NAMES[d.i]}: show`},
+      viewBtn('screen', 'Screen', "The FM-1's screen"),
+      viewBtn('rows', 'Rows', has98 ? 'The song rows: click one to cue it at the next bar' : 'Needs 0.9.98 on the FM-1', !has98)));
+  }
+
+  /* the pads: the channel kills (lit while playing), then the throws and Hold; their settings in one small line */
+  const pads = el('div', {className: 'dj-pads'});
+  const by = (k) => sel([['fm1', 'FM-1', !fm1], ['mixer', 'mixer', !preset(mixer.id).out]], d[k], v => { d[k] = v; }, 'Whose effect');
+  const has98 = fw >= 998, held = !!d.live?.live;
   if (fm1) {
     const mask = d.live?.mute ?? d.kill;
-    const kills = CHANNELS.map((n, c) => btn(n, () => kill(d, c), {className: `dj-kill${(mask >> c) & 1 ? ' killed' : ''}`, title: `Mute or play ${n}`}));
-    const onBar = el('input', {type: 'checkbox', checked: d.killOnBar, onchange: () => { d.killOnBar = onBar.checked; store.set('dj-killbar', onBar.checked ? '1' : '0'); }});
-    u.body.append(el('div', {className: 'dj-row dj-kills'}, ...kills, el('label', {className: 'hint'}, onBar, ' on the bar')));
+    pads.append(el('div', {className: 'dj-padrow dj-kills'}, ...CHANNELS.map((n, c) => btn(n, () => kill(d, c),
+      {className: `dj-pad dj-kill${(mask >> c) & 1 ? ' killed' : ''}`, title: `Mute or play ${n}`}))));
   }
-  const filt = el('input', {type: 'range', min: -64, max: 63, value: d.filter, className: 'dj-filter', oninput: () => deckFilter(d, +filt.value)});
-  filt.ondblclick = () => { filt.value = 0; deckFilter(d, 0); };
-  filt.setAttribute('aria-label', `Deck ${NAMES[d.i]} DJ filter: low-pass left, high-pass right`);
-  const by = (k) => sel([['fm1', 'FM-1', !fm1], ['mixer', 'mixer', !preset(mixer.id).out]], d[k], v => { d[k] = v; }, 'Whose effect');
-  u.body.append(
-    el('div', {className: 'dj-row'}, el('span', {className: 'hint', textContent: 'LP'}), filt, el('span', {className: 'hint', textContent: 'HP'}), by('filterBy')),
-    el('div', {className: 'dj-row'},
-      holdBtn('Echo throw', () => deckThrow(d, 'echo', true), () => deckThrow(d, 'echo', false)),
-      holdBtn('Reverb throw', () => deckThrow(d, 'reverb', true), () => deckThrow(d, 'reverb', false), {disabled: fm1 && d.throwBy === 'fm1' && fw < 997}),
-      by('throwBy')));
+  pads.append(el('div', {className: 'dj-padrow'},
+    holdBtn('Echo', () => deckThrow(d, 'echo', true), () => deckThrow(d, 'echo', false), {className: 'dj-pad', title: 'Echo throw: the sends up while held'}),
+    holdBtn('Reverb', () => deckThrow(d, 'reverb', true), () => deckThrow(d, 'reverb', false),
+      {className: 'dj-pad', title: 'Reverb throw: the sends up while held', disabled: fm1 && d.throwBy === 'fm1' && fw < 997}),
+    fm1 ? u.hold = btn(held ? 'Held' : 'Hold', () => void deckHold(d), {disabled: !has98, className: `dj-pad${held ? ' on' : ''}`,
+      title: has98 ? 'LSDj live mode: each channel loops its chain until you cue another. Again: song mode.' : 'Needs 0.9.98 on the FM-1'}) : null));
+  const onBar = el('input', {type: 'checkbox', checked: d.killOnBar, onchange: () => { d.killOnBar = onBar.checked; store.set('dj-killbar', onBar.checked ? '1' : '0'); }});
+  pads.append(el('div', {className: 'dj-padrow dj-small'},
+    fm1 ? el('label', {}, onBar, ' kills on the bar') : null,
+    el('label', {}, 'Throws by ', by('throwBy')), el('label', {}, 'Filter by ', by('filterBy')),
+    fm1 && !has98 ? el('span', {textContent: 'Hold and Rows need 0.9.98.'}) : null));
   if (d.kind === 'ab') {
     const speed = n => btn(AB_SPEEDS[n][0], () => { abSpeed(d, n); drawDeck(d); },
       {className: d.abSpeed === n ? 'on' : '', ariaPressed: String(d.abSpeed === n), title: `${AB_SPEEDS[n][1]} (ArduinoBoy note ${50 + n})`});
     const ch = sel(Array.from({length: 16}, (_, i) => [String(i + 1), String(i + 1)]), String(abCh),
       v => { abCh = +v; store.set('dj-ab-ch', v); abSpeed(d, d.abSpeed); }, 'ArduinoBoy MIDI channel');
-    u.body.append(
-      el('div', {className: 'dj-row'}, el('span', {className: 'hint', textContent: 'LSDj speed'}),
+    pads.append(
+      el('div', {className: 'dj-padrow'}, el('span', {className: 'dj-small', textContent: 'LSDj speed'}),
         el('div', {className: 'seg', role: 'group', ariaLabel: `Deck ${NAMES[d.i]}: LSDj speed`}, ...[0, 1, 2, 3].map(speed)),
-        el('label', {className: 'hint', title: 'The ArduinoBoy\'s LSDJ slave mode channel (16 unless changed in its editor)'}, 'Ch ', ch)),
-      el('p', {className: 'hint dj-info', textContent: 'ArduinoBoy in mode 1 (LSDJ slave sync); in LSDj, PROJECT › SYNC = MIDI. '
+        el('label', {className: 'dj-small', title: 'The ArduinoBoy\'s LSDJ slave mode channel (16 unless changed in its editor)'}, 'Ch ', ch)),
+      el('p', {className: 'dj-small', textContent: 'ArduinoBoy in mode 1 (LSDJ slave sync); in LSDj, PROJECT › SYNC = MIDI. '
         + 'It follows Play, Stop, the tempo and Sync. It only listens, so there is no screen, song info or row cue; the filter and throws work through a MIDI mixer.'}));
   }
+
+  /* the filter knob: low-pass left, high-pass right (a range input underneath: keys, and a drag on the knob) */
+  const filt = el('input', {type: 'range', min: -64, max: 63, value: d.filter, className: 'dj-filter', oninput: () => deckFilter(d, +filt.value)});
+  filt.setAttribute('aria-label', `Deck ${NAMES[d.i]} DJ filter: low-pass left, high-pass right`);
+  u.filt = filt;
+  const knob = el('div', {className: 'dj-knob', title: 'DJ filter: drag up or right for high-pass, down or left for low-pass; double-click: off'}, el('i'), filt);
+  dragKnob(knob, filt, v => deckFilter(d, v));
+  knob.ondblclick = () => { filt.value = 0; deckFilter(d, 0); };
+  showKnob(d);
+  const fx = el('div', {className: 'dj-fx'}, el('span', {className: 'dj-small', textContent: 'LP'}), knob, el('span', {className: 'dj-small', textContent: 'HP'}));
+
+  /* CUE (a song row, at the next bar) and PLAY */
+  const transport = el('div', {className: 'dj-transport'});
   if (fm1) {
-    const row = el('input', {type: 'text', value: d.row.toString(16).toUpperCase().padStart(2, '0'), size: 3, maxLength: 2, className: 'mono',
+    const row = el('input', {type: 'text', value: hex2(d.row), size: 3, maxLength: 2, className: 'mono dj-row-in',
       onchange: () => { d.row = Math.min(127, parseInt(row.value, 16) || 0); }});
     row.setAttribute('aria-label', 'Song row (hex)');
-    const has98 = fw >= 998, held = !!d.live?.live;
-    u.body.append(el('div', {className: 'dj-row'}, el('label', {}, 'Row ', row), btn('Cue row', () => cueRow(d), {title: 'Plays that song row at the next bar (FM-1: PC CUE on)'}),
-      u.hold = btn(held ? 'Held' : 'Hold', () => void deckHold(d), {disabled: !has98, className: held ? 'on' : '',
-        title: has98 ? 'LSDj live mode: each channel loops its chain until you cue another. Again: song mode.' : 'Needs 0.9.98 on the FM-1'}),
-      has98 ? null : el('span', {className: 'hint', textContent: 'Hold and Rows need 0.9.98.'})));
-    /* Screen | Rows: the FM-1's screen, or the song row map (click a row to cue it) */
-    const view = deckView(d);
-    const viewBtn = (v, text, title, disabled = false) => btn(text, () => setView(d, v),
-      {className: view === v ? 'on' : '', disabled, title, ariaPressed: String(view === v)});
-    u.body.append(el('div', {className: 'seg dj-view', role: 'group', ariaLabel: `Deck ${NAMES[d.i]}: show`},
-      viewBtn('screen', 'Screen', "The FM-1's screen"),
-      viewBtn('rows', 'Rows', has98 ? 'The song rows: click one to cue it at the next bar' : 'Needs 0.9.98 on the FM-1', !has98)));
-    /* one fixed-size box for both views (index.html .dj-view-box: its size and shape are CSS variables), so the
-       deck never changes size when switching */
-    const box = el('div', {className: `dj-view-box ${view}`});
-    u.map = null; u.rowIn = row;
-    if (view === 'rows') { u.map = el('div', {className: 'dj-map mono', role: 'group', ariaLabel: `Deck ${NAMES[d.i]} song rows`}); box.append(u.map); drawMap(d); }
-    else box.append(d.scrOk ? u.screen
-      : el('p', {className: 'hint dj-view-note', textContent: fw >= 983 ? 'This FM-1 did not send its screen. Choose the deck again to retry.' : `This FM-1's screen shows here with FM-1_983 or newer (it runs ${fw ? `FM-1_${fw}` : 'older firmware'}).`}));
-    u.body.append(box);
-    u.info = el('p', {className: 'hint dj-info'});
-    u.body.append(u.info);
+    u.rowIn = row;
+    transport.append(el('div', {className: 'dj-round-wrap'}, btn('CUE', () => cueRow(d), {className: 'dj-round dj-cue', title: 'Cue row: plays that song row at the next bar (FM-1: PC CUE on)'}),
+      el('label', {className: 'dj-small'}, 'row ', row)));
   }
+  transport.append(el('div', {className: 'dj-round-wrap'},
+    btn(running ? '■' : '▶', () => deckPlay(d), {className: `dj-round dj-play${running ? ' on' : ''}`, ariaLabel: running ? 'Stop' : 'Play',
+      title: running ? 'Stop' : 'Play: starts on the master\'s next bar'}),
+    el('span', {className: 'dj-small', textContent: running ? 'stop' : 'play'})));
+
+  /* the pitch fader (its tempo against the master's, ±8 %; up is slower, as on a player), Sync, the nudges */
+  const bpmIn = el('input', {type: 'number', min: 40, max: 295, step: master.whole ? 1 : 0.1, value: d.bpm, className: 'dj-bpm-in', onchange: () => setDeckBpm(d, +bpmIn.value)});
+  u.bpmIn = bpmIn;
+  bpmIn.setAttribute('aria-label', `Deck ${NAMES[d.i]} tempo`);
+  const pitch = el('input', {type: 'range', min: -PITCH_RANGE, max: PITCH_RANGE, step: 1, value: pitchValue(d), className: 'dj-pitch',
+    oninput: () => setDeckBpm(d, masterBpm() * (1 + +pitch.value / 10000))});
+  pitch.setAttribute('aria-label', `Deck ${NAMES[d.i]} pitch against the master (hundredths of a percent)`);
+  pitch.ondblclick = () => { setDeckBpm(d, masterBpm()); pitch.value = pitchValue(d); };
+  pitch.onpointerdown = () => { u.pitchHeld = true; };
+  pitch.onpointerup = pitch.onpointercancel = () => { u.pitchHeld = false; };
+  u.pitch = pitch;
+  const pitchCol = el('div', {className: 'dj-pitchcol'},
+    u.sync = btn('Sync', () => deckSync(d), {className: `dj-sync${d.synced ? ' on' : ''}`, ariaPressed: String(!!d.synced),
+      title: 'Lock to the master: its tempo, and its bar while both play. Again: off. The pitch fader, typing a tempo or a nudge lets go.'}),
+    el('div', {className: 'dj-pitch-wrap'}, el('span', {className: 'dj-small', textContent: '−8'}), pitch, el('span', {className: 'dj-small', textContent: '+8'})),
+    el('label', {className: 'dj-small dj-bpm-label'}, bpmIn, ' BPM'),
+    el('div', {className: 'dj-nudges'},
+      holdBtn('−', () => nudge(d, -1), () => nudge(d, 0), {className: 'dj-pad', title: 'Nudge: slower while held', ariaLabel: 'Nudge slower'}),
+      holdBtn('+', () => nudge(d, 1), () => nudge(d, 0), {className: 'dj-pad', title: 'Nudge: faster while held', ariaLabel: 'Nudge faster'})));
+
+  /* the middle: the screen or rows where a player's jog wheel is (other gear: its pads there), the pitch column beside;
+     under them the filter knob, CUE and PLAY, and the pads */
+  u.body.append(disp, el('div', {className: 'dj-deck-mid'}, jog || el('div', {className: 'dj-jog'}, pads), pitchCol),
+    el('div', {className: 'dj-deck-low'}, el('div', {className: 'dj-deck-ctl'}, fx, transport), jog ? pads : null));
+  if (fm1) { u.info = el('p', {className: 'dj-small dj-info'}); u.body.append(u.info); }
+  if (u.map) drawMap(d);
+}
+/* the pitch fader: the deck's tempo against the master's, in hundredths of a percent */
+const PITCH_RANGE = 800;
+const masterBpm = () => masterNow().bpm || master.bpm;
+const pitchValue = d => Math.max(-PITCH_RANGE, Math.min(PITCH_RANGE, Math.round((d.bpm / masterBpm() - 1) * 10000)));
+/* the filter knob's look from its value: the pointer's angle and a lit arc from the top (index.html .dj-knob) */
+function showKnob(d) {
+  const f = d.ui?.filt, k = f?.parentElement;
+  if (!k) return;
+  const v = +f.value / (+f.value < 0 ? 64 : 63), deg = v * 135;
+  k.style.setProperty('--deg', `${deg}deg`);
+  k.style.setProperty('--from', `${Math.min(0, deg)}deg`);
+  k.style.setProperty('--sweep', `${Math.abs(deg)}deg`);
+  k.classList.toggle('off', !+f.value);
+}
+/* a knob turned by dragging: up or right turns it up (a range input underneath holds the value) */
+function dragKnob(knob, input, set) {
+  knob.onpointerdown = e => {
+    if (e.button) return;
+    e.preventDefault(); input.focus({preventScroll: true});
+    knob.setPointerCapture?.(e.pointerId);
+    const x0 = e.clientX, y0 = e.clientY, v0 = +input.value, span = +input.max - +input.min;
+    knob.onpointermove = m => {
+      const v = Math.round(Math.max(+input.min, Math.min(+input.max, v0 + ((m.clientX - x0) - (m.clientY - y0)) * span / 200)));
+      if (v !== +input.value) { input.value = v; set(v); }
+    };
+    knob.onpointerup = knob.onpointercancel = () => { knob.onpointermove = null; };
+  };
+  knob.onwheel = e => {
+    e.preventDefault();
+    const v = Math.max(+input.min, Math.min(+input.max, +input.value + (e.deltaY < 0 ? 4 : -4)));
+    input.value = v; set(v);
+  };
 }
 /* the song row map: 16 rows, a chain per channel (-- empty); the rows playing marked; a click cues that row
    (a program change: rows 00-7F only) */
@@ -705,6 +784,10 @@ function tick() {
     const own = ph == null ? fm1Row(d) : null;
     u.bpm.textContent = own != null ? String(d.live.bpm) : bpmText(d.bpm * (d.clock?.factor || 1));
     [...u.phase.children].forEach((s, b) => s.classList.toggle('on', pos ? pos.beat === b : own != null && (own >> 2) === b));
+    /* the pitch against the master: the fader (unless held) and its percentage */
+    const pv = pitchValue(d), pt = `${pv > 0 ? '+' : pv < 0 ? '−' : '±'}${(Math.abs(pv) / 100).toFixed(2)} %`;
+    if (u.pitchTxt && u.pitchTxt.textContent !== pt) u.pitchTxt.textContent = pt;
+    if (u.pitch && !u.pitchHeld && u.pitch.ownerDocument.activeElement !== u.pitch && +u.pitch.value !== pv) u.pitch.value = pv;
     const gap = offset(ph, m.phase);
     u.gap.textContent = gap != null ? (Math.abs(gap) < 0.5 ? 'in sync with the master' : `${gap > 0 ? 'behind' : 'ahead'} by ${(Math.abs(gap) / 6).toFixed(1)} rows`)
       : own != null ? `playing on its own clock · row ${hex2(own)} of the phrase` : d.clock?.running ? 'no master' : 'stopped';
@@ -739,7 +822,8 @@ export function mountDj(box) {
     /* the label: the .sav and the song (drawLabel), kept across redraws of the body */
     const labelFile = el('b', {className: 'dj-label-file'}), labelSong = el('span', {className: 'dj-label-song'});
     const label = el('div', {className: 'dj-label', hidden: true}, labelFile, labelSong);
-    const box = el('section', {className: 'dj-deck', ariaLabel: `Deck ${NAMES[d.i]}`}, el('h4', {}, `Deck ${NAMES[d.i]} `, pick), label, body);
+    const box = el('section', {className: 'dj-deck', ariaLabel: `Deck ${NAMES[d.i]}`}, el('h4', {className: 'dj-deck-head'},
+      el('span', {className: 'dj-deck-id', title: `Deck ${NAMES[d.i]}`}, el('span', {className: 'sr-only', textContent: 'Deck '}), NAMES[d.i]), pick), label, body);
     d.ui = {pick, body, screen, box, label, labelFile, labelSong};
     return box;
   };
