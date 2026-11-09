@@ -58,7 +58,7 @@ function fm1(n, title, fw = 'FM-1_997') {
     if (op >= OP.SCREEN_INFO && op <= OP.SCREEN_FRAME) d.screens++;   /* (no screen here: the deck says so) */
     if (op === OP.THEME_GET) return send(Array(16).fill(0));
     const dj = fw >= 'FM-1_998' ? [0x82, 5, 5, 5, 5, 2, 2, 2, 2, 3, d.seq, d.level] : [];
-    if (op === OP.LIVE) return send([1, 1, 120, 0, d.mutes.at(-1) || 0, 0, 0, ...fx, ...dj]);
+    if (op === OP.LIVE) return send([1, 1, 120, 0, d.mutes.at(-1) || 0, 0, d.playing || 0, ...fx, ...dj]);   /* d.playing: the channels playing (a bit each) */
     if (fw >= 'FM-1_998' && op === OP.VOLUME_SET) { d.levels.push(body[0]); d.level = body[0]; return send(); }
     if (fw >= 'FM-1_998' && op === OP.SEQ_SET) { d.seqs.push(body[0]); d.seq = body[0]; return send(); }
     if (fw >= 'FM-1_998' && op === OP.SONG_ROWS) { d.mapReads.push(body[0]); return send([body[0], ...Array.from({length: 64}, (_, i) => i % 4 ? 0xFF : (body[0] + i / 4) & 0x3F)]); }
@@ -214,6 +214,20 @@ export async function runDjUiTests() {
     assert(deckA0.clock.factor < 1, `jog anticlockwise: slower: ${deckA0.clock.factor}`);
     jogA.dispatchEvent(new PointerEvent('pointerup', jogAt(-90)));
     assert(deckA0.clock.factor === 1, 'let go: back to its tempo');
+
+    // 4a''. stopped on the FM-1 itself: once A's FM-1 has played and then says twice running that nothing plays,
+    // the page stops deck A too (the jog and beat lights with it); while it plays, nothing changes
+    A.playing = 0x0f;
+    await sleep(1300);
+    assert(deckA0.clock.running && deckA0.seenPlaying, `A playing on its FM-1: the deck runs on: ${deckA0.clock.running}`);
+    A.playing = 0;   /* (stopped with its own buttons) */
+    await until(() => !deckA0.clock.running, 'stopped on the FM-1: deck A stops', 3000);
+    assert(/stopped on the FM-1/.test(document.querySelector('.dj-status').textContent), `said: ${document.querySelector('.dj-status').textContent}`);
+    assert(djState().decks[1].clock.running, 'B plays on, untouched');
+    play(0);   /* A again, for the rest */
+    await until(() => deckA0.clock.running, 'A playing again', 3000);
+    await sleep(1300);
+    assert(deckA0.clock.running, 'a deck the FM-1 has not played on yet is not stopped (LSDj takes a moment to start)');
 
     // 4b. 0.9.98 on B: no mixer, so the crossfader sets B's volume (VOLUME_SET); Hold (SEQ_SET)
     const want = x => Math.round(crossfade(x, djState().mixer.curve)[1] * 127);
@@ -424,7 +438,7 @@ export async function runDjUiTests() {
     play(1);
     document.querySelector('#stage-mode [data-mode="fx"]').click();
     djState().decks.forEach(d => d.clock?.stop());
-    return 'PASS DJ layout: switch, decks on FM-1s, Start and clocks per deck, the next bar, its own tempo, Sync (a lock: lit, keeps the bar, follows the master, on a stopped deck, lets go when typed), stem kill, DJ filter, Perform › Clock off, 0.9.98 (crossfader to FM-1 volume, Hold), DJ colours (the page and panel; FM-1 decks keep theirs), each deck its FM-1 colours, its label (the .sav sent, the open song, changed since), Screen | Rows (screen, song row map, click to cue), Tap quickly (no redraw), Whole BPM, TX-6 button and crossfader, fader mirrored, full volume after, an ArduinoBoy deck (speed notes, its channel, Start and clocks, FM-1 controls hidden), the crate (a .sav onto deck A while B plays on, untouched; Grab B), an FM-1 pulled and back (the deck takes it back, playing; the Log)';
+    return 'PASS DJ layout: switch, decks on FM-1s, Start and clocks per deck, the next bar, its own tempo, Sync (a lock: lit, keeps the bar, follows the master, on a stopped deck, lets go when typed), stem kill, DJ filter, Perform › Clock off, 0.9.98 (crossfader to FM-1 volume, Hold), DJ colours (the page and panel; FM-1 decks keep theirs), each deck its FM-1 colours, its label (the .sav sent, the open song, changed since), Screen | Rows (screen, song row map, click to cue), Tap quickly (no redraw), Whole BPM, TX-6 button and crossfader, fader mirrored, full volume after, an ArduinoBoy deck (speed notes, its channel, Start and clocks, FM-1 controls hidden), the crate (a .sav onto deck A while B plays on, untouched; Grab B), an FM-1 pulled and back (the deck takes it back, playing; the Log), stopped on the FM-1 (the deck stops too)';
   } finally {
     if (descriptor) Object.defineProperty(navigator, 'requestMIDIAccess', descriptor); else delete navigator.requestMIDIAccess;
   }

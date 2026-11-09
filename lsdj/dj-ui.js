@@ -129,7 +129,7 @@ async function assign(d, value) {
   d.clock?.stop(); d.clock?.close(); d.clock = null;
   if (d.kind === 'fm1' && d.levelSent !== 127) void fullVolume(d.key);   /* the FM-1 leaving the deck: full volume again */
   d.key = ''; d.kind = ''; d.live = null; d.fx = null; d.rv = null; d.base = null; d.kill = 0; d.filter = 0; setSynced(d, false); deckBend(d, 1); d.nudging = false;
-  d.savHead = null; d.sav = null; d.savMatch = null; d.savAt = 0;
+  d.savHead = null; d.sav = null; d.savMatch = null; d.savAt = 0; d.seenPlaying = false; d.idlePolls = 0;
   d.level = null; d.levelSent = 127; d.scrOk = true; d.themeAt = 0; d.map = null; d.mapFrom = -1; d.mapFill = null;
   paintDeck(d, null);
   if (value) { const [kind, ...k] = value.split(':'); d.kind = kind; d.key = k.join(':'); }
@@ -156,6 +156,7 @@ async function assign(d, value) {
 function deckPlay(d) {
   if (!d.key) return;
   const c = deckClock(d);
+  d.seenPlaying = false; d.idlePolls = 0;
   if (c.running) { c.stop(); draw(); return; }
   if (d.synced) followMaster(d);   /* (the master's tempo; starting on its bar puts the bars together) */
   c.setTempo(d.bpm);
@@ -423,6 +424,18 @@ async function poll() {
   pollBusy = true;
   try { await pollRound(); } finally { pollBusy = false; }
 }
+/* stopped on the FM-1 itself (its own buttons): the page's clock for that deck stops too (the jog, the beat lights
+   and PLAY with it). Only once the FM-1 has played since the deck started (LSDj takes a moment to start on the
+   page's Start), and then said twice running (two polls, about 0.8 s) that no channel plays. */
+function fm1Stopped(d) {
+  if (!d.clock?.running) { d.seenPlaying = false; d.idlePolls = 0; return; }
+  if (d.live.playing) { d.seenPlaying = true; d.idlePolls = 0; return; }
+  if (!d.seenPlaying || ++d.idlePolls < 2) return;
+  d.seenPlaying = false; d.idlePolls = 0;
+  d.clock.stop();
+  say(`Deck ${NAMES[d.i]}: stopped on the FM-1.`);
+  drawDeck(d);
+}
 async function pollRound() {
   for (const d of decks) {
     deckScreen(d);
@@ -431,6 +444,7 @@ async function pollRound() {
     if (!l) continue;
     try {
       d.live = await l.live();
+      fm1Stopped(d);
       if (d.live.level != null && !d.levelBusy) d.levelSent = d.live.level;
       if (d.live.level != null && d.levelSent !== (d.level ?? 127)) void sendLevel(d);   /* power cycled, or another page */
       if (now() - (d.themeAt || 0) > 8000) await deckTheme(d, l);
