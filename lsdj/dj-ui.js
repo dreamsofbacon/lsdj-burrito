@@ -19,7 +19,7 @@
 import {startClock, clampBpm, PPQN, CLOCK, START, CONTINUE, STOP} from './midiclock.js';
 import {BAR, BEAT, NUDGE, position, offset, syncBend, nextOn, crossfade, CURVES, djFilter, tapper, clockMeter} from './dj.js';
 import {PRESETS, preset, readMidi, actionFor, out, learnRule, saveLearned, loadLearned} from './mixers.js';
-import {unpackFx, packFx, unpackReverb, packReverb, packReverbSends, CHANNELS, firmwareNumber, unpackSettings, PRESETS as THEME_COLOURS, CUSTOM_THEME} from './fx-model.js';
+import {unpackFx, packFx, unpackReverb, packReverb, packReverbSends, CHANNELS, firmwareNumber, unpackSettings, PRESETS as THEME_COLOURS, CUSTOM_THEME, THEMES} from './fx-model.js';
 import {pageColours} from './page-theme.js';
 import {savHeader, HEADER, HEADER_SIZE, BLOCK_COUNT} from './lsdj-sav.js';
 
@@ -714,16 +714,37 @@ export function mountDj(box) {
     d.ui = {pick, body, screen, box, label, labelFile, labelSong};
     return box;
   };
-  box.replaceChildren(el('div', {className: 'dj-grid'}, deckBox(decks[0]), el('section', {className: 'dj-mixer', ariaLabel: 'Master and mixer'}), deckBox(decks[1])),
+  const themePick = sel([['page', 'Page colours'], ...THEMES.map((n, i) => [String(i), n]).filter(([i]) => THEME_COLOURS[+i])], djTheme,
+    v => { djTheme = v; store.set('dj-theme', v); applyDjTheme(); }, 'DJ colours');
+  box.replaceChildren(
+    el('div', {className: 'dj-top'}, el('label', {className: 'hint', title: 'The DJ layout\'s own colours: its background and the master and mixer. FM-1 decks keep their FM-1\'s theme.'}, 'DJ colours ', themePick)),
+    el('div', {className: 'dj-grid'}, deckBox(decks[0]), el('section', {className: 'dj-mixer', ariaLabel: 'Master and mixer'}), deckBox(decks[1])),
     statusEl,
     el('p', {className: 'hint', textContent: 'Each deck follows this page\'s clock at its own tempo. On each FM-1: LSDj PROJECT › SYNC = MIDI (or KEYBD with 0.9.97), GLO › MIDI › CLOCK IN = ALL or USB, TRANSPORT ON; for Cue row and Rows, PC CUE ON. The audio goes through your mixer as usual; without one, the crossfader sets each FM-1\'s volume (0.9.98).'}));
   if (mixer.inId) setMixerIn(mixer.inId);
+  applyDjTheme();
   draw();
+}
+/* the DJ layout's own colours (kept in this browser): a theme preset's page colours (page-theme.js) on the DJ panel,
+   and on the page itself while the layout shows; 'page': the page's colours. FM-1 decks keep their FM-1's colours
+   (paintDeck sets them on the deck box, under these). */
+let djTheme = store.get('dj-theme', 'page');
+function applyDjTheme() {
+  const colours = djTheme === 'page' ? null : THEME_COLOURS[+djTheme];
+  const vars = colours ? pageColours(colours) : null;
+  const panel = root?.closest('.panel') || root;
+  for (const box of [panel, document.body]) {
+    if (!box) continue;
+    THEME_VARS.forEach(k => box.style.removeProperty(k));
+    if (vars && (box !== document.body || shown)) Object.entries(vars).forEach(([k, v]) => box.style.setProperty(k, v));
+  }
+  panel?.classList.toggle('dj-themed', !!vars);
 }
 /* the DJ layout shown or hidden: the readouts and FM-1 polls run only while it shows */
 export function djShown(on) {
   clearInterval(ticker); clearInterval(polling); ticker = polling = 0;
   shown = on;
+  applyDjTheme();   /* the page in the DJ colours only while the layout shows */
   decks.forEach(deckScreen);   /* the screens run only while the layout shows */
   if (!on) { decks.forEach(d => deckLevel(d, null)); return; }   /* the Effects layout: the FM-1s at full volume */
   applyVolumes();

@@ -216,6 +216,10 @@ body.dj #live-sec>#pan-screen,body.dj #live-sec>#pan-wire,body.dj #live-sec>#pan
 /* 80-FF: a program change cues 00-7F only */
 .dj-maprow:disabled{opacity:.35;cursor:not-allowed;background:repeating-linear-gradient(135deg,transparent 0 6px,color-mix(in srgb,var(--line) 70%,transparent) 6px 8px)}
 .dj-deck.themed{background:var(--card);color:var(--ink);border-color:var(--accent)}
+/* the DJ layout's own colours (DJ colours: dj-ui.js applyDjTheme sets the theme's vars on the panel and the page) */
+#pan-dj.dj-themed{background:var(--bg);color:var(--ink);border-color:var(--line)}
+#pan-dj.dj-themed .dj-mixer{background:var(--card);border-color:var(--accent)}
+.dj-top{display:flex;justify-content:flex-end;margin:0 0 6px}
 /* the deck label: the .sav sent to its FM-1, and the song open in LSDj (dj-ui.js drawLabel) */
 .dj-label{display:flex;flex-direction:column;gap:1px;margin:-2px 0 6px;min-width:0}
 .dj-label-file{font-size:1.15em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

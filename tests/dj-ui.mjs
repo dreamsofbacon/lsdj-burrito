@@ -79,7 +79,7 @@ export async function runDjUiTests() {
   const access = new EventTarget();
   access.inputs = new Map([['a', A.input], ['b', B.input], ['t', T.input]]);
   access.outputs = new Map([['a', A.output], ['b', B.output], ['t', T.output]]);
-  for (const k of ['lsdj-burrito-stage', 'dj-mixer', 'dj-mixer-in', 'dj-mixer-out', 'dj-mixer-map', 'dj-bpm', 'dj-learned', 'dj-view-0', 'dj-view-1', 'dj-whole']) try { localStorage.removeItem(k); } catch {}
+  for (const k of ['lsdj-burrito-stage', 'dj-mixer', 'dj-mixer-in', 'dj-mixer-out', 'dj-mixer-map', 'dj-bpm', 'dj-learned', 'dj-view-0', 'dj-view-1', 'dj-whole', 'dj-theme']) try { localStorage.removeItem(k); } catch {}
   try {
     Object.defineProperty(navigator, 'requestMIDIAccess', {configurable: true, value: async () => access});
     await $('connect-btn').onclick();
@@ -97,6 +97,16 @@ export async function runDjUiTests() {
     choose($('sync-mode'), 'page');
     choose(pickA, 'fm1:out-1'); choose(pickB, 'fm1:out-2');
     await until(() => djState().decks[0].fx && djState().decks[1].fx, 'each deck read its FM-1\'s effects');
+
+    // 2b. DJ colours: the page and the DJ panel in a theme of their own (Midnight); FM-1 decks keep their FM-1's colours
+    const midnight = pageColours(PRESETS[6]), deckBox = [...document.querySelectorAll('.dj-deck')][0];
+    choose(document.querySelector('select[aria-label="DJ colours"]'), '6');
+    assert(document.body.style.getPropertyValue('--bg') === midnight['--bg'] && $('pan-dj').style.getPropertyValue('--bg') === midnight['--bg'],
+      `the page and the DJ panel in Midnight: ${document.body.style.getPropertyValue('--bg')}`);
+    assert(getComputedStyle(document.body).backgroundColor !== '' && $('pan-dj').classList.contains('dj-themed'), 'the DJ panel themed');
+    await until(() => deckBox.classList.contains('themed'), 'deck A in its FM-1\'s colours');
+    assert(deckBox.style.getPropertyValue('--bg') !== midnight['--bg'] && getComputedStyle(deckBox).getPropertyValue('--bg').trim() === deckBox.style.getPropertyValue('--bg'),
+      `deck A keeps its FM-1's colours under the DJ colours: ${deckBox.style.getPropertyValue('--bg')}`);
     A.midi.length = B.midi.length = 0;
     const play = i => [...document.querySelectorAll('.dj-deck')][i].querySelector('.dj-row button').click();
     play(0);
@@ -286,9 +296,15 @@ export async function runDjUiTests() {
     await until(() => B.level === want(0.25) && want(0.25) < 127, `no mixer again: B's volume from the crossfader: ${B.levels}`);
     document.querySelector('#stage-mode [data-mode="fx"]').click();
     assert(!document.body.classList.contains('dj') && getComputedStyle($('pan-chans')).display !== 'none', 'Effects layout back');
+    assert(!document.body.style.getPropertyValue('--bg'), 'the Effects layout: the page\'s own colours again');
+    document.querySelector('#stage-mode [data-mode="dj"]').click();
+    assert(document.body.style.getPropertyValue('--bg') === pageColours(PRESETS[6])['--bg'], 'DJ again: its colours again');
+    choose(document.querySelector('select[aria-label="DJ colours"]'), 'page');
+    assert(!document.body.style.getPropertyValue('--bg') && !$('pan-dj').classList.contains('dj-themed'), 'Page colours: the DJ colours gone');
+    document.querySelector('#stage-mode [data-mode="fx"]').click();
     await until(() => B.level === 127, `the Effects layout: B at full volume: ${B.levels}`);
     djState().decks.forEach(d => d.clock?.stop());
-    return 'PASS DJ layout: switch, decks on FM-1s, Start and clocks per deck, the next bar, its own tempo, Sync (a lock: lit, keeps the bar, follows the master, on a stopped deck, lets go when typed), stem kill, DJ filter, Perform › Clock off, 0.9.98 (crossfader to FM-1 volume, Hold), each deck its FM-1 colours, its label (the .sav sent, the open song, changed since), Screen | Rows (screen, song row map, click to cue), Tap quickly (no redraw), Whole BPM, TX-6 button and crossfader, fader mirrored, full volume after';
+    return 'PASS DJ layout: switch, decks on FM-1s, Start and clocks per deck, the next bar, its own tempo, Sync (a lock: lit, keeps the bar, follows the master, on a stopped deck, lets go when typed), stem kill, DJ filter, Perform › Clock off, 0.9.98 (crossfader to FM-1 volume, Hold), DJ colours (the page and panel; FM-1 decks keep theirs), each deck its FM-1 colours, its label (the .sav sent, the open song, changed since), Screen | Rows (screen, song row map, click to cue), Tap quickly (no redraw), Whole BPM, TX-6 button and crossfader, fader mirrored, full volume after';
   } finally {
     if (descriptor) Object.defineProperty(navigator, 'requestMIDIAccess', descriptor); else delete navigator.requestMIDIAccess;
   }
