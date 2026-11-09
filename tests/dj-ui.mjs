@@ -510,10 +510,27 @@ export async function runDjUiTests() {
     B.sync = 5;
     await until(() => warnB().hidden, 'SYNC KEYBD: the strip goes', 3000);
     B.dev2 = true;
+
+    // 11. the FM-1 in use switched (Perform's FM-1 list) while the decks poll: no deck makes a link of its own on that
+    // FM-1 meanwhile (it took the replies, and the switch said "did not answer" with the cable fine: Colin's Log);
+    // and Follow stays put in the DJ layout (a kill on the other deck switched the FM-1 in use mid-set)
+    B.slow = {[OP.INFO]: 700};   /* (INFO answered late: the decks poll meanwhile) */
+    const toB = [...$('stage-pick').options].find(o => /LSDj-BBB/.test(o.textContent));
+    choose($('stage-pick'), toB.value);
+    await until(() => /running LSDj-BBB/.test($('device').textContent), `switched to B while the decks poll: ${$('device').textContent}`, 9000);
+    assert(!/did not answer/.test($('device').textContent), 'no "did not answer"');
+    B.slow = null;
+    const followBtn = $('stage-follow');
+    if (followBtn.getAttribute('aria-pressed') !== 'true') followBtn.click();
+    const killA = [...document.querySelectorAll('.dj-deck')][0].querySelector('.dj-kill');
+    await sleep(3000); killA.click(); await sleep(400); killA.click();   /* deck A played (its FM-1 not the one in use) */
+    await sleep(3000);
+    assert(/running LSDj-BBB/.test($('device').textContent), `Follow in the DJ layout: the FM-1 in use stays: ${$('device').textContent}`);
+    if (followBtn.getAttribute('aria-pressed') === 'true') followBtn.click();
     play(1);
     document.querySelector('#stage-mode [data-mode="fx"]').click();
     djState().decks.forEach(d => d.clock?.stop());
-    return 'PASS DJ layout: switch, decks on FM-1s, Start and clocks per deck, the next bar, its own tempo, Sync (a lock: lit, keeps the bar, follows the master, on a stopped deck, lets go when typed), stem kill, DJ filter, Perform › Clock off, 0.9.98 (crossfader to FM-1 volume, Hold), DJ colours (the page and panel; FM-1 decks keep theirs), each deck its FM-1 colours, its label (the .sav sent, the open song, changed since), Screen | Rows (screen, song row map, click to cue), Tap quickly (no redraw), Whole BPM, TX-6 button and crossfader, fader mirrored, full volume after, an ArduinoBoy deck (speed notes, its channel, Start and clocks, FM-1 controls hidden), the crate (a .sav onto deck A while B plays on, untouched; Grab B), an FM-1 pulled and back (the deck takes it back, playing, also on new port ids with its .sav label; the Log), stopped on the FM-1 (the deck stops too), each deck sets its FM-1 up (MIDI settings, LSDj SYNC to KEYBD; the warning strip), the jog every frame';
+    return 'PASS DJ layout: switch, decks on FM-1s, Start and clocks per deck, the next bar, its own tempo, Sync (a lock: lit, keeps the bar, follows the master, on a stopped deck, lets go when typed), stem kill, DJ filter, Perform › Clock off, 0.9.98 (crossfader to FM-1 volume, Hold), DJ colours (the page and panel; FM-1 decks keep theirs), each deck its FM-1 colours, its label (the .sav sent, the open song, changed since), Screen | Rows (screen, song row map, click to cue), Tap quickly (no redraw), Whole BPM, TX-6 button and crossfader, fader mirrored, full volume after, an ArduinoBoy deck (speed notes, its channel, Start and clocks, FM-1 controls hidden), the crate (a .sav onto deck A while B plays on, untouched; Grab B), an FM-1 pulled and back (the deck takes it back, playing, also on new port ids with its .sav label; the Log), stopped on the FM-1 (the deck stops too), each deck sets its FM-1 up (MIDI settings, LSDj SYNC to KEYBD; the warning strip), the jog every frame, a switch while the decks poll, Follow put in the DJ layout';
   } finally {
     if (descriptor) Object.defineProperty(navigator, 'requestMIDIAccess', descriptor); else delete navigator.requestMIDIAccess;
   }

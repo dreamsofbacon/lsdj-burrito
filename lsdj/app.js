@@ -385,7 +385,7 @@ let followTimer = 0;
 function maybeFollow(d) {
   const stay = () => {
     const now = Date.now();
-    return !follow || !connected || busy || installing() || connecting || capturing || !watchers.has(d) ||
+    return !follow || stageMode === 'dj' || !connected || busy || installing() || connecting || capturing || !watchers.has(d) ||
       now - activeAt < QUIET_MS || now - touched < QUIET_MS || now - switchedAt < HOLD_MS ||
       [...watchers].some(([o, w]) => o !== d && now - w.at < QUIET_MS);
   };
@@ -577,6 +577,9 @@ function padTarget(info) {
 /* a target's link: the one in use, else its watcher's, else a small one of its own (0.9.97 and newer only) */
 function padLinkFor(key) {
   if (key == null) return null;
+  /* not while the page connects: a Link made now on that FM-1's input takes its replies from the one being connected
+     (current is set only once INFO answers), and Connect said "did not answer" with the cable fine (Colin's Log) */
+  if (connecting) return null;
   if (key === curKey()) return connected && fwNum >= 997 ? link : null;
   const d = devices.find(x => portKey(x) === key);
   if (!d || firmwareNumber(d.info.firmware) < 997) return null;
@@ -1218,6 +1221,9 @@ void songsAutoConnect();
    small link of its own, as a game controller's). */
 function djLinkFor(key) {
   if (key == null) return null;
+  /* not while the page connects: a Link made now on that FM-1's input takes its replies from the one being connected
+     (current is set only once INFO answers), and Connect said "did not answer" with the cable fine (Colin's Log) */
+  if (connecting) return null;
   if (key === curKey() && !virtual) return connected ? link : null;
   const d = devices.find(x => portKey(x) === key);
   if (!d) return null;
@@ -1254,7 +1260,7 @@ const devOf = key => devices.find(x => portKey(x) === key) || null;
 function crateLink(key) {
   if (key === curKey() && busy) throw new LinkError('Another operation is running on that FM-1. Wait for it to finish.');
   const l = djLinkFor(key);
-  if (!l) throw new LinkError('That FM-1 is gone. Choose it for the deck again.');
+  if (!l) throw new LinkError(connecting ? 'Wait a moment: the page is connecting to an FM-1.' : 'That FM-1 is gone. Choose it for the deck again.');
   return l;
 }
 setCrateHooks({
