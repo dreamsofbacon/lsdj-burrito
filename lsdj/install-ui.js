@@ -20,7 +20,7 @@ export function usbMidiUnavailable() {
 function updateControls() {
   const unavailable = usbMidiUnavailable();
   $('fw-file').disabled = busy || preparing;
-  $('fw-install').disabled = busy || preparing || !pkg || !!unavailable;
+  $('fw-install').disabled = busy || target !== null || preparing || !pkg || !!unavailable;
   $('fw-support').textContent = unavailable ? `${unavailable} You can still prepare and download firmware for M-UPGRADE.` :
     'Installing asks for MIDI access and needs the FM-1 plugged in by USB.';
   $('fw-support').className = unavailable ? 'warn' : 'hint';
@@ -30,7 +30,15 @@ export function getSelectedFirmware() {
   if (!firmwareBytes || preparing) throw new InstallError('Prepare firmware or select a .fwsc file in the installer first.');
   return {bytes: firmwareBytes.slice(), name: fileName};
 }
-export const installing = () => busy;
+/* the DJ crate's install on one FM-1 (crate-ui.js; its key, as app.js portKey): Install waits for it too */
+let target = null;
+export const installTarget = () => target;
+export function setInstallTarget(key) {
+  target = key ?? null;
+  if (document.getElementById('fw-install')) updateControls();
+  document.dispatchEvent(new Event('firmware-install-state'));
+}
+export const installing = () => busy || target !== null;
 export let beforeInstall = async () => {};   // the page closes its own link to the FM-1 first (app.js sets it)
 export function setBeforeInstall(f) { beforeInstall = f; }
 
@@ -89,7 +97,7 @@ document.addEventListener('visibilitychange', onHidden);
 window.addEventListener('beforeunload', (e) => { if (busy) { e.preventDefault(); e.returnValue = ''; } });
 
 $('fw-install').onclick = async () => {
-  if (!pkg || busy || preparing) return;
+  if (!pkg || busy || target !== null || preparing) return;
   const unavailable = usbMidiUnavailable();
   if (unavailable) return say(unavailable + ' Nothing was installed.', 'warn');
   if (document.hidden) return say('Bring this tab to the front first.', 'warn');

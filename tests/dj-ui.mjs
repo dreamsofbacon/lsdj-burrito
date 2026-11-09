@@ -7,6 +7,7 @@
 //   starts / stops its deck, the crossfader sets its two channel volumes (CC 7).
 import {OP, crc32} from '../lsdj/link.js';
 import {djState, rememberSav} from '../lsdj/dj-ui.js';
+import {addToCrate} from '../lsdj/crate-ui.js';
 import {unpackFx, unpackSettings, packSettings, PRESETS} from '../lsdj/fx-model.js';
 import {pageColours} from '../lsdj/page-theme.js';
 import {crossfade, offset} from '../lsdj/dj.js';
@@ -32,7 +33,7 @@ function fakeSave(songs, active) {
 function fm1(n, title, fw = 'FM-1_997') {
   const d = {n, title, midi: [], fxSets: [], mutes: [], levels: [], seqs: [], mapReads: [], screens: 0, level: 127, seq: 0,
     settings: packSettings({...unpackSettings(0x5a000000), theme: n % PRESETS.length}),   /* each its own theme */
-    infos: 0, reads: 0, save: fakeSave([{slot: 0, name: 'TECHNO', version: 2, blocks: 10}], 0)};
+    infos: 0, reads: 0, begins: 0, importing: null, save: fakeSave([{slot: 0, name: 'TECHNO', version: 2, blocks: 10}], 0)};
   const fx = Array(68).fill(0);
   fx[36] = 5; fx[37] = 2; fx[42] = 0xf2; fx[38] = 1;
   d.input = Object.assign(new EventTarget(), {id: `in-${n}`, name: 'FM-1', state: 'connected', onmidimessage: null});
@@ -45,6 +46,11 @@ function fm1(n, title, fw = 'FM-1_997') {
     if (op === OP.INFO) { d.infos++; const info = Array(35).fill(0); info[0] = 1; [...fw].forEach((c, i) => info[1 + i] = c.charCodeAt(0)); [...title].forEach((c, i) => info[9 + i] = c.charCodeAt(0));
       const crc = crc32(d.save); [0, 8, 16, 24].forEach((s, i) => info[29 + i] = (crc >>> s) & 255); return send(info); }
     if (op === OP.READ) { const off = body[0] | body[1] << 8 | body[2] << 16 | body[3] << 24; d.reads++; return send([...d.save.subarray(off, off + 128)]); }
+    /* a .sav sent (Songs › Send, the crate): taken whole at COMMIT */
+    if (op === OP.ABORT) { d.importing = null; return send(); }
+    if (op === OP.BEGIN) { d.importing = new Uint8Array(0x20000); d.begins++; return send(); }
+    if (op === OP.CHUNK) { const off = body[0] | body[1] << 8 | body[2] << 16 | body[3] << 24; d.importing?.set(body.slice(4, 132), off); return send(); }
+    if (op === OP.COMMIT) { if (d.importing) { d.save = d.importing; d.importing = null; } return send(); }
     if (op === OP.FX_GET) return send(fx);
     if (op === OP.FX_SET) { d.fxSets.push(body); return send(); }
     if (op === OP.MUTE_SET) { d.mutes.push(body[0]); return send(); }
@@ -363,9 +369,47 @@ export async function runDjUiTests() {
     assert(AB.sent.at(-1)[0] === 0xfc, `Stop: ${AB.sent.at(-1)}`);
     choose(pickA, '');
     try { localStorage.removeItem('dj-ab-ch'); } catch {}
+
+    // 8. the crate: a .sav loads onto deck A's FM-1 while deck B plays on (its clocks keep coming, nothing else goes
+    //    to it); Grab B copies B's songs into the crate while it plays
+    try { localStorage.removeItem('dj-crate'); } catch {}
+    choose(pickA, 'fm1:out-1');
+    await until(() => djState().decks[0].fx, 'deck A on FM-1 A again');
+    const dB = djState().decks[1];
+    if (!dB.clock?.running) play(1);
+    await until(() => clocks(B) > 0, 'deck B playing');
+    const friday = fakeSave([{slot: 0, name: 'HOUSE', version: 2, blocks: 5}], 0);
+    await addToCrate({name: 'Friday', sav: friday});
+    const crate = document.querySelector('.dj-crate');
+    const card = () => [...crate.querySelectorAll('.crate-card')].find(c => c.querySelector('.crate-name').value === 'Friday');
+    await until(() => card() && /HOUSE/.test(card().textContent), `the card shows its song: ${crate.textContent}`);
+    const cardBtn = text => [...card().querySelectorAll('button')].find(b => b.textContent === text);
+    assert(cardBtn('Load A') && cardBtn('Load B'), 'Load A and Load B on the card');
+    const realConfirm = window.confirm, bSend = B.output.send;
+    window.confirm = () => true;
+    try {
+      const bOps = [];
+      B.output.send = (m, ts) => { if (m[0] === 0xf0) bOps.push(m[4]); return bSend(m, ts); };
+      const ticksBefore = clocks(B);
+      cardBtn('Load A').click();
+      await until(() => crc32(A.save) === crc32(friday), 'FM-1 A has the crate\'s songs', 20000);
+      await until(() => /Deck A has "Friday"/.test(crate.textContent), `the crate says so: ${crate.querySelector('.crate-status').textContent}`);
+      await until(() => clocks(B) > ticksBefore + 20 && dB.clock.running, `deck B kept playing: ${ticksBefore} -> ${clocks(B)}`, 3000);
+      assert(!bOps.some(op => [OP.BEGIN, OP.CHUNK, OP.COMMIT, OP.ABORT].includes(op)), `nothing of the load went to B: ${[...new Set(bOps)]}`);
+      const bTs = B.midi.filter(m => m[0] === 0xf8).map(m => m.ts).filter(Number.isFinite);
+      const gap = Math.max(...bTs.slice(1).map((t, i) => t - bTs[i]));
+      assert(gap < 40, `deck B's clocks evenly spaced during the load (one each 20.8 ms at 120): the widest gap ${gap.toFixed(1)} ms`);
+      /* Grab B: a copy of B's songs as a new card; B keeps its songs and keeps playing */
+      const bBegins = B.begins;
+      [...crate.querySelectorAll('.crate-top button')].find(b => b.textContent === 'Grab B').click();
+      await until(() => [...crate.querySelectorAll('.crate-card')].some(c => /TECHNO/.test(c.textContent)), `Grab B: B's songs in the crate: ${crate.textContent}`, 20000);
+      assert(B.begins === bBegins && dB.clock.running, 'B: nothing written, still playing');
+    } finally { window.confirm = realConfirm; B.output.send = bSend; }
+    play(1);
+    try { localStorage.removeItem('dj-crate'); } catch {}
     document.querySelector('#stage-mode [data-mode="fx"]').click();
     djState().decks.forEach(d => d.clock?.stop());
-    return 'PASS DJ layout: switch, decks on FM-1s, Start and clocks per deck, the next bar, its own tempo, Sync (a lock: lit, keeps the bar, follows the master, on a stopped deck, lets go when typed), stem kill, DJ filter, Perform › Clock off, 0.9.98 (crossfader to FM-1 volume, Hold), DJ colours (the page and panel; FM-1 decks keep theirs), each deck its FM-1 colours, its label (the .sav sent, the open song, changed since), Screen | Rows (screen, song row map, click to cue), Tap quickly (no redraw), Whole BPM, TX-6 button and crossfader, fader mirrored, full volume after, an ArduinoBoy deck (speed notes, its channel, Start and clocks, FM-1 controls hidden)';
+    return 'PASS DJ layout: switch, decks on FM-1s, Start and clocks per deck, the next bar, its own tempo, Sync (a lock: lit, keeps the bar, follows the master, on a stopped deck, lets go when typed), stem kill, DJ filter, Perform › Clock off, 0.9.98 (crossfader to FM-1 volume, Hold), DJ colours (the page and panel; FM-1 decks keep theirs), each deck its FM-1 colours, its label (the .sav sent, the open song, changed since), Screen | Rows (screen, song row map, click to cue), Tap quickly (no redraw), Whole BPM, TX-6 button and crossfader, fader mirrored, full volume after, an ArduinoBoy deck (speed notes, its channel, Start and clocks, FM-1 controls hidden), the crate (a .sav onto deck A while B plays on, untouched; Grab B)';
   } finally {
     if (descriptor) Object.defineProperty(navigator, 'requestMIDIAccess', descriptor); else delete navigator.requestMIDIAccess;
   }

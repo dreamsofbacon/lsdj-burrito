@@ -10,12 +10,15 @@ import {parseSav, songBytes, buildSav, readLsdsng, writeLsdsng, nameBytes, nameT
 import {kitSlots, kitSampleNibbles, BANK} from './lsdj-kit.js';
 import {kitUsage, usageAcross, romFit, bestRom} from './lsdj-usage.js';
 import {mountSetsUi, rememberRom} from './sets-ui.js';
+import {addToCrate} from './crate-ui.js';
 
 const $ = id => document.getElementById(id);
 const el = (tag, props = {}, ...kids) => { const e = Object.assign(document.createElement(tag), props); e.append(...kids.filter(k => k != null)); return e; };
 const hex = n => n.toString(16).toUpperCase().padStart(2, '0');
 
 /* the open save: its bytes (as LSDj would read them), its songs (song null: damaged), the kit slots */
+/* a crate card's name: the file the songs came from, else its first song */
+const crateName = () => (state.from && state.from !== 'the FM-1' ? state.from : state.sav?.songs?.[0]?.name || 'Songs').replace(/\.sav$/i, '');
 const state = {sav: null, from: '', items: [], edited: false, slots: null, romFrom: '', romChosen: false};
 /* app.js: readSave(progress) -> .sav bytes, sendSave(bytes, progress), readRom(progress) -> ROM bytes (each fails
    with a clear message when no FM-1 is connected or another operation is running) */
@@ -168,7 +171,7 @@ function draw() {
   if (!box) return;
   box.replaceChildren();
   drawNeed();
-  for (const id of ['st-add', 'st-download', 'st-send']) $(id).disabled = !state.sav;
+  for (const id of ['st-add', 'st-download', 'st-send', 'st-crate']) $(id).disabled = !state.sav;
   if (!state.sav) return;
   if (state.needs) box.append(el('p', {className: 'warn', textContent: `These are ${state.needs.title}'s songs. Their kits are in ${state.needs.title}'s LSDj, not in the .sav: ` +
     `install ${state.needs.title}'s LSDj on the FM-1 first, then press Send to the FM-1 (it checks the FM-1 has that LSDj).`}));
@@ -326,7 +329,9 @@ export function mountSongsUi(root) {
       b('Read songs from the FM-1', async () => { say('Reading songs from the FM-1…'); openSave(await withProgress(hooks.readSave), 'the FM-1'); }),
       b('Add .lsdsng songs…', () => songIn.click(), {id: 'st-add', disabled: true}), songIn,
       b('Download .sav', () => download(state.sav.bytes, 'lsdj.sav'), {id: 'st-download', disabled: true}),
-      b('Send to the FM-1', sendOpenSave, {id: 'st-send', disabled: true})),
+      b('Send to the FM-1', sendOpenSave, {id: 'st-send', disabled: true}),
+      b('Add to the DJ crate', async () => { await addToCrate({name: crateName(), sav: state.sav.bytes}); say('In the DJ crate (Perform › DJ): drag it onto a deck, or press Load.', 'ok'); },
+        {id: 'st-crate', disabled: true, title: 'Keep these songs in the DJ crate, to load onto a deck while the other plays'})),
     el('div', {className: 'row'},
       b('Choose your LSDj (.gb)…', () => romIn.click(), {title: 'Pick one, or several: the one that fits these songs best is used'}), romIn,
       b('Read LSDj from the FM-1', async () => { say('Reading the installed LSDj from the FM-1 (no writes)…'); const rom = await withProgress(hooks.readRom); useRom(rom, 'the LSDj on the FM-1'); await rememberRom(rom, 'LSDj read from the FM-1'); say('Kit names read from the FM-1.', 'ok'); })),

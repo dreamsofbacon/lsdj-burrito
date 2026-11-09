@@ -11,6 +11,7 @@ import {libraryFiles, addToLibrary, removeFromLibrary, clearLibrary, hashOf} fro
 import {zipStore} from './zip.js';
 import {songsState, openSave, sendOpenSave, sendAfterInstall, playButton} from './songs-ui.js';
 import {buildSlot} from './lsdj-rom.js';
+import {addToCrate} from './crate-ui.js';
 
 const el = (tag, props = {}, ...kids) => { const e = Object.assign(document.createElement(tag), props); e.append(...kids.filter(k => k != null)); return e; };
 const hex = n => n.toString(16).toUpperCase().padStart(2, '0');
@@ -197,7 +198,9 @@ function setCard(b, i, plan, ctx) {
       el('button', {type: 'button', textContent: `Send only ${title}'s songs`, onclick: () => guard(async () => {
         openSave(b.sav, `${title} (made here)`, needsOf(b, i));
         await sendOpenSave();
-      })})));
+      })}),
+      el('button', {type: 'button', textContent: 'Add to the DJ crate', disabled: !b.plan.fits, title: 'Its LSDj and songs, as one crate card: load it onto a deck in Perform › DJ',
+        onclick: () => guard(async () => { await addToCrate({name: title, rom: b.rom, sav: b.sav}); say(`${title} is in the DJ crate (Perform › DJ).`, 'ok'); })})));
   return card;
 }
 /* what the FM-1 must have for a set's songs: its LSDj, as Install builds it with all its kits (the slot data CRC

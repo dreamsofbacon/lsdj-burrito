@@ -37,6 +37,41 @@ export function checkPackage(bytes) {
   return {product, version, release, burrito: !!(old || rel) || (number >= 955 && number <= 999), image: logicalImage(bytes)};
 }
 
+/* MIDI access without some ports: a live view (ports that appear later, such as the FM-1 in update mode, show up) */
+export function accessWithout(access, avoid) {
+  const skip = new Set(avoid);
+  const without = map => new Map([...map].filter(([id, p]) => !skip.has(id) && !skip.has(p?.id)));
+  return {get inputs() { return without(access.inputs); }, get outputs() { return without(access.outputs); }};
+}
+/* Install pkg on one FM-1 while other FM-1s and MIDI gear stay plugged in and playing (the DJ crate). The same
+   install() runs, unchanged, on a view of the MIDI ports without `avoid` (every other FM-1's ports, the other
+   decks' and the mixer's), so nothing is ever sent to those. Its first FM-1 must be `target` ({input, output}
+   port ids), or nothing is installed. Afterwards every avoided port must still be there: if one went away during
+   the install, the FM-1 that came back can't be told apart from it -> {id, confirmed: false}. */
+export async function installOn(access, pkg, {target, avoid = [], Transport = Updater, ...options} = {}) {
+  if (!target?.input || !target?.output) throw new InstallError('No FM-1 chosen. Nothing was installed.');
+  if (avoid.includes(target.input) || avoid.includes(target.output)) throw new InstallError('That FM-1 is in use elsewhere. Nothing was installed.');
+  const present = id => { const p = access.inputs.get(id) || access.outputs.get(id); return !!p && p.state !== 'disconnected'; };
+  const others = avoid.filter(present);
+  let first = true;
+  class Targeted extends Transport {
+    async findAny(filter, opts) {
+      const dev = await super.findAny(filter, opts);
+      if (first && dev) {
+        first = false;
+        const input = dev.link?.input?.id, output = dev.link?.output?.id;
+        /* (an FM-1 already in update mode can't be told apart: finishing it belongs in Install, with only it plugged in) */
+        const why = dev.id.model !== 'FM-1' ? 'An FM-1 is in update mode. Finish that in Install, with only that FM-1 plugged in.'
+          : input !== target.input || output !== target.output ? 'A different FM-1 answered than the one chosen.' : '';
+        if (why) { dev.link?.close?.(); throw new InstallError(`${why} Nothing was installed.`); }
+      }
+      return dev;
+    }
+  }
+  const id = await install(accessWithout(access, avoid), pkg, {...options, Transport: Targeted});
+  return {id, confirmed: others.every(present)};
+}
+
 /* Install (or finish an interrupted install of) pkg. onStep(phase, detail): 'found', 'stage', 'loader',
    'write', 'restart', 'done'; onProgress(bytes, total) during the write. Resolves the identity the FM-1
    reports afterwards. */

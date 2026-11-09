@@ -22,6 +22,7 @@ import {BAR, BEAT, NUDGE, position, offset, syncBend, nextOn, crossfade, CURVES,
 import {PRESETS, preset, readMidi, actionFor, out, learnRule, saveLearned, loadLearned} from './mixers.js';
 import {unpackFx, packFx, unpackReverb, packReverb, packReverbSends, CHANNELS, firmwareNumber, unpackSettings, PRESETS as THEME_COLOURS, CUSTOM_THEME, THEMES} from './fx-model.js';
 import {pageColours} from './page-theme.js';
+import {mountCrate, setCrateHooks, dropOnDeck, crateRedraw, CRATE_TYPE} from './crate-ui.js';
 import {savHeader, HEADER, HEADER_SIZE, BLOCK_COUNT} from './lsdj-sav.js';
 
 const el = (tag, props = {}, ...kids) => { const e = Object.assign(document.createElement(tag), props); e.append(...kids.filter(k => k != null)); return e; };
@@ -135,6 +136,7 @@ async function assign(d, value) {
   if (d.kind === 'ab') abSpeed(d, 0);   /* a known start: normal speed */
   drawLabel(d);
   draw();
+  crateRedraw();   /* its Load and Grab buttons follow the decks */
   if (d.kind !== 'fm1') return;
   applyVolumes();
   const l = hooks.linkFor(d.key);
@@ -892,7 +894,14 @@ export function mountDj(box) {
     const label = el('div', {className: 'dj-label', hidden: true}, labelFile, labelSong);
     const box = el('section', {className: 'dj-deck', ariaLabel: `Deck ${NAMES[d.i]}`}, el('h4', {className: 'dj-deck-head'},
       el('span', {className: 'dj-deck-id', title: `Deck ${NAMES[d.i]}`}, el('span', {className: 'sr-only', textContent: 'Deck '}), NAMES[d.i]), pick), label, body);
-    d.ui = {pick, body, screen, box, label, labelFile, labelSong};
+    /* the crate (crate-ui.js): a card dropped here loads onto this deck; meanwhile a cover with its progress */
+    const loadText = el('span'), loadBar = el('progress', {value: 0, max: 1, hidden: true});
+    const loadEl = el('div', {className: 'dj-loading', hidden: true, role: 'status'}, loadText, loadBar);
+    box.append(loadEl);
+    box.ondragover = e => { if ([...(e.dataTransfer?.types || [])].includes(CRATE_TYPE)) { e.preventDefault(); box.classList.add('drop'); } };
+    box.ondragleave = () => box.classList.remove('drop');
+    box.ondrop = e => { box.classList.remove('drop'); dropOnDeck(e, d.i); };
+    d.ui = {pick, body, screen, box, label, labelFile, labelSong, loadEl, loadText, loadBar};
     return box;
   };
   const themePick = sel([['page', 'Page colours'], ...THEMES.map((n, i) => [String(i), n]).filter(([i]) => THEME_COLOURS[+i])], djTheme,
@@ -900,7 +909,9 @@ export function mountDj(box) {
   box.replaceChildren(
     el('div', {className: 'dj-top'}, statusEl, el('details', {className: 'dj-help'}, el('summary', {textContent: 'How to set up'}), el('p', {textContent: HELP})), el('label', {className: 'hint', title: 'The DJ layout\'s own colours: its background and the master and mixer. FM-1 decks keep their FM-1\'s theme.'}, 'DJ colours ', themePick)),
     el('div', {className: 'dj-grid'}, deckBox(decks[0]), el('section', {className: 'dj-mixer', ariaLabel: 'Master and mixer'}), deckBox(decks[1])),
+    crateBox = el('section', {className: 'dj-crate', ariaLabel: 'Crate'}),
   );
+  void mountCrate(crateBox);
   if (mixer.inId) setMixerIn(mixer.inId);
   applyDjTheme();
   draw();
@@ -936,5 +947,24 @@ export function djShown(on) {
 export function djDevicesChanged() {
   for (const d of decks) if (d.kind === 'fm1' && !hooks.devices().some(x => x.key === d.key)) void assign(d, '');
   draw();
+  crateRedraw();
 }
+/* the crate (crate-ui.js): which decks there are, stopping one, giving it an FM-1 (or none), the ports it must not
+   touch (the other deck's gear, the mixer, an outside master clock: the FM-1s themselves come from app.js), and the
+   cover while one loads */
+let crateBox = null;
+setCrateHooks({}, {
+  decks: () => decks.map(d => ({i: d.i, name: NAMES[d.i], kind: d.kind, key: d.key || null})),
+  stop: i => { const d = decks[i]; d.clock?.stop(); setSynced(d, false); deckBend(d, 1); d.nudging = false; draw(); },
+  assign: (i, key) => assign(decks[i], key ? `fm1:${key}` : ''),
+  avoid: i => [...decks.filter(d => d.i !== i && d.key && d.kind !== 'fm1').map(d => d.key),
+    mixer.inId, mixer.outId, master.source !== 'page' ? master.source : ''].filter(Boolean),
+  loading: (i, text, n, t) => {
+    const u = decks[i].ui;
+    if (!u) return;
+    u.loadEl.hidden = text == null; u.box.classList.toggle('loading', text != null);
+    u.loadText.textContent = text || '';
+    u.loadBar.hidden = !t; if (t) { u.loadBar.max = t; u.loadBar.value = Math.min(n, t); }
+  },
+});
 export const djState = () => ({master, mixer, decks});

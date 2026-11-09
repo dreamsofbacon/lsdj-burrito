@@ -189,6 +189,25 @@ body.dj #live-sec>#pan-screen,body.dj #live-sec>#pan-wire,body.dj #live-sec>#pan
   box-shadow:inset 0 1px 0 #ffffff1f,inset 0 -2px 0 #0000004d,0 2px 6px #0006}
 .dj-deck-body{display:flex;flex-direction:column;gap:8px;flex:1;min-height:0}
 .dj-deck.empty .dj-deck-body{justify-content:center}
+/* the crate (lsdj/crate-ui.js): a strip of cards under the console; a deck takes a dropped card, and shows a cover while it loads */
+.dj-crate{margin:8px 0 0;padding:8px 10px;border:1px solid var(--line);border-radius:12px;background:var(--card2)}
+.crate-top{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 6px}
+.crate-list{display:flex;gap:8px;overflow-x:auto;padding:2px 0 6px}
+.crate-card{flex:0 0 200px;display:flex;flex-direction:column;gap:4px;padding:8px;border:1px solid var(--line);border-radius:10px;background:var(--card);cursor:grab}
+.crate-card.pairing{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.crate-card .crate-name{width:100%;font-weight:700}
+.crate-kinds{display:flex;gap:4px;align-items:center;font-size:.8em}
+.crate-kind{padding:1px 6px;border-radius:6px;background:var(--accent);color:var(--accent-ink);font-weight:700}
+.crate-songs{margin:0;font-size:.8em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.crate-acts{display:flex;flex-wrap:wrap;gap:4px;margin-top:auto}
+.crate-acts button{padding:4px 8px;font-size:.85em}
+.crate-status{margin:2px 0 0}
+.dj-deck.drop,.dj-deck.loading{position:relative}
+.dj-deck.drop{outline:3px dashed var(--accent);outline-offset:-3px}
+.dj-loading{position:absolute;inset:0;z-index:3;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:16px;
+  border-radius:inherit;background:color-mix(in srgb,var(--bg) 82%,transparent);font-weight:700;text-align:center}
+.dj-loading[hidden]{display:none}
+.dj-loading progress{width:70%}
 .dj-deck h4,.dj-mixer h4{margin:0 0 6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .dj-mixer h4{font-size:.72em;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:4px 0}
 .dj-deck-head{flex-wrap:nowrap}
@@ -499,6 +518,7 @@ body:not(.connected) .pop-body{opacity:.5;pointer-events:none}
   body.perform.dj .dj-top-panel{flex:1.2 1 0;grid-template-rows:minmax(0,1fr)}
   body.perform.dj .dj-display .dj-view-box{flex:1;min-height:90px;aspect-ratio:auto}
   body.perform.dj .dj-deck-mid{height:auto;flex:1 1 0;min-height:180px}
+  body.perform.dj .dj-crate{flex:none;max-height:38%;overflow:auto}
   body.perform #pan-chans #fx-pages{flex:1;min-height:0;align-content:start}
   body.perform #pan-chans .fx-card.shown{max-height:100%}
   body.perform #pan-chans .fx-card.shown h3{margin-bottom:0}

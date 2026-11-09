@@ -6,7 +6,8 @@ import {Link, midiPorts, findFm1s, LinkError, SAVE_SIZE, crc32} from './link.js'
 import {confirmSaveImport} from './save-file.js';
 import {mountSongsUi, setSongsHooks, drawSongsDevices, songsState} from './songs-ui.js';
 import {showDeviceTheme, setMatching, matching} from './page-theme.js';
-import {setBeforeInstall, installing, usbMidiUnavailable} from './install-ui.js';
+import {setBeforeInstall, installing, installTarget, usbMidiUnavailable} from './install-ui.js';
+import {setCrateHooks} from './crate-ui.js';
 import {CHANNELS, pagesForFx, PARAM, paramGet, paramSet, valueText, channelSummary, unpackFx, packFx, unpackReverb, packReverb, packReverbSends, PRESETS, THEMES, COLOR_NAMES, toHex, fromHex,
         SETTINGS, unpackSettings, packSettings, MIDI_SETTINGS, MIDI_CC_MAP, unpackMidi, packMidi, CUSTOM_THEME, isMasterPage,
         firmwareNumber, FEATURES, unpackFeatures, packFeatures, effectActive} from './fx-model.js';
@@ -1200,12 +1201,44 @@ setDjHooks({
     const fw = d ? firmwareNumber(d.info.firmware) : 0;
     if (fw && fw < 983) { onSupport(false); return null; }
     const m = new ScreenMirror(l, canvas, {every: 33, clock: visibleWindow, push: fw >= 990, onSupport,
-      active: () => stageMode === 'dj' && !busy && !installing() && !connecting && seen(canvas) && djLinkFor(key) === l});
+      active: () => stageMode === 'dj' && !busy && !installingHere(key) && !connecting && seen(canvas) && djLinkFor(key) === l});
     m.start();
     return m;
   },
 });
 mountDj($('dj-root'));
+/* an install pauses this FM-1's deck screen: Install's, everything; the DJ crate's, only the FM-1 it updates */
+function installingHere(key) { const t = installTarget(); return installing() && (t === null || t === key); }
+
+/* The DJ crate (crate-ui.js): one FM-1 takes a .sav or an LSDj while the others play on. Its link is the deck's
+   own (djLinkFor). For an install the page lets go of that FM-1 only; the others keep their links. */
+const devOf = key => devices.find(x => portKey(x) === key) || null;
+function crateLink(key) {
+  if (key === curKey() && busy) throw new LinkError('Another operation is running on that FM-1. Wait for it to finish.');
+  const l = djLinkFor(key);
+  if (!l) throw new LinkError('That FM-1 is gone. Choose it for the deck again.');
+  return l;
+}
+setCrateHooks({
+  access: () => ports?.access || null,
+  ports: key => { const d = devOf(key); return d ? {input: d.input.id, output: d.output.id} : null; },
+  otherPorts: key => devices.filter(d => portKey(d) !== key).flatMap(d => [d.input.id, d.output.id]),
+  release: key => {
+    const d = devOf(key);
+    if (!d) return;
+    if (connected && !virtual && sameDev(d, current)) {   /* as before Install's install, for this FM-1 only */
+      stopPoll(); link?.close(); link = null; connected = false; lostAt = 0;
+      enable(false); say('device', 'Disconnected: the DJ crate is installing on this FM-1. Connect again when it is done.', 'hint');
+    }
+    unwatch(d); closePadLink(d);
+  },
+  rescan: async () => (await scan()).map(d => ({key: portKey(d), title: d.info.title})),
+  readSave: (key, pr) => crateLink(key).exportSave(pr),
+  readRom: async (key, pr) => romFromSlot(await crateLink(key).exportCartridge(pr)),
+  sendSave: async (key, bytes, name, pr) => { await crateLink(key).importSave(bytes, pr); rememberSav(key, name, crc32(bytes)); },
+  info: key => crateLink(key).info(),
+  volumeFull: async key => { try { await djLinkFor(key)?.volumeSet(127); } catch { /* older firmware, or gone: full at its next start */ } },
+}, {});
 let stageMode = 'fx';
 try { if (localStorage.getItem('lsdj-burrito-stage') === 'dj') stageMode = 'dj'; } catch { /* Effects */ }
 function setStageMode(m) {
