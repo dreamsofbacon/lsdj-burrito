@@ -178,6 +178,12 @@ body.dj #live-sec>#pan-screen,body.dj #live-sec>#pan-wire,body.dj #live-sec>#pan
 .dj-top .dj-status{flex:1;min-width:0;margin:0;font-size:.85em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dj-help{position:relative;font-size:.85em;color:var(--muted)}
 .dj-help summary{cursor:pointer}
+/* Log (the FM-1 connections, conn-log.js): a drop-down as How to set up */
+.dj-log{position:relative;font-size:.85em;color:var(--muted)}
+.dj-log summary{cursor:pointer}
+.dj-log[open]>.dj-log-text,.dj-log[open]>.dj-log-acts{position:absolute;right:0;z-index:6;width:min(560px,92vw);margin:0;background:var(--card);color:var(--ink);border:1px solid var(--line)}
+.dj-log-text{top:1.6em;height:min(320px,50vh);overflow:auto;padding:8px 10px;border-radius:8px 8px 0 0;font-size:.85em;white-space:pre-wrap;scrollbar-width:thin}
+.dj-log-acts{top:calc(1.6em + min(320px,50vh));display:flex;gap:6px;justify-content:flex-end;padding:6px 10px;border-radius:0 0 8px 8px;box-shadow:0 8px 24px #0009}
 .dj-help p{position:absolute;right:0;top:1.6em;z-index:5;width:min(520px,90vw);margin:0;padding:10px 12px;border-radius:8px;background:var(--card);color:var(--ink);border:1px solid var(--line);box-shadow:0 8px 24px #0009}
 .dj-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(220px,.5fr) minmax(0,1fr);gap:8px;align-items:stretch;padding:8px;border-radius:18px;
   background:linear-gradient(180deg,color-mix(in srgb,var(--bg) 55%,#000),color-mix(in srgb,var(--bg) 25%,#000));

@@ -405,11 +405,26 @@ export async function runDjUiTests() {
       await until(() => [...crate.querySelectorAll('.crate-card')].some(c => /TECHNO/.test(c.textContent)), `Grab B: B's songs in the crate: ${crate.textContent}`, 20000);
       assert(B.begins === bBegins && dB.clock.running, 'B: nothing written, still playing');
     } finally { window.confirm = realConfirm; B.output.send = bSend; }
-    play(1);
     try { localStorage.removeItem('dj-crate'); } catch {}
+
+    // 9. deck B's FM-1 drops off USB while playing and comes back: the deck empties, then takes it back by itself,
+    //    playing again; both are in the Log
+    assert(dB.clock?.running && dB.key === 'out-2', 'deck B playing on FM-1 B');
+    const port = (p, state) => { p.state = state; const e = new Event('statechange'); e.port = p; access.dispatchEvent(e); };
+    access.inputs.delete('b'); access.outputs.delete('b'); port(B.input, 'disconnected'); port(B.output, 'disconnected');
+    await until(() => !dB.key && dB.gone?.key === 'out-2', `deck B empties and remembers its FM-1: ${dB.key}`, 6000);
+    access.inputs.set('b', B.input); access.outputs.set('b', B.output); port(B.input, 'connected'); port(B.output, 'connected');
+    await until(() => dB.key === 'out-2' && dB.clock?.running, `deck B takes its FM-1 back, playing: ${dB.key} ${dB.clock?.running}`, 8000);
+    const log = document.querySelector('.dj-log');
+    log.open = true; log.dispatchEvent(new Event('toggle'));
+    const logged = log.querySelector('.dj-log-text').textContent;
+    assert(/Deck B: its FM-1 \(out-2\) went away while playing/.test(logged) && /Deck B: its FM-1 \(out-2\) is back/.test(logged) && /disconnected/.test(logged),
+      `the Log has it: ${logged}`);
+    log.open = false;
+    play(1);
     document.querySelector('#stage-mode [data-mode="fx"]').click();
     djState().decks.forEach(d => d.clock?.stop());
-    return 'PASS DJ layout: switch, decks on FM-1s, Start and clocks per deck, the next bar, its own tempo, Sync (a lock: lit, keeps the bar, follows the master, on a stopped deck, lets go when typed), stem kill, DJ filter, Perform › Clock off, 0.9.98 (crossfader to FM-1 volume, Hold), DJ colours (the page and panel; FM-1 decks keep theirs), each deck its FM-1 colours, its label (the .sav sent, the open song, changed since), Screen | Rows (screen, song row map, click to cue), Tap quickly (no redraw), Whole BPM, TX-6 button and crossfader, fader mirrored, full volume after, an ArduinoBoy deck (speed notes, its channel, Start and clocks, FM-1 controls hidden), the crate (a .sav onto deck A while B plays on, untouched; Grab B)';
+    return 'PASS DJ layout: switch, decks on FM-1s, Start and clocks per deck, the next bar, its own tempo, Sync (a lock: lit, keeps the bar, follows the master, on a stopped deck, lets go when typed), stem kill, DJ filter, Perform › Clock off, 0.9.98 (crossfader to FM-1 volume, Hold), DJ colours (the page and panel; FM-1 decks keep theirs), each deck its FM-1 colours, its label (the .sav sent, the open song, changed since), Screen | Rows (screen, song row map, click to cue), Tap quickly (no redraw), Whole BPM, TX-6 button and crossfader, fader mirrored, full volume after, an ArduinoBoy deck (speed notes, its channel, Start and clocks, FM-1 controls hidden), the crate (a .sav onto deck A while B plays on, untouched; Grab B), an FM-1 pulled and back (the deck takes it back, playing; the Log)';
   } finally {
     if (descriptor) Object.defineProperty(navigator, 'requestMIDIAccess', descriptor); else delete navigator.requestMIDIAccess;
   }

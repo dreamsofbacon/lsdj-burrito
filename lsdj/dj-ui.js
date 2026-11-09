@@ -24,6 +24,7 @@ import {unpackFx, packFx, unpackReverb, packReverb, packReverbSends, CHANNELS, f
 import {pageColours} from './page-theme.js';
 import {mountCrate, setCrateHooks, dropOnDeck, crateRedraw, CRATE_TYPE} from './crate-ui.js';
 import {savHeader, HEADER, HEADER_SIZE, BLOCK_COUNT} from './lsdj-sav.js';
+import {logEvent, logText, clearLog} from './conn-log.js';
 
 const el = (tag, props = {}, ...kids) => { const e = Object.assign(document.createElement(tag), props); e.append(...kids.filter(k => k != null)); return e; };
 const store = {get: (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* this visit */ } }};
@@ -510,7 +511,8 @@ function actName(a) {
 
 /* ---------- drawing ---------- */
 let statusEl = null;
-const say = text => { if (statusEl) statusEl.textContent = text; };
+/* (a deck's trouble also goes in the connection log, to read after it has gone from the status line) */
+const say = text => { if (statusEl) statusEl.textContent = text; if (/^Deck [AB]: /.test(text) && !/Sync|synced|cued|speed/.test(text)) logEvent(text); };
 function sel(options, value, onchange, label) {
   const s = el('select', {onchange: () => onchange(s.value)});
   if (label) s.setAttribute('aria-label', label);
@@ -893,7 +895,7 @@ export function mountDj(box) {
   root = box;
   statusEl = el('p', {className: 'hint dj-status', role: 'status'});
   const deckBox = d => {
-    const pick = el('select', {onchange: () => void assign(d, pick.value)});
+    const pick = el('select', {onchange: () => { d.gone = null; void assign(d, pick.value); }});
     pick.setAttribute('aria-label', `Deck ${NAMES[d.i]}`);
     const body = el('div', {className: 'dj-deck-body'});
     const screen = el('canvas', {width: 160, height: 144, className: 'dj-screen', role: 'img', ariaLabel: `Deck ${NAMES[d.i]}: the FM-1's screen`});
@@ -915,7 +917,7 @@ export function mountDj(box) {
   const themePick = sel([['page', 'Page colours'], ...THEMES.map((n, i) => [String(i), n]).filter(([i]) => THEME_COLOURS[+i])], djTheme,
     v => { djTheme = v; store.set('dj-theme', v); applyDjTheme(); }, 'DJ colours');
   box.replaceChildren(
-    el('div', {className: 'dj-top'}, statusEl, el('details', {className: 'dj-help'}, el('summary', {textContent: 'How to set up'}), el('p', {textContent: HELP})), el('label', {className: 'hint', title: 'The DJ layout\'s own colours: its background and the master and mixer. FM-1 decks keep their FM-1\'s theme.'}, 'DJ colours ', themePick)),
+    el('div', {className: 'dj-top'}, statusEl, logBox(), el('details', {className: 'dj-help'}, el('summary', {textContent: 'How to set up'}), el('p', {textContent: HELP})), el('label', {className: 'hint', title: 'The DJ layout\'s own colours: its background and the master and mixer. FM-1 decks keep their FM-1\'s theme.'}, 'DJ colours ', themePick)),
     el('div', {className: 'dj-grid'}, deckBox(decks[0]), el('section', {className: 'dj-mixer', ariaLabel: 'Master and mixer'}), deckBox(decks[1])),
     crateBox = el('section', {className: 'dj-crate', ariaLabel: 'Crate'}),
   );
@@ -923,6 +925,18 @@ export function mountDj(box) {
   if (mixer.inId) setMixerIn(mixer.inId);
   applyDjTheme();
   draw();
+}
+/* Log: what happened to the FM-1 connections, newest last, with times (conn-log.js), to read after the status
+   line has moved on; Copy puts it on the clipboard to send */
+function logBox() {
+  const text = el('pre', {className: 'dj-log-text mono'});
+  const fill = () => { text.textContent = logText() || 'Nothing yet.'; text.scrollTop = text.scrollHeight; };
+  const copy = btn('Copy', async () => { try { await navigator.clipboard.writeText(logText()); copy.textContent = 'Copied'; } catch { copy.textContent = 'Select and copy'; } setTimeout(() => { copy.textContent = 'Copy'; }, 1500); });
+  const box = el('details', {className: 'dj-log', ontoggle: () => { if (box.open) fill(); }},
+    el('summary', {textContent: 'Log'}), text,
+    el('div', {className: 'dj-log-acts'}, copy, btn('Clear', () => { clearLog(); fill(); })));
+  document.addEventListener('conn-log', () => { if (box.open) fill(); });
+  return box;
 }
 /* the DJ layout's own colours (kept in this browser): a theme preset's page colours (page-theme.js) on the DJ panel,
    and on the page itself while the layout shows; 'page': the page's colours. FM-1 decks keep their FM-1's colours
@@ -953,7 +967,26 @@ export function djShown(on) {
 }
 /* the FM-1s plugged in changed: the choices follow; a deck whose FM-1 went away is emptied */
 export function djDevicesChanged() {
-  for (const d of decks) if (d.kind === 'fm1' && !hooks.devices().some(x => x.key === d.key)) void assign(d, '');
+  const list = hooks.devices();
+  /* its FM-1 gone (pulled, restarted, or it didn't answer a search): the deck empties, and remembers it, playing
+     and Sync included, so it takes it back by itself when it's found again (until another is chosen here) */
+  for (const d of decks) if (d.kind === 'fm1' && !list.some(x => x.key === d.key)) {
+    d.gone = {key: d.key, playing: !!d.clock?.running, synced: !!d.synced};
+    logEvent(`Deck ${NAMES[d.i]}: its FM-1 (${d.key}) went away${d.gone.playing ? ' while playing' : ''}.`);
+    if (statusEl) statusEl.textContent = `Deck ${NAMES[d.i]}: its FM-1 went away. It comes back to this deck by itself when it's found again.`;
+    void assign(d, '');
+  }
+  for (const d of decks) {
+    const g = d.gone;
+    if (!g || d.key || !list.some(x => x.key === g.key) || decks.some(o => o.key === g.key)) continue;
+    d.gone = null;
+    logEvent(`Deck ${NAMES[d.i]}: its FM-1 (${g.key}) is back${g.playing ? ', playing again from the next bar' : ''}.`);
+    if (statusEl) statusEl.textContent = `Deck ${NAMES[d.i]}: its FM-1 is back.`;
+    void assign(d, `fm1:${g.key}`).then(() => {
+      if (g.synced && !d.synced) deckSync(d);
+      if (g.playing && !d.clock?.running) deckPlay(d);
+    });
+  }
   draw();
   crateRedraw();
 }

@@ -8,6 +8,7 @@ import {mountSongsUi, setSongsHooks, drawSongsDevices, songsState} from './songs
 import {showDeviceTheme, setMatching, matching} from './page-theme.js';
 import {setBeforeInstall, installing, installTarget, usbMidiUnavailable} from './install-ui.js';
 import {setCrateHooks} from './crate-ui.js';
+import {logEvent} from './conn-log.js';
 import {CHANNELS, pagesForFx, PARAM, paramGet, paramSet, valueText, channelSummary, unpackFx, packFx, unpackReverb, packReverb, packReverbSends, PRESETS, THEMES, COLOR_NAMES, toHex, fromHex,
         SETTINGS, unpackSettings, packSettings, MIDI_SETTINGS, MIDI_CC_MAP, unpackMidi, packMidi, CUSTOM_THEME, isMasterPage,
         firmwareNumber, FEATURES, unpackFeatures, packFeatures, effectActive} from './fx-model.js';
@@ -23,7 +24,10 @@ import {startVirtual, virtualFirmware, mountVirtual, virtualPaused, pauseVirtual
 /* by id or selector, in the page and in the panels' own windows (lsdj/popout.js) */
 const $ = id => { for (const d of docs()) { const el = d.getElementById(id); if (el) return el; } return null; };
 const $$ = sel => docs().flatMap(d => [...d.querySelectorAll(sel)]);
-const say = (id, text, cls = 'hint') => { const el = $(id); el.textContent = text; el.className = cls; };
+const say = (id, text, cls = 'hint') => {
+  const el = $(id); el.textContent = text; el.className = cls;
+  if (id === 'device' && cls !== 'hint') logEvent(text);   /* the connection's news, kept to read later (conn-log.js) */
+};
 const enable = on => {
   ['live-sec', 'songs-sec', 'theme-sec', 'settings-sec'].forEach(id => $(id).setAttribute('aria-disabled', on ? 'false' : 'true'));
   document.dispatchEvent(new CustomEvent('device-state', {detail: {connected: on}}));   // lsdj/ui.js: layout
@@ -116,6 +120,9 @@ function lost(message) {
   if (!connected || installing()) return;
   if (virtual) { message = 'The virtual FM-1 stopped. Press Use the virtual FM-1 to start it again.'; showVirtual(false); }
   connected = false; lostAt = virtual ? 0 : Date.now(); missed = 0;
+  /* for the log: how long it had been quiet, and what the page was waiting for */
+  if (!virtual) logEvent(`Lost the FM-1 in use (${current ? portKey(current) : '?'}): quiet ${((Date.now() - (link?.heard ?? 0)) / 1000).toFixed(1)} s` +
+    (link?.waiting ? `, waiting for op 0x${link.waiting.op.toString(16)}` : '') + `, ${stageMode === 'dj' ? 'DJ layout' : 'Effects layout'}.`);
   stopPoll(); mirror?.stop(); mirror = null; link?.close();
   if (![...padTargets.values()].some(v => v !== 'current' && v !== 'none')) { pad?.(); pad = null; }   /* none plays another FM-1 */
   soloAtLoss = devices.filter(d => !sameDev(d, current)).length === 0;
@@ -123,9 +130,14 @@ function lost(message) {
   enable(false); say('device', message, 'warn');
 }
 const UNPLUGGED = 'The FM-1 was disconnected. Plug it in again: the page connects by itself (or press Connect).';
+const portStates = new Map();
 function onPortChange(e) {
   const p = e.port;
   if (!p) return;
+  if (portStates.get(p.id) !== p.state) {   /* (opened and closed are left out: only plugged in and pulled) */
+    if (portStates.has(p.id) || p.state === 'disconnected') logEvent(`MIDI ${p.type || 'port'} ${p.name || ''} (${p.id}) ${p.state}.`);
+    portStates.set(p.id, p.state);
+  }
   if (p.state === 'disconnected' && connected && (samePort(p, link?.input) || samePort(p, link?.output))) return lost(UNPLUGGED);
   if (p.state === 'connected' && !connected && lostAt) reconnect();
   scanSoon();   /* another FM-1 plugged in or pulled: the list follows (only the one in use is "lost") */
@@ -224,17 +236,25 @@ try { follow = localStorage.getItem('lsdj-burrito-follow') === '1'; } catch { /*
 const sameDev = (a, b) => !!a && !!b && a.input === b.input && a.output === b.output;
 const liveKey = l => [l.page, l.cursor, l.bpm, l.mute, l.freeze, l.playing, ...l.fx].join();
 const portKey = d => String(d.output.id ?? d.name);
+let searchAgain = 0;
 async function scan() {
   if (!ports?.access || connecting || busy || installing()) return devices;
   if (scanning) return scanning;
   scanning = (async () => {
-    const known = [...(connected && current ? [current] : []), ...watchers.keys(), ...padLinks.keys()];
+    const known = [...(connected && current ? [current] : []), ...watchers.keys(), ...padLinks.keys()], before = devices.slice();
     /* an FM-1 found again keeps its entry: what the page remembers of it, its screen tile, its watcher */
     devices = (await findFm1s(ports.access, {known})).map(f => {
       const old = devices.find(o => sameDev(o, f));
       return old ? Object.assign(old, {info: f.info}) : f;
     }).sort((a, b) => portKey(a).localeCompare(portKey(b)));
     for (const d of [...padLinks.keys()]) if (!devices.includes(d)) closePadLink(d);
+    /* one that left the list while its ports are still plugged in did not answer the search (busy, or starting):
+       searched again in a moment, a few times, so a DJ deck on it gets it back */
+    const missing = before.filter(o => !devices.some(d => sameDev(d, o)));
+    for (const o of missing) logEvent(`FM-1 ${portKey(o)} (${o.info?.title || 'no LSDj'}) is no longer found.`);
+    for (const d of devices) if (before.length && !before.some(o => sameDev(o, d))) logEvent(`FM-1 ${portKey(d)} (${d.info.title || 'no LSDj'}) found.`);
+    if (missing.some(o => o.input.state === 'connected' && o.output.state === 'connected') && searchAgain < 5) { searchAgain++; setTimeout(() => void scan(), 2000); }
+    else if (!missing.length) searchAgain = 0;
     drawDevPick(); syncWatchers();
     return devices;
   })().catch(() => devices).finally(() => { scanning = null; });
@@ -331,7 +351,7 @@ function watch(d) {
         /* played, unless by a controller on this page (that is not someone at the FM-1) */
         if (w.base !== null && key !== w.base && Date.now() - (padAt.get(portKey(d)) || 0) > QUIET_MS) { w.at = Date.now(); maybeFollow(d); }
         w.base = key;
-      } catch { if (++w.missed >= LOST_POLLS && silent(w.link)) { unwatch(d); scanSoon(); return; } }
+      } catch { if (++w.missed >= LOST_POLLS && silent(w.link)) { logEvent(`FM-1 ${portKey(d)} stopped answering: looking for it again.`); unwatch(d); scanSoon(); return; } }
     }
     if (watchers.get(d) === w) visibleWindow().setTimeout(step, WATCH_MS);
   };
