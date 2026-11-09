@@ -192,7 +192,11 @@ function draw() {
       ...decks.map(d => btn(`Grab ${d.name}`, () => void grab(d, withRom.checked), {disabled: busyDeck >= 0,
         title: `Put deck ${d.name}'s songs${withRom.checked ? ' and LSDj' : ''} in the crate (a copy; the FM-1 keeps playing)`})),
       decks.length ? el('label', {className: 'hint'}, withRom, ' with its LSDj') : null),
-    items.length ? el('div', {className: 'crate-list'}, ...items.map(card))
+    /* (no scrollbar: a swipe, or the mouse wheel, moves the cards sideways) */
+    items.length ? el('div', {className: 'crate-list', onwheel: e => {
+      const l = e.currentTarget;
+      if (l.scrollWidth > l.clientWidth && Math.abs(e.deltaY) > Math.abs(e.deltaX)) { l.scrollLeft += e.deltaY; e.preventDefault(); }
+    }}, ...items.map(card))
       : el('p', {className: 'hint', textContent: 'Empty. Open a .sav or LSDj ROM, grab a deck\'s songs, or use "Add to crate" in Songs & kits or Sets. Then drag a card onto a deck, or press Load.'}),
     statusEl = el('p', {className: 'hint crate-status', role: 'status', textContent: statusEl?.textContent || ''}));
 }
