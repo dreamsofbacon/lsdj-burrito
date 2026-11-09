@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Perform's DJ layout: two decks (A, B) and a mixer strip between them (the maths: lsdj/dj.js; mixers: lsdj/mixers.js;
 // clocks: lsdj/midiclock.js). app.js mounts it and gives it the FM-1s (setDjHooks).
-//   A deck is an FM-1 plugged in, or any other MIDI output (a drum machine, a DAW...). The page clocks each deck
+//   A deck is an FM-1 plugged in, or any other MIDI output (a drum machine, a DAW, a Game Boy on an ArduinoBoy: its
+//   own deck type, with LSDj's speed notes; abSpeed). The page clocks each deck
 //   itself, at its own tempo (LSDj PROJECT › SYNC = MIDI, GLO › MIDI › CLOCK IN = ALL or USB, TRANSPORT ON): Sync
 //   matches the master's tempo and closes the gap to its bar by a short bend; nudge bends while held; Play starts on
 //   the master's next bar. The master is a clock on this page (tempo, tap, Play / Stop) or one heard on a MIDI input
@@ -46,7 +47,7 @@ const mixer = {id: store.get('dj-mixer', 'none'), inId: store.get('dj-mixer-in',
 const decks = [0, 1].map(i => ({i, key: '', kind: '', bpm: master.bpm, clock: null, live: null, fx: null, rv: null, base: null,
   kill: 0, killOnBar: store.get('dj-killbar', '0') === '1', filter: 0, filterBy: 'fm1', throwBy: 'fm1', row: 0, sendTimer: 0, ui: null,
   level: null, levelSent: 127, levelBusy: false, scr: null, scrLink: null, scrOk: true,
-  view: store.get(`dj-view-${i}`, 'screen'), map: null, mapFrom: -1, mapAt: 0, mapFill: null}));
+  view: store.get(`dj-view-${i}`, 'screen'), map: null, mapFrom: -1, mapAt: 0, mapFill: null, abSpeed: 0}));
 let root = null, ticker = 0, polling = 0, shown = false;
 /* the deck's FM-1 firmware number (998: 0.9.98), 0 for other gear */
 const fwOf = d => d.kind === 'fm1' ? firmwareNumber(hooks.devices().find(x => x.key === d.key)?.fw) || 0 : 0;
@@ -130,6 +131,8 @@ async function assign(d, value) {
   d.level = null; d.levelSent = 127; d.scrOk = true; d.themeAt = 0; d.map = null; d.mapFrom = -1; d.mapFill = null;
   paintDeck(d, null);
   if (value) { const [kind, ...k] = value.split(':'); d.kind = kind; d.key = k.join(':'); }
+  if (d.kind && d.kind !== 'fm1') d.filterBy = d.throwBy = 'mixer';   /* only an FM-1 has effects of its own */
+  if (d.kind === 'ab') abSpeed(d, 0);   /* a known start: normal speed */
   drawLabel(d);
   draw();
   if (d.kind !== 'fm1') return;
@@ -254,8 +257,21 @@ function kill(d, c) {
   if (!d.killOnBar || m.phase == null) return void setKill(d, mask);
   setTimeout(() => void setKill(d, mask), Math.max(0, nextOn(m.phase, m.bpm, now()) - now()));
 }
+/* an ArduinoBoy deck (its mode 1, LSDJ slave sync): it follows the deck's clock, Start and Stop. Notes 50-53 on its
+   channel (16 unless changed in its editor) set LSDj's speed: every clock, or every 2nd, 4th or 8th. It only listens:
+   no screen, songs or row cues (its start-row note is never passed on to LSDj). */
+const AB_SPEEDS = [['1', 'Normal speed'], ['½', 'Half speed'], ['¼', 'Quarter speed'], ['⅛', 'Eighth speed']];
+let abCh = Math.min(16, Math.max(1, Math.round(+store.get('dj-ab-ch', 16)) || 16));
+function abSpeed(d, n) {
+  d.abSpeed = n;
+  const o = deckOut(d);
+  if (!o) return;
+  const ch = abCh - 1;
+  try { o.send([0x90 | ch, 50 + n, 100]); o.send([0x80 | ch, 50 + n, 0]); } catch (e) { say(`Deck ${NAMES[d.i]}: ${e.message}`); }
+}
 /* a song row cue: program change n on channel 1 (the FM-1 takes any; GLO › MIDI › PC CUE must be ON) */
 function cueRow(d) {
+  if (d.kind === 'ab') return say(`Deck ${NAMES[d.i]}: an ArduinoBoy can't cue a song row.`);
   const o = deckOut(d);
   if (!o) return;
   try { o.send([0xC0, d.row & 127]); say(`Deck ${NAMES[d.i]}: row ${d.row.toString(16).toUpperCase().padStart(2, '0')} cued (FM-1: GLO › MIDI › PC CUE on).`); }
@@ -500,7 +516,8 @@ function holdBtn(text, down, up, props = {}) {
 function deckChoices() {
   const fm1s = hooks.devices().map(d => [`fm1:${d.key}`, d.label]);
   const fm1Outs = new Set(hooks.devices().map(d => hooks.outputFor(d.key)?.id));
-  const gear = mixerPorts().outs.filter(p => !fm1Outs.has(p.id) && p.id !== mixer.outId).map(p => [`gear:${p.id}`, `${p.name} (MIDI)`]);
+  const gear = mixerPorts().outs.filter(p => !fm1Outs.has(p.id) && p.id !== mixer.outId)
+    .flatMap(p => [[`gear:${p.id}`, `${p.name} (MIDI)`], [`ab:${p.id}`, `${p.name} (ArduinoBoy)`]]);
   return [['', 'Empty'], ...fm1s, ...gear];
 }
 function drawDeck(d) {
@@ -541,6 +558,18 @@ function drawDeck(d) {
       holdBtn('Echo throw', () => deckThrow(d, 'echo', true), () => deckThrow(d, 'echo', false)),
       holdBtn('Reverb throw', () => deckThrow(d, 'reverb', true), () => deckThrow(d, 'reverb', false), {disabled: fm1 && d.throwBy === 'fm1' && fw < 997}),
       by('throwBy')));
+  if (d.kind === 'ab') {
+    const speed = n => btn(AB_SPEEDS[n][0], () => { abSpeed(d, n); drawDeck(d); },
+      {className: d.abSpeed === n ? 'on' : '', ariaPressed: String(d.abSpeed === n), title: `${AB_SPEEDS[n][1]} (ArduinoBoy note ${50 + n})`});
+    const ch = sel(Array.from({length: 16}, (_, i) => [String(i + 1), String(i + 1)]), String(abCh),
+      v => { abCh = +v; store.set('dj-ab-ch', v); abSpeed(d, d.abSpeed); }, 'ArduinoBoy MIDI channel');
+    u.body.append(
+      el('div', {className: 'dj-row'}, el('span', {className: 'hint', textContent: 'LSDj speed'}),
+        el('div', {className: 'seg', role: 'group', ariaLabel: `Deck ${NAMES[d.i]}: LSDj speed`}, ...[0, 1, 2, 3].map(speed)),
+        el('label', {className: 'hint', title: 'The ArduinoBoy\'s LSDJ slave mode channel (16 unless changed in its editor)'}, 'Ch ', ch)),
+      el('p', {className: 'hint dj-info', textContent: 'ArduinoBoy in mode 1 (LSDJ slave sync); in LSDj, PROJECT › SYNC = MIDI. '
+        + 'It follows Play, Stop, the tempo and Sync. It only listens, so there is no screen, song info or row cue; the filter and throws work through a MIDI mixer.'}));
+  }
   if (fm1) {
     const row = el('input', {type: 'text', value: d.row.toString(16).toUpperCase().padStart(2, '0'), size: 3, maxLength: 2, className: 'mono',
       onchange: () => { d.row = Math.min(127, parseInt(row.value, 16) || 0); }});
@@ -720,7 +749,7 @@ export function mountDj(box) {
     el('div', {className: 'dj-top'}, el('label', {className: 'hint', title: 'The DJ layout\'s own colours: its background and the master and mixer. FM-1 decks keep their FM-1\'s theme.'}, 'DJ colours ', themePick)),
     el('div', {className: 'dj-grid'}, deckBox(decks[0]), el('section', {className: 'dj-mixer', ariaLabel: 'Master and mixer'}), deckBox(decks[1])),
     statusEl,
-    el('p', {className: 'hint', textContent: 'Each deck follows this page\'s clock at its own tempo. On each FM-1: LSDj PROJECT › SYNC = MIDI (or KEYBD with 0.9.97), GLO › MIDI › CLOCK IN = ALL or USB, TRANSPORT ON; for Cue row and Rows, PC CUE ON. The audio goes through your mixer as usual; without one, the crossfader sets each FM-1\'s volume (0.9.98).'}));
+    el('p', {className: 'hint', textContent: 'Each deck follows this page\'s clock at its own tempo. On each FM-1: LSDj PROJECT › SYNC = MIDI (or KEYBD with 0.9.97), GLO › MIDI › CLOCK IN = ALL or USB, TRANSPORT ON; for Cue row and Rows, PC CUE ON. The audio goes through your mixer as usual; without one, the crossfader sets each FM-1\'s volume (0.9.98). A Game Boy on an ArduinoBoy: choose its MIDI port as "(ArduinoBoy)", one port per deck.'}));
   if (mixer.inId) setMixerIn(mixer.inId);
   applyDjTheme();
   draw();

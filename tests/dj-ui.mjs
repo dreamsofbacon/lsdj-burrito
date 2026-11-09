@@ -78,8 +78,10 @@ export async function runDjUiTests() {
   const A = fm1(1, 'LSDj-AAA'), B = fm1(2, 'LSDj-BBB', 'FM-1_998'), T = tx6();
   const access = new EventTarget();
   access.inputs = new Map([['a', A.input], ['b', B.input], ['t', T.input]]);
-  access.outputs = new Map([['a', A.output], ['b', B.output], ['t', T.output]]);
-  for (const k of ['lsdj-burrito-stage', 'dj-mixer', 'dj-mixer-in', 'dj-mixer-out', 'dj-mixer-map', 'dj-bpm', 'dj-learned', 'dj-view-0', 'dj-view-1', 'dj-whole', 'dj-theme']) try { localStorage.removeItem(k); } catch {}
+  const AB = {sent: []};
+  AB.output = {id: 'ab-out', name: 'Arduinoboy', state: 'connected', send(m) { AB.sent.push([...m]); }};
+  access.outputs = new Map([['a', A.output], ['b', B.output], ['t', T.output], ['ab', AB.output]]);
+  for (const k of ['lsdj-burrito-stage', 'dj-mixer', 'dj-mixer-in', 'dj-mixer-out', 'dj-mixer-map', 'dj-bpm', 'dj-learned', 'dj-view-0', 'dj-view-1', 'dj-whole', 'dj-theme', 'dj-ab-ch']) try { localStorage.removeItem(k); } catch {}
   try {
     Object.defineProperty(navigator, 'requestMIDIAccess', {configurable: true, value: async () => access});
     await $('connect-btn').onclick();
@@ -303,8 +305,35 @@ export async function runDjUiTests() {
     assert(!document.body.style.getPropertyValue('--bg') && !$('pan-dj').classList.contains('dj-themed'), 'Page colours: the DJ colours gone');
     document.querySelector('#stage-mode [data-mode="fx"]').click();
     await until(() => B.level === 127, `the Effects layout: B at full volume: ${B.levels}`);
+
+    // 7. an ArduinoBoy deck: listed for each MIDI output; normal speed at the start; the speed notes on channel 16;
+    //    the clock, Start and Stop; the FM-1-only controls hidden; no row cue
+    document.querySelector('#stage-mode [data-mode="dj"]').click();
+    await until(() => [...pickA.options].some(o => o.value === 'ab:ab-out'), `the ArduinoBoy choice: ${[...pickA.options].map(o => o.value)}`);
+    choose(pickA, 'ab:ab-out');
+    const deckA = [...document.querySelectorAll('.dj-deck')][0], dA = djState().decks[0];
+    assert(dA.kind === 'ab' && AB.sent.length === 2 && AB.sent[0].join() === '159,50,100' && AB.sent[1].join() === '143,50,0',
+      `ArduinoBoy: normal speed sent on ch 16: ${JSON.stringify(AB.sent)}`);
+    const speeds = () => [...deckA.querySelectorAll('[aria-label="Deck A: LSDj speed"] button')];
+    assert(speeds().length === 4 && speeds()[0].classList.contains('on'), 'four speeds, Normal lit');
+    speeds()[1].click();
+    assert(AB.sent.at(-2).join() === '159,51,100' && dA.abSpeed === 1 && speeds()[1].classList.contains('on'), `half speed: note 51, lit: ${AB.sent.at(-2)}`);
+    choose(deckA.querySelector('select[aria-label="ArduinoBoy MIDI channel"]'), '3');
+    assert(AB.sent.at(-2).join() === '146,51,100', `channel 3: the speed sent again there: ${AB.sent.at(-2)}`);
+    assert(!deckA.querySelector('.dj-kill') && !deckA.querySelector('.dj-view-box') && deckA.querySelector('.dj-label').hidden && !/Cue row/.test(deckA.textContent),
+      'no kills, screen, rows, label or Cue row on an ArduinoBoy deck');
+    assert(dA.filterBy === 'mixer' && dA.throwBy === 'mixer', 'its filter and throws by the mixer');
+    AB.sent.length = 0;
+    play(0);
+    /* (it starts on the master's next bar) */
+    await until(() => AB.sent[0]?.[0] === 0xfa && AB.sent.filter(m => m[0] === 0xf8).length >= 20, `Play: Start and clocks to the ArduinoBoy: ${AB.sent.slice(0, 2)}, ${AB.sent.length}`, 4000);
+    play(0);
+    assert(AB.sent.at(-1)[0] === 0xfc, `Stop: ${AB.sent.at(-1)}`);
+    choose(pickA, '');
+    try { localStorage.removeItem('dj-ab-ch'); } catch {}
+    document.querySelector('#stage-mode [data-mode="fx"]').click();
     djState().decks.forEach(d => d.clock?.stop());
-    return 'PASS DJ layout: switch, decks on FM-1s, Start and clocks per deck, the next bar, its own tempo, Sync (a lock: lit, keeps the bar, follows the master, on a stopped deck, lets go when typed), stem kill, DJ filter, Perform › Clock off, 0.9.98 (crossfader to FM-1 volume, Hold), DJ colours (the page and panel; FM-1 decks keep theirs), each deck its FM-1 colours, its label (the .sav sent, the open song, changed since), Screen | Rows (screen, song row map, click to cue), Tap quickly (no redraw), Whole BPM, TX-6 button and crossfader, fader mirrored, full volume after';
+    return 'PASS DJ layout: switch, decks on FM-1s, Start and clocks per deck, the next bar, its own tempo, Sync (a lock: lit, keeps the bar, follows the master, on a stopped deck, lets go when typed), stem kill, DJ filter, Perform › Clock off, 0.9.98 (crossfader to FM-1 volume, Hold), DJ colours (the page and panel; FM-1 decks keep theirs), each deck its FM-1 colours, its label (the .sav sent, the open song, changed since), Screen | Rows (screen, song row map, click to cue), Tap quickly (no redraw), Whole BPM, TX-6 button and crossfader, fader mirrored, full volume after, an ArduinoBoy deck (speed notes, its channel, Start and clocks, FM-1 controls hidden)';
   } finally {
     if (descriptor) Object.defineProperty(navigator, 'requestMIDIAccess', descriptor); else delete navigator.requestMIDIAccess;
   }
