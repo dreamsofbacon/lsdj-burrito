@@ -4,6 +4,7 @@
 // never writes firmware.
 //   request  F0 7D 'G' 'S' op [data] F7
 //   reply    F0 7D 'G' 'S' op status [data] F7      data bytes as 7-bit pairs
+import {logEvent} from './conn-log.js';
 
 export const OP = {INFO: 0x01, READ: 0x02, BEGIN: 0x03, CHUNK: 0x04, COMMIT: 0x05, ABORT: 0x06,
   SETTINGS_GET: 0x10, SETTINGS_SET: 0x11, FX_GET: 0x12, FX_SET: 0x13, THEME_GET: 0x14, THEME_SET: 0x15,
@@ -46,6 +47,7 @@ export function parse(msg) {
 }
 
 export class LinkError extends Error {}
+const owners = new WeakMap();   /* an input -> the Link listening on it */
 
 export class Link {
   /* input / output: Web MIDI ports (or anything with onmidimessage / send). */
@@ -55,7 +57,15 @@ export class Link {
     /* when the FM-1 last sent anything on this link (a reply, screen rows): one reply missed is not a lost FM-1
        while it is still talking (app.js: lost only after HEARD_MS of silence) */
     this.heard = Date.now();
-    input.onmidimessage = e => {
+    /* one Link an input: a second one takes the replies from the first, which then times out ("did not answer").
+       Said in the connection Log, to find where (the first should be closed before) */
+    const owner = owners.get(input);
+    if (owner && !owner.closed) {
+      const text = `Two links on one FM-1 input (${input.id ?? input.name ?? '?'}): the older one stops hearing replies.`;
+      console.warn(text, new Error().stack); logEvent(text);
+    }
+    owners.set(input, this);
+    input.onmidimessage = this.handler = e => {
       const m = e.data;
       if (m[0] === 0xF0 && m[1] === 0x7D && m[2] === 0x47 && m[3] === 0x53) this.heard = Date.now();
       if (m.length > 7 && (m[4] === OP.SCREEN_PIXELS || m[4] === OP.SCREEN_FRAME) && m[0] === 0xF0 && m[1] === 0x7D && m[2] === 0x47 && m[3] === 0x53) {
@@ -70,7 +80,9 @@ export class Link {
   close() {
     this.closed = true;
     this.waiting?.reject(new LinkError('Disconnected from the FM-1.'));
-    this.input.onmidimessage = null;
+    /* (only its own: a newer Link on this input keeps hearing) */
+    if (this.input.onmidimessage === this.handler) this.input.onmidimessage = null;
+    if (owners.get(this.input) === this) owners.delete(this.input);
   }
 
   /* One request at a time; resolves {status, data, tries}; rejects on a timeout or bad status.
