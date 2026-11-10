@@ -243,6 +243,19 @@ body.pop-dj-fx-0 .dj-fx-tab-a,body.pop-dj-fx-1 .dj-fx-tab-b{display:none}
 .dj-fx-cell.idle{opacity:.45}
 .dj-fx-note{margin:0}
 body.popped .dj-fx{min-height:100%;border-radius:0}
+.dj-fx-wrap{display:flex;flex-direction:column;gap:8px}
+/* in its own window (popout.js: body.popped): the full Effects view (lsdj/dj-fx.js), the wiring on the left and
+   every page's card on the right, as Perform's Effects without the screen; one deck's effects a monitor */
+.dj-fxw{display:none}
+body.popped .dj-fx-panel{display:none}
+body.popped .dj-fxw{display:grid;grid-template-columns:minmax(300px,.75fr) minmax(0,2fr);gap:14px;align-items:start}
+body.popped .dj-fxw-wire{position:sticky;top:0;margin:0}
+body.popped .dj-fxw-cards{display:flex;flex-direction:column;gap:8px;min-width:0}
+body.popped .dj-fxw-head{margin:6px 0 0}
+body.popped .dj-fxw .fx-pages.all{grid-template-columns:repeat(auto-fill,minmax(min(520px,100%),1fr))}
+body.popped .dj-fx-head b{font-size:18px}
+body.popped .dj-fx{padding:14px 18px;overflow:auto;scrollbar-width:thin}
+@media (max-width:900px){body.popped .dj-fxw{grid-template-columns:minmax(0,1fr)}body.popped .dj-fxw-wire{position:static}}
 .dj-deck,.dj-mixer{--dj-inset:color-mix(in srgb,var(--bg) 35%,#000);margin:0;min-width:0;padding:8px 10px 10px;border-radius:14px;color:var(--ink);
   border:1px solid color-mix(in srgb,var(--line) 40%,#000);display:flex;flex-direction:column;
   background:linear-gradient(180deg,color-mix(in srgb,var(--card) 90%,#fff) 0,var(--card) 14%,color-mix(in srgb,var(--card) 75%,#000) 100%);

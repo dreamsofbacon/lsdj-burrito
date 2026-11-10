@@ -899,7 +899,7 @@ function markIdle() {
     const page = it.wrap.closest('.fx-card')?.dataset.page;
     if (page != null) pageOn.set(page, (pageOn.get(page) || false) || (on && !sw));
   });
-  $$('.fx-card').forEach(card => {
+  $$('.fx-card:not(.dj-card)').forEach(card => {   /* (not the DJ decks' own: dj-fx.js) */
     card.querySelectorAll('.fx-row').forEach(r => {
       const c = [...r.querySelectorAll('.fx-ctl')];
       r.classList.toggle('idle', c.length > 0 && c.every(w => w.classList.contains('idle')));
@@ -936,7 +936,7 @@ function refresh(hot = []) {
     d.querySelector('small').textContent = [channelSummary(fx, n), ...tags].join(' · ');
   });
   /* the column under the FM-1's cursor marked; a muted channel's column grey (still adjustable), as the FM-1 does */
-  $$('#pan-chans [data-ch], .fx-ctl.chan-line').forEach(el => {
+  $$('#pan-chans [data-ch], .fx-ctl.chan-line:not(.dj-ctl)').forEach(el => {
     const n = +el.dataset.ch;
     el.classList.toggle('cursor', !!lastLive && n === cursorCh);
     el.classList.toggle('muted', !!((mute >> n) & 1));
@@ -946,9 +946,9 @@ function refresh(hot = []) {
   if (silent.length) $('fx-muted').textContent = `${silent.join(', ')} muted: changes are kept, but you won't hear them until ${silent.length > 1 ? 'they play' : 'it plays'} again ` +
     `(Master${muteOk ? '' : ' needs FM-1_977'}, or C4-F4 on the FM-1's MASTER page).`;
   drawWiring();
-  $$('#live-sec .fx-card, .pop-body .fx-card').forEach(card => card.classList.toggle('fm1', !!lastLive && +card.dataset.page === onFm1));
+  $$('#live-sec .fx-card:not(.dj-card), .pop-body .fx-card:not(.dj-card)').forEach(card => card.classList.toggle('fm1', !!lastLive && +card.dataset.page === onFm1));
   hot.forEach(key => {
-    $$(`.fx-ctl[data-key="${key}"]`).forEach(el => {
+    $$(`.fx-ctl[data-key="${key}"]:not(.dj-ctl)`).forEach(el => {
       const row = el.closest('.fx-row'); row.classList.remove('hot'); void row.offsetWidth; row.classList.add('hot');
     });
   });

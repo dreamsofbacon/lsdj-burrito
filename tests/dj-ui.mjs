@@ -729,6 +729,18 @@ export async function runDjUiTests() {
     /* its own window, and back */
     fxA.querySelector('.dj-fx-pop').click();
     await until(() => document.body.classList.contains('pop-dj-fx-0') && fxA.ownerDocument !== document, 'drawer A in its own window', 3000);
+    /* there, the full Effects view (no screen): the wiring and every page's card, the compact view hidden; a change
+       made there goes to FM-1 A only */
+    const win = fxA.ownerDocument.defaultView, fullA = fxA.querySelector('.dj-fxw');
+    assert(win.getComputedStyle(fullA).display !== 'none' && win.getComputedStyle(fxA.querySelector('.dj-fx-panel')).display === 'none',
+      'its own window: the full view shown, the compact one hidden');
+    assert(fullA.querySelector('svg.fxd') && fullA.querySelectorAll('.fx-card').length >= 6 && fullA.querySelector('.fx-card.matrix.blocks .fx-chname'),
+      `the wiring and the cards, as Perform's: ${fullA.querySelectorAll('.fx-card').length} cards`);
+    const cutFull = fullA.querySelector('input[aria-label="Deck A Cutoff PU1 (full)"]');
+    const aFull = A.fxSets.length, bFull = B.fxSets.length;
+    cutFull.value = 33; cutFull.dispatchEvent(new win.Event('input', {bubbles: true}));
+    await until(() => A.fxSets.length > aFull && A.fxSets.at(-1)[1] === 33, `PU1 cutoff 33 from its own window to FM-1 A: ${A.fxSets.at(-1)?.[1]}`, 2000);
+    assert(B.fxSets.length === bFull, 'nothing to FM-1 B');
     fxA.querySelector('.dj-fx-pop').click();
     await until(() => !document.body.classList.contains('pop-dj-fx-0') && fxA.ownerDocument === document && fxA.isConnected, 'back in the layout', 3000);
     fxA.querySelector('.dj-fx-close').click();

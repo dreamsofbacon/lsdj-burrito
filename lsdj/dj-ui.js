@@ -372,7 +372,7 @@ function fxOpen(d, on) {
 const fxWin = d => `dj-fx-${d.i}`;
 function fxPop(d) {
   if (isOut(fxWin(d))) return bringBack(fxWin(d));
-  if (!popOut(fxWin(d), d.ui.fxBox, {title: `Deck ${NAMES[d.i]} FX`, width: 460, height: 720}))
+  if (!popOut(fxWin(d), d.ui.fxBox, {title: `Deck ${NAMES[d.i]} effects`, width: 1280, height: 860}))
     say('The browser blocked the new window: allow pop-ups for this page, then press ⇱ again.');
 }
 function setFxView(v) {
@@ -465,6 +465,7 @@ function killSettle(d) {
     d.kill = fm1;
   }
   paintKills(d);
+  if (isOut(fxWin(d))) d.fxPanel?.refresh();   /* (its own window: the wiring greys the muted channels) */
 }
 const muteNames = m => CHANNELS.filter((_, c) => (m >> c) & 1).join(' ') || 'none';
 /* the pads' lights: killed (dark, struck), or waiting for the bar to change (blinking) */
@@ -1363,7 +1364,7 @@ export function mountDj(box) {
      Columns); ⇱ puts it in its own window (popout.js), ⇱ there or closing the window brings it back */
   const fxBox = d => {
     const ab = d.i ? 'b' : 'a';
-    d.fxPanel = fxPanel({name: `Deck ${NAMES[d.i]}`, get: () => fxOf(d), set: (k, c, v) => fxEdit(d, k, c, v),
+    d.fxPanel = fxPanel({name: `Deck ${NAMES[d.i]}`, get: () => fxOf(d), set: (k, c, v) => fxEdit(d, k, c, v), mute: () => killShown(d), onFm1: () => d.live?.page ?? null,
       fw: () => fwOf(d) || Infinity, page: +store.get(`dj-fx-page-${d.i}`, 1), onPage: p => store.set(`dj-fx-page-${d.i}`, String(p)),
       actions: [btn('⇱', () => fxPop(d), {className: 'dj-fx-pop', title: 'In its own window (again: back here)', ariaLabel: `Deck ${NAMES[d.i]} FX in its own window`}),
         btn('✕', () => fxOpen(d, false), {className: 'dj-fx-close', title: 'Close the drawer', ariaLabel: `Close deck ${NAMES[d.i]} FX`})]});
