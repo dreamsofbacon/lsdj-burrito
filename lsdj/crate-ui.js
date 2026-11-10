@@ -3,9 +3,11 @@
 // deck plays on. A .sav goes over that FM-1's link (only it pauses, as Songs › Send does). An LSDj is installed on
 // that FM-1 alone (install.js installOn: nothing is sent to the other FM-1s, the other decks' gear or the mixer),
 // then a paired .sav follows. lsdj/crate.js holds the list; the files stay in this browser (kit-library.js).
-import {KEY, fileKind, loadItems, saveItems, addItem, removeItem, renameItem, pairItems, unusedSaves, describe} from './crate.js';
+import {KEY, fileKind, loadItems, saveItems, addItem, removeItem, renameItem, pairItems, unusedSaves, describe,
+  CART_COLORS, recolorItem, moveItem, viewItems} from './crate.js';
 import {libraryFiles, addToLibrary, removeFromLibrary} from './kit-library.js';
-import {listKits} from './lsdj-rom.js';
+import {listKits, crc32} from './lsdj-rom.js';
+import {withOpenSong} from './lsdj-sav.js';
 import {loadTemplate, prepareLsdjFirmware} from './lsdj-firmware.js';
 import {installOn, checkPackage} from './install.js';
 import {installing, setInstallTarget} from './install-ui.js';
@@ -23,6 +25,11 @@ let app = {}, dj = {};
 export function setCrateHooks(a, d) { app = {...app, ...a}; dj = {...dj, ...d}; }
 
 let items = loadItems(store.get(KEY, '[]')), files = new Map(), root = null, statusEl = null, busyDeck = -1, pairFrom = null;
+/* the card asking before a load ({id, i}) or a removal ({id, remove: true}); the search, the sort */
+let asking = null, query = '', sort = store.get('dj-crate-sort', 'mine'), view = store.get('dj-crate-view', 'cards') === 'songs' ? 'songs' : 'cards';
+/* what the crate last loaded on each FM-1 (its key): {id, slot, crc}, for the ON A / ON B badges (a song chosen makes
+   another .sav than the card's, so its checksum alone won't say which card) */
+let loadedOn = (() => { try { return JSON.parse(store.get('dj-crate-on', '{}')) || {}; } catch { return {}; } })();
 const save = () => store.set(KEY, saveItems(items));
 const say = (text, cls = 'hint') => { if (statusEl) { statusEl.textContent = text; statusEl.className = `${cls} crate-status`; } };
 async function refreshFiles() { files = new Map((await libraryFiles()).map(f => [f.id, f])); }
@@ -33,7 +40,7 @@ export async function addToCrate({name, rom = null, sav = null}) {
   const r = rom ? await addToLibrary('rom', `${name}.gb`, rom) : null;
   const s = sav ? await addToLibrary('sav', `${name}.sav`, sav) : null;
   items = addItem(items, {name, rom: r?.id || null, sav: s?.id || null});
-  save(); await refreshFiles(); draw();
+  save(); await refreshFiles(); setOpen(true); draw();
 }
 
 async function openFiles(list) {
@@ -72,20 +79,24 @@ async function prepare(rom) {
 }
 const wait = ms => new Promise(r => setTimeout(r, ms));
 
-/* item -> deck i: one FM-1 stops and takes it; the other deck carries on */
-export async function loadOnto(id, i) {
+/* item -> deck i: one FM-1 stops and takes it; the other deck carries on. Asked first on the card itself (askLoad)
+   or by holding Load: never with the browser's confirm(), which stops the whole page, the other deck's MIDI clock
+   included, so its FM-1 stopped too (Colin's test). */
+export async function loadOnto(id, i, slot = null) {
   const item = items.find(x => x.id === id), d = (dj.decks?.() || [])[i];
-  if (!item || !d) return;
-  if (d.kind !== 'fm1' || d.key == null) return say(`Deck ${d.name}: choose an FM-1 for it first.`, 'warn');
-  if (busyDeck >= 0 || installing()) return say('Another FM-1 is loading. Wait for it to finish.', 'warn');
+  asking = null;
+  if (!item || !d) return draw();
+  if (d.kind !== 'fm1' || d.key == null) { draw(); return say(`Deck ${d.name}: choose an FM-1 for it first.`, 'warn'); }
+  if (busyDeck >= 0 || installing()) { draw(); return say('Another FM-1 is loading. Wait for it to finish.', 'warn'); }
   await refreshFiles();
-  const rom = item.rom && bytesOf(item.rom), sav = item.sav && bytesOf(item.sav);
-  if ((item.rom && !rom) || (item.sav && !sav)) return say(`${item.name}: its file is no longer in this browser. Add it again.`, 'bad');
-  const what = rom ? `install this LSDj on deck ${d.name}'s FM-1 (about a minute; it restarts)${sav ? ', then replace its songs' : ''}`
-    : `replace deck ${d.name}'s songs`;
-  if (!confirm(`Load "${item.name}": ${what}?\n\nDeck ${d.name} stops; the other deck keeps playing. ` +
-    (rom ? 'This firmware is experimental and may not start or sound right. Keep the cable in and this tab open until it says done. ' : '') +
-    'Back up its songs first (Grab) if you want to keep them.')) return;
+  const rom = item.rom && bytesOf(item.rom);
+  let sav = item.sav && bytesOf(item.sav), label = item.name;
+  if ((item.rom && !rom) || (item.sav && !sav)) { draw(); return say(`${item.name}: its file is no longer in this browser. Add it again.`, 'bad'); }
+  if (sav && slot != null) {   /* straight into the chosen song */
+    try { const song = describe(item, bytesOf).songList.find(x => x.slot === slot); sav = withOpenSong(sav, slot); label = `${item.name} › ${song?.name ?? slot}`; }
+    catch (e) { draw(); return say(`${item.name}: ${e.message}`, 'bad'); }
+  }
+  const loaded = key => { loadedOn[key] = {id: item.id, slot, crc: crc32(sav)}; store.set('dj-crate-on', JSON.stringify(loadedOn)); };
   busyDeck = i; draw();
   const show = (text, n, t) => { dj.loading?.(i, text, n, t); say(`Deck ${d.name}: ${text}`, 'hint'); };
   const leave = e => { e.preventDefault(); e.returnValue = ''; };
@@ -94,8 +105,9 @@ export async function loadOnto(id, i) {
     if (!rom) {
       dj.stop?.(i);
       show('Sending the songs…');
-      await app.sendSave(d.key, sav, item.name, (n, t) => show('Sending the songs…', n, t));
-      say(`Deck ${d.name} has "${item.name}".`, 'ok');
+      await app.sendSave(d.key, sav, label, (n, t) => show('Sending the songs…', n, t));
+      loaded(d.key);
+      say(`Deck ${d.name} has "${label}".`, 'ok');
       return;
     }
     show('Preparing the firmware…');
@@ -126,9 +138,10 @@ export async function loadOnto(id, i) {
     dj.assign?.(i, back.key);
     if (sav) {
       show('Sending the songs…');
-      await app.sendSave(back.key, sav, item.name, (n, t) => show('Sending the songs…', n, t));
+      await app.sendSave(back.key, sav, label, (n, t) => show('Sending the songs…', n, t));
+      loaded(back.key);
     }
-    say(`Deck ${d.name} has "${item.name}" (${r.id}).`, 'ok');
+    say(`Deck ${d.name} has "${label}" (${r.id}).`, 'ok');
   } catch (e) {
     setInstallTarget(null);
     say(`Deck ${d.name}: ${e.message}`, e.resumable ? 'warn' : 'bad');
@@ -140,69 +153,213 @@ export async function loadOnto(id, i) {
   }
 }
 
-/* drag a card onto a deck (dj-ui.js calls this from the deck's drop) */
+/* drag a card onto a deck (dj-ui.js calls this from the deck's drop): the card asks first, as Load does */
 export const CRATE_TYPE = 'application/x-burrito-crate';
 export function dropOnDeck(e, i) {
   const id = e.dataTransfer?.getData(CRATE_TYPE);
   if (!id) return false;
   e.preventDefault();
-  void loadOnto(id, i);
+  askLoad(id, i);
+  if (view !== 'cards') setView('cards');
+  root?.querySelector(`.crate-cart[data-id="${id}"]`)?.scrollIntoView({block: 'nearest', inline: 'nearest'});
   return true;
 }
+function askLoad(id, i, slot = null) { asking = {id, i, slot}; setOpen(true); drawList(); }
 
-function card(item) {
-  const t = describe(item, bytesOf), decks = fm1Decks();
+/* the deck holding a card's .sav now: the .sav this page last sent to its FM-1 (dj-ui.js held(i): its checksum, while
+   the FM-1 still reports it) is this card's */
+const heldBy = (item, t, slot) => fm1Decks().filter(d => {
+  const h = dj.held?.(d.i), l = loadedOn[d.key];
+  if (h == null) return false;
+  if (l && l.crc === h && l.id === item.id) return slot === undefined || l.slot === slot;
+  return (slot === undefined || slot === t.open) && t.crc === h;
+}).map(d => d.name);
+
+const HOLD_MS = 900;
+/* Load A: a click asks on the card; held for HOLD_MS (a ring fills) it loads at once, no question */
+function loadBtn(item, d, t, slot = null, text = `Load ${d.name}`) {
+  const b = btn(text, null, {className: 'crate-load', disabled: busyDeck >= 0 || t.missing,
+    title: `${item.rom ? 'Install this LSDj on' : 'Send these songs to'} deck ${d.name}'s FM-1; the other deck keeps playing. ` +
+      `Click to be asked first; hold to load at once.`});
+  let timer = 0, held = false;
+  const stop = () => { clearTimeout(timer); timer = 0; b.classList.remove('holding'); };
+  b.onpointerdown = e => {
+    if (e.button !== 0 || b.disabled) return;
+    held = false; b.classList.add('holding');
+    timer = setTimeout(() => { held = true; stop(); void loadOnto(item.id, d.i, slot); }, HOLD_MS);
+  };
+  b.onpointerup = b.onpointerleave = b.onpointercancel = stop;
+  b.onclick = () => { if (held) { held = false; return; } askLoad(item.id, d.i, slot); };
+  b.style.setProperty('--hold', `${HOLD_MS}ms`);
+  return b;
+}
+/* the question, on the card */
+function askBox(item, t) {
+  if (asking?.remove) return el('div', {className: 'crate-ask', role: 'alertdialog', ariaLabel: `Remove ${item.name}`},
+    el('p', {textContent: `Take "${item.name}" out of the crate?`}),
+    el('div', {className: 'crate-ask-acts'},
+      btn('Remove', async () => {
+        asking = null;
+        const before = items; items = removeItem(items, item.id); save();
+        for (const s of unusedSaves(items, before)) await removeFromLibrary(s);
+        await refreshFiles(); drawList();
+      }, {className: 'danger'}),
+      btn('Cancel', () => { asking = null; drawList(); })));
+  const d = (dj.decks?.() || [])[asking.i];
+  const song = asking.slot != null ? t.songList.find(x => x.slot === asking.slot) : null;
+  const what = (item.rom ? `Install this LSDj on deck ${d?.name}'s FM-1 (about a minute; it restarts)${item.sav ? ', then its songs' : ''}?`
+    : `Replace deck ${d?.name}'s songs with these?`) + (song ? ` It opens on ${song.name}.` : '');
+  return el('div', {className: 'crate-ask', role: 'alertdialog', ariaLabel: `Load ${item.name} on deck ${d?.name}`},
+    el('p', {textContent: what}),
+    el('p', {className: 'hint', textContent: `Deck ${d?.name} stops; the other keeps playing.` + (item.rom ? ' Experimental firmware: keep the cable in.' : '') +
+      (heldBy(item, t).includes(d?.name) ? '' : ' Grab its songs first to keep them.')}),
+    el('div', {className: 'crate-ask-acts'},
+      btn(`Load ${d?.name}`, () => void loadOnto(item.id, asking.i, asking.slot), {className: 'primary'}),
+      btn('Cancel', () => { asking = null; drawList(); })));
+}
+
+/* a song: its name, its blocks (and open: the song LSDj starts on), and a Load per deck straight into it (asked on the
+   card, or held) */
+function songRow(item, t, s, withCard = false) {
+  const on = heldBy(item, t, s.slot);
+  return el('li', {className: `crate-song${on.length ? ' on-deck' : ''}`},
+    withCard ? el('span', {className: 'crate-song-card', title: item.name}, el('i', {className: 'crate-dot'}), item.name) : null,
+    el('span', {className: 'crate-song-name', textContent: s.name}),
+    el('small', {textContent: `${s.blocks} blk${t.open === s.slot ? ' · open' : ''}`}),
+    ...on.map(n => el('span', {className: 'crate-on', textContent: `ON ${n}`})),
+    el('span', {className: 'crate-song-acts'}, ...fm1Decks().map(d => loadBtn(item, d, t, s.slot, d.name))),
+    view === 'songs' && asking && !asking.remove && asking.id === item.id && asking.slot === s.slot ? askBox(item, t) : null);
+}
+function setView(v) {
+  view = v === 'songs' ? 'songs' : 'cards'; store.set('dj-crate-view', view);
+  root?.querySelectorAll('[data-crate-view]').forEach(b => { const on = b.dataset.crateView === view; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); });
+  drawList();
+}
+
+/* a card: a Game Boy cartridge, its label in the card's colour (the name, the LSDj and songs, the deck holding it),
+   Songs to open the list (each song's blocks, the LSDj's kits), Load A / Load B, a colour, Pair, ✕ */
+function card(item, reorder) {
+  const t = describe(item, bytesOf), decks = fm1Decks(), on = heldBy(item, t);
   const name = el('input', {type: 'text', value: item.name, className: 'crate-name', maxLength: 60,
     onchange: () => { items = renameItem(items, item.id, name.value.trim()); save(); }});
   name.setAttribute('aria-label', 'Name');
-  const songs = t.missing ? 'Its file is no longer in this browser.' : t.songs.length ? t.songs.join(', ') : item.sav ? 'No songs saved' : '';
+  const meta = [t.version ? `LSDj ${t.version}` : null, item.sav ? (t.missing ? 'file missing' : `${t.songs.length} song${t.songs.length === 1 ? '' : 's'}`) : 'no songs'].filter(Boolean).join(' · ');
   const canPair = pairFrom && pairFrom !== item.id && (() => { const o = items.find(x => x.id === pairFrom); return o && !!o.rom !== !!item.rom && !!o.sav !== !!item.sav; })();
-  const c = el('div', {className: `crate-card${pairFrom === item.id ? ' pairing' : ''}`, draggable: true,
-    ondragstart: e => { e.dataTransfer.setData(CRATE_TYPE, item.id); e.dataTransfer.effectAllowed = 'copy'; }},
-    el('div', {className: 'crate-kinds'}, ...t.kinds.map(k => el('span', {className: 'crate-kind', textContent: k})),
-      t.version ? el('span', {className: 'hint', textContent: ` LSDj ${t.version}`}) : null),
-    name,
-    el('p', {className: 'hint crate-songs', textContent: songs, title: songs}),
+  const colour = btn('', () => {
+    items = recolorItem(items, item.id, CART_COLORS[(CART_COLORS.indexOf(item.color) + 1) % CART_COLORS.length]); save(); drawList();
+  }, {className: 'crate-colour', title: `Label colour: ${item.color} (click for the next)`, ariaLabel: `${item.name}: label colour ${item.color}`});
+  const songs = t.missing ? null : el('details', {className: 'crate-songs', open: openSongs.has(item.id),
+    ontoggle: e => { if (e.currentTarget.open) openSongs.add(item.id); else openSongs.delete(item.id); }},
+    el('summary', {textContent: item.sav ? `Songs (${t.songs.length})` : 'Kits'}),
+    item.sav ? (t.songList.length ? el('ol', {className: 'crate-songlist mono'}, ...t.songList.map(s => songRow(item, t, s)))
+      : el('p', {className: 'hint', textContent: 'No songs saved.'})) : null,
+    item.sav && t.free != null ? el('p', {className: 'hint', textContent: `${t.free} blocks free`}) : null,
+    item.rom ? el('p', {className: 'hint', textContent: t.kits.length ? `Kits: ${t.kits.join(', ')}` : 'No kits.'}) : null);
+  const c = el('div', {className: `crate-cart${pairFrom === item.id ? ' pairing' : ''}${on.length ? ' on-deck' : ''}`, draggable: true,
+    ondragstart: e => { e.dataTransfer.setData(CRATE_TYPE, item.id); e.dataTransfer.effectAllowed = 'copyMove'; },
+    /* your own order: a card dropped on another goes in its place */
+    ondragover: e => { if (reorder && [...(e.dataTransfer?.types || [])].includes(CRATE_TYPE)) { e.preventDefault(); c.classList.add('drop'); } },
+    ondragleave: () => c.classList.remove('drop'),
+    ondrop: e => {
+      c.classList.remove('drop');
+      const from = e.dataTransfer?.getData(CRATE_TYPE);
+      if (!reorder || !from || from === item.id) return;
+      e.preventDefault();
+      items = moveItem(items, from, items.findIndex(x => x.id === item.id)); save(); drawList();
+    }},
+    el('div', {className: 'crate-shell', ariaHidden: 'true'}, el('i'), el('i'), el('i')),
+    el('div', {className: 'crate-label'},
+      el('div', {className: 'crate-label-top'}, colour,
+        ...t.kinds.map(k => el('span', {className: 'crate-kind', textContent: k})),
+        ...on.map(n => el('span', {className: 'crate-on', textContent: `ON ${n}`, title: `Deck ${n}'s FM-1 has these songs now`}))),
+      name,
+      el('p', {className: 'crate-meta', textContent: meta, title: t.songs.join(', ')})),
+    songs,
     el('div', {className: 'crate-acts'},
-      ...decks.map(d => btn(`Load ${d.name}`, () => void loadOnto(item.id, d.i), {disabled: busyDeck >= 0 || t.missing,
-        title: `${item.rom ? 'Install this LSDj on' : 'Send these songs to'} deck ${d.name}'s FM-1; the other deck keeps playing`})),
-      canPair ? btn('Pair here', () => { items = pairItems(items, pairFrom, item.id); pairFrom = null; save(); draw(); }, {className: 'on'})
-        : !(item.rom && item.sav) ? btn(pairFrom === item.id ? 'Cancel' : 'Pair', () => { pairFrom = pairFrom === item.id ? null : item.id; draw(); },
+      ...decks.map(d => loadBtn(item, d, t)),
+      canPair ? btn('Pair here', () => { items = pairItems(items, pairFrom, item.id); pairFrom = null; save(); drawList(); }, {className: 'on'})
+        : !(item.rom && item.sav) ? btn(pairFrom === item.id ? 'Cancel' : 'Pair', () => { pairFrom = pairFrom === item.id ? null : item.id; drawList(); },
           {title: item.rom ? 'Pair this LSDj with a .sav: then press Pair here on the .sav' : 'Pair this .sav with an LSDj: then press Pair here on the LSDj'}) : null,
-      btn('✕', async () => {
-        if (!confirm(`Take "${item.name}" out of the crate?`)) return;
-        const before = items; items = removeItem(items, item.id); save();
-        for (const s of unusedSaves(items, before)) await removeFromLibrary(s);
-        await refreshFiles(); draw();
-      }, {title: 'Take it out of the crate', ariaLabel: `Remove ${item.name}`})));
+      btn('✕', () => { asking = {id: item.id, remove: true}; drawList(); }, {title: 'Take it out of the crate', ariaLabel: `Remove ${item.name}`})),
+    asking?.id === item.id && view === 'cards' ? askBox(item, t) : null);
+  c.dataset.id = item.id; c.dataset.color = item.color;
   return c;
 }
+const openSongs = new Set();
 
-function draw() {
-  if (!root) return;
+/* ---- the crate: its bar (built once: the search keeps its focus), the cards (drawn again on any change) ---- */
+let listEl = null, grabsEl = null, countEl = null, setOpen = () => {};
+function drawGrabs() {
+  if (!grabsEl) return;
   const decks = fm1Decks();
-  const pick = el('input', {type: 'file', accept: '.sav,.gb,.gbc', multiple: true, hidden: true,
-    onchange: async () => { await openFiles([...pick.files]); pick.value = ''; }});
   const withRom = el('input', {type: 'checkbox', checked: store.get('dj-crate-rom', '0') === '1',
     onchange: () => store.set('dj-crate-rom', withRom.checked ? '1' : '0')});
-  root.replaceChildren(
-    el('div', {className: 'crate-top'},
-      el('strong', {textContent: 'Crate'}),
-      btn('Open files…', () => pick.click(), {title: 'An LSDj save (.sav) or LSDj ROM (.gb): kept in this browser only'}), pick,
-      ...decks.map(d => btn(`Grab ${d.name}`, () => void grab(d, withRom.checked), {disabled: busyDeck >= 0,
-        title: `Put deck ${d.name}'s songs${withRom.checked ? ' and LSDj' : ''} in the crate (a copy; the FM-1 keeps playing)`})),
-      decks.length ? el('label', {className: 'hint'}, withRom, ' with its LSDj') : null),
-    /* (no scrollbar: a swipe, or the mouse wheel, moves the cards sideways) */
-    items.length ? el('div', {className: 'crate-list', onwheel: e => {
-      const l = e.currentTarget;
-      if (l.scrollWidth > l.clientWidth && Math.abs(e.deltaY) > Math.abs(e.deltaX)) { l.scrollLeft += e.deltaY; e.preventDefault(); }
-    }}, ...items.map(card))
-      : el('p', {className: 'hint', textContent: 'Empty. Open a .sav or LSDj ROM, grab a deck\'s songs, or use "Add to crate" in Songs & kits or Sets. Then drag a card onto a deck, or press Load.'}),
-    statusEl = el('p', {className: 'hint crate-status', role: 'status', textContent: statusEl?.textContent || ''}));
+  grabsEl.replaceChildren(...decks.map(d => btn(`Grab ${d.name}`, () => void grab(d, withRom.checked), {disabled: busyDeck >= 0,
+    title: `Put deck ${d.name}'s songs${withRom.checked ? ' and LSDj' : ''} in the crate (a copy; the FM-1 keeps playing)`})),
+    decks.length ? el('label', {className: 'hint'}, withRom, ' with its LSDj') : null);
 }
+function drawList() {
+  if (!listEl) return;
+  const text = i => { const t = describe(i, bytesOf); return `${t.songs.join(' ')} ${t.version || ''}`; };
+  const shown = viewItems(items, {query, sort}, text), reorder = sort === 'mine' && !query.trim();
+  if (asking && !items.some(i => i.id === asking.id)) asking = null;
+  countEl.textContent = items.length ? (shown.length === items.length ? `${items.length}` : `${shown.length} of ${items.length}`) : '';
+  listEl.classList.toggle('songs', view === 'songs');
+  if (view === 'songs' && items.length) {
+    /* Songs: every song of the cards shown (search: a song's name or its card's), each with its card and Load A / B;
+       a load asked for here asks on its card (in Cards) */
+    const q = query.trim().toLowerCase(), rows = [];
+    for (const i of viewItems(items, {sort}, () => '')) {
+      const t = describe(i, bytesOf);
+      if (t.missing) continue;
+      for (const s of t.songList) if (!q || `${s.name} ${i.name}`.toLowerCase().includes(q)) {
+        const r = songRow(i, t, s, true); r.dataset.color = i.color; rows.push(r);
+      }
+    }
+    listEl.replaceChildren(rows.length ? el('ol', {className: 'crate-songview mono'}, ...rows)
+      : el('p', {className: 'hint', textContent: q ? `No song matches "${query}".` : 'No songs in the crate yet.'}));
+    return;
+  }
+  listEl.replaceChildren(...(items.length
+    ? shown.length ? shown.map(i => card(i, reorder)) : [el('p', {className: 'hint', textContent: `Nothing matches "${query}".`})]
+    : [el('p', {className: 'hint', textContent: 'Empty. Open a .sav or LSDj ROM, grab a deck\'s songs, or use "Add to the DJ crate" in Songs & kits or Sets. Then drag a card onto a deck, or press Load.'})]));
+}
+function draw() { drawGrabs(); drawList(); }
 
 export async function mountCrate(box) {
   root = box;
+  const pick = el('input', {type: 'file', accept: '.sav,.gb,.gbc', multiple: true, hidden: true,
+    onchange: async () => { await openFiles([...pick.files]); pick.value = ''; }});
+  const search = el('input', {type: 'search', placeholder: 'Find a card or song', className: 'crate-search',
+    oninput: () => { query = search.value; drawList(); }});
+  search.setAttribute('aria-label', 'Find a card or song');
+  const sorter = el('select', {className: 'crate-sort', onchange: () => { sort = sorter.value; store.set('dj-crate-sort', sort); drawList(); }},
+    new Option('My order', 'mine'), new Option('Name', 'name'), new Option('Newest', 'newest'));
+  sorter.value = sort; sorter.setAttribute('aria-label', 'Sort the crate');
+  grabsEl = el('span', {className: 'crate-grabs'});
+  const viewBtn = (v, text) => { const b = btn(text, () => setView(v), {className: view === v ? 'on' : '', ariaPressed: String(view === v)}); b.dataset.crateView = v; return b; };
+  const views = el('div', {className: 'seg crate-views', role: 'group', ariaLabel: 'Crate view'}, viewBtn('cards', 'Cards'), viewBtn('songs', 'Songs'));
+  countEl = el('span', {className: 'crate-count hint'});
+  /* (no scrollbar: a swipe, or the mouse wheel, moves the cards sideways) */
+  listEl = el('div', {className: 'crate-list', onwheel: e => {
+    const l = e.currentTarget;
+    if (l.scrollWidth > l.clientWidth && Math.abs(e.deltaY) > Math.abs(e.deltaX)) { l.scrollLeft += e.deltaY; e.preventDefault(); }
+  }});
+  statusEl = el('p', {className: 'hint crate-status', role: 'status'});
+  /* a tray: the bar always there, the cards opened from it (in full screen they come up over the decks' lower part, so
+     the decks keep their size); open or not kept in this browser */
+  const toggle = btn('', () => openCrate(!root.classList.contains('open')), {className: 'crate-toggle'});
+  const openCrate = on => {
+    root.classList.toggle('open', on); store.set('dj-crate-open', on ? '1' : '0');
+    toggle.textContent = on ? 'Crate ▾' : 'Crate ▴'; toggle.setAttribute('aria-expanded', String(on));
+    toggle.title = on ? 'Put the cards away' : 'Show the cards';
+  };
+  setOpen = openCrate;
+  root.replaceChildren(
+    el('div', {className: 'crate-top'}, toggle, countEl, views, search, sorter,
+      btn('Open files…', () => pick.click(), {title: 'An LSDj save (.sav) or LSDj ROM (.gb): kept in this browser only'}), pick, grabsEl),
+    el('div', {className: 'crate-body'}, listEl, statusEl));
+  openCrate(store.get('dj-crate-open', '0') === '1');
   await refreshFiles();
   draw();
   document.addEventListener('kit-library', () => void refreshFiles().then(draw));

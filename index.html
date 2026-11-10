@@ -264,18 +264,87 @@ body.popped .dj-fx{padding:14px 18px;overflow:auto;scrollbar-width:thin}
 .dj-deck.empty .dj-deck-body{justify-content:center}
 /* the crate (lsdj/crate-ui.js): a strip of cards under the console; a deck takes a dropped card, and shows a cover while it loads */
 .dj-crate{margin:8px 0 0;padding:8px 10px;border:1px solid var(--line);border-radius:12px;background:var(--card2)}
-.crate-top{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 6px}
+.crate-top{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.crate-toggle{font-weight:700;padding:6px 12px}
+.crate-body{display:none;margin-top:6px}
+.dj-crate.open .crate-body{display:block}
 .crate-list{display:flex;gap:8px;overflow-x:auto;padding:2px 0 6px;scrollbar-width:none;overscroll-behavior-x:contain}
 .crate-list::-webkit-scrollbar{display:none}
-.crate-card{flex:0 0 200px;display:flex;flex-direction:column;gap:4px;padding:8px;border:1px solid var(--line);border-radius:10px;background:var(--card);cursor:grab}
-.crate-card.pairing{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
-.crate-card .crate-name{width:100%;font-weight:700}
-.crate-kinds{display:flex;gap:4px;align-items:center;font-size:.8em}
-.crate-kind{padding:1px 6px;border-radius:6px;background:var(--accent);color:var(--accent-ink);font-weight:700}
-.crate-songs{margin:0;font-size:.8em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.crate-acts{display:flex;flex-wrap:wrap;gap:4px;margin-top:auto}
-.crate-acts button{padding:4px 8px;font-size:.85em}
+.crate-top .crate-search{flex:0 1 190px;min-width:110px;padding:6px 9px}
+.crate-top .crate-sort{padding:6px 8px}
+.crate-views{flex:none}
+.crate-count{font:600 11px var(--font-data)}
 .crate-status{margin:2px 0 0}
+/* a card: a Game Boy cartridge, light grey plastic in every theme (its own colours), the top right corner cut, three
+   grip ridges, a label in the card's colour (data-color); ON A / ON B when a deck's FM-1 holds it */
+.crate-cart{--lab:#8a8880;--lab-ink:#fff;--plastic:#c9c6bd;--plastic-ink:#2a2925;
+  position:relative;flex:0 0 212px;display:flex;flex-direction:column;gap:6px;padding:16px 10px 10px;color:var(--plastic-ink);
+  background:linear-gradient(180deg,color-mix(in srgb,var(--plastic) 92%,#fff),var(--plastic) 30%,color-mix(in srgb,var(--plastic) 88%,#000));
+  border-radius:4px 2px 8px 8px;clip-path:polygon(0 0,86% 0,100% 7%,100% 100%,0 100%);cursor:grab;
+  box-shadow:inset 0 -3px 0 #0003,inset 0 1px 0 #fff8}
+.crate-cart[data-color=red]{--lab:#c0453a}.crate-cart[data-color=orange]{--lab:#d9822b}
+.crate-cart[data-color=yellow]{--lab:#d8b43a;--lab-ink:#2a2925}.crate-cart[data-color=green]{--lab:#4f9a55}
+.crate-cart[data-color=teal]{--lab:#2f9a92}.crate-cart[data-color=blue]{--lab:#3f6fbf}.crate-cart[data-color=purple]{--lab:#7b55b5}
+.crate-shell{position:absolute;top:4px;left:12px;right:30%;display:flex;flex-direction:column;gap:2px;pointer-events:none}
+.crate-shell i{display:block;height:2px;border-radius:1px;background:#0002;box-shadow:0 1px 0 #fff7}
+.crate-cart.pairing{outline:3px solid var(--accent);outline-offset:-3px}
+.crate-cart.drop{outline:3px dashed var(--accent);outline-offset:-3px}
+.crate-cart.on-deck .crate-label{box-shadow:inset 0 0 0 2px var(--accent),inset 0 2px 6px #0004}
+.crate-label{display:flex;flex-direction:column;gap:4px;padding:8px 9px 9px;border-radius:6px;background:var(--lab);color:var(--lab-ink);
+  box-shadow:inset 0 2px 6px #0004}
+.crate-label-top{display:flex;flex-wrap:wrap;gap:4px;align-items:center;min-height:20px}
+.crate-label .crate-name{width:100%;padding:2px 0;border:0;border-bottom:1px dashed color-mix(in srgb,var(--lab-ink) 40%,transparent);border-radius:0;
+  background:transparent;color:inherit;font:400 14px/1.2 var(--font-name);letter-spacing:.03em}
+.crate-label .crate-name:focus{outline:2px solid color-mix(in srgb,var(--lab-ink) 70%,transparent);outline-offset:2px}
+.crate-meta{margin:0;font:500 11px/1.3 var(--font-data);opacity:.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.crate-kind{padding:1px 5px;border-radius:4px;background:#0003;font:600 10px/1.4 var(--font-data);letter-spacing:.04em}
+.crate-on{padding:1px 6px;border-radius:4px;background:var(--accent);color:var(--accent-ink);font:700 10px/1.4 var(--font-data);letter-spacing:.06em}
+.crate-colour{width:16px;height:16px;padding:0;border-radius:50%;border:2px solid color-mix(in srgb,var(--lab-ink) 70%,transparent);background:var(--lab);
+  box-shadow:0 0 0 1px #0004}
+.crate-songs{font-size:12px}
+.crate-songs summary{cursor:pointer;font:600 11px var(--font-data);text-transform:uppercase;letter-spacing:.06em;color:var(--plastic-ink)}
+.crate-songs p{margin:2px 0 0;font-size:11px;color:inherit;opacity:.8}
+.crate-songlist{margin:4px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:2px;max-height:150px;overflow:auto;scrollbar-width:thin}
+.crate-song{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:4px 6px;font-size:11.5px}
+.crate-song small{opacity:.7;font-size:10px}
+.crate-song .crate-on{grid-column:1/2;justify-self:start}
+.crate-song-acts{display:flex;gap:3px}
+.crate-song-acts button{padding:2px 7px;font-size:11px}
+.crate-acts{display:flex;flex-wrap:wrap;gap:4px;margin-top:auto}
+.crate-acts button{padding:4px 8px;font-size:12px}
+.crate-cart button{color:var(--plastic-ink);background:color-mix(in srgb,var(--plastic) 70%,#fff);border-color:#0003}
+.crate-cart button.on{background:var(--accent);color:var(--accent-ink)}
+/* Load: a click asks on the card; held, a fill runs across it (--hold) and it loads at once */
+.crate-load{position:relative;overflow:hidden;isolation:isolate}
+.crate-load::after{content:"";position:absolute;inset:0;z-index:-1;background:var(--accent);transform:scaleX(0);transform-origin:left}
+.crate-load.holding::after{transform:scaleX(1);transition:transform var(--hold,900ms) linear}
+.crate-load.holding{color:var(--accent-ink)}
+/* the question on the card (no browser dialog: one stops the page and the other deck's clock) */
+.crate-ask{position:absolute;inset:auto 0 0;z-index:2;display:flex;flex-direction:column;gap:6px;padding:10px;border-radius:0 0 8px 8px;
+  background:color-mix(in srgb,var(--card) 96%,transparent);color:var(--ink);border-top:2px solid var(--accent);box-shadow:0 -6px 16px #0006}
+.crate-ask p{margin:0;font-size:12.5px;line-height:1.35}
+.crate-ask .hint{font-size:11px}
+.crate-ask-acts{display:flex;gap:6px}
+.crate-ask-acts button{flex:1;padding:6px 8px;color:var(--ink);background:var(--card2);border-color:var(--line)}
+.crate-ask-acts button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.crate-ask-acts button.danger{background:var(--bad);color:#fff;border-color:var(--bad)}
+/* Songs: every song of the crate, a row each: its card (the label's colour), the song, its blocks, Load A / B */
+.crate-list.songs{display:block;max-height:240px;overflow-y:auto;scrollbar-width:thin}
+.crate-songview{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:3px}
+.crate-songview .crate-song{position:relative;grid-template-columns:minmax(0,.8fr) minmax(0,1.4fr) auto auto auto;text-align:left;padding:5px 8px;border-radius:6px;
+  background:var(--card);border:1px solid var(--line);font-size:13px}
+.crate-songview .crate-song.on-deck{border-color:var(--accent)}
+.crate-songview .crate-song .crate-on{grid-column:auto}
+.crate-songview .crate-ask{position:static;grid-column:1/-1;border-radius:6px;box-shadow:none}
+.crate-song-card{display:flex;align-items:center;gap:6px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-body);opacity:.8}
+.crate-dot{flex:none;width:10px;height:10px;border-radius:2px;background:#8a8880}
+[data-color=red] .crate-dot{background:#c0453a}[data-color=orange] .crate-dot{background:#d9822b}[data-color=yellow] .crate-dot{background:#d8b43a}
+[data-color=green] .crate-dot{background:#4f9a55}[data-color=teal] .crate-dot{background:#2f9a92}[data-color=blue] .crate-dot{background:#3f6fbf}[data-color=purple] .crate-dot{background:#7b55b5}
+.crate-song-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left}
+.crate-songview .crate-song-name{font-weight:700;font-size:14px}
+/* a deck's cartridge: the crate card (or .sav) its FM-1 holds, by its name */
+.dj-cart-chip{flex:0 1 auto;min-width:0;max-width:40%;padding:2px 7px;border-radius:4px 2px 4px 4px;background:#c9c6bd;color:#2a2925;
+  font:400 10px/1.5 var(--font-name);letter-spacing:.03em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dj-deck.drop,.dj-deck.loading{position:relative}
 .dj-deck.drop{outline:3px dashed var(--accent);outline-offset:-3px}
 .dj-loading{position:absolute;inset:0;z-index:3;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:16px;
@@ -636,7 +705,10 @@ body:not(.connected) .pop-body{opacity:.5;pointer-events:none}
   body.perform.dj .dj-top-panel{flex:1 1 0;grid-template-rows:minmax(0,1fr)}
   body.perform.dj .dj-view-area{height:auto;flex:1 1 0;min-height:90px}
   body.perform.dj .dj-deck-mid{height:auto;flex:1 1 0;min-height:180px}
-  body.perform.dj .dj-crate{flex:none}
+  body.perform.dj .dj-crate{flex:none;position:relative}
+  /* full screen: the cards come up over the decks' lower part (the decks keep their size) */
+  body.perform.dj .dj-crate.open .crate-body{position:absolute;left:-1px;right:-1px;bottom:calc(100% - 1px);z-index:9;margin:0;max-height:min(62vh,440px);
+    overflow:auto;scrollbar-width:thin;padding:10px 12px;background:var(--card2);border:1px solid var(--line);border-bottom:0;border-radius:12px 12px 0 0;box-shadow:0 -12px 30px #000b}
   body.perform #pan-chans #fx-pages{flex:1;min-height:0;align-content:start}
   body.perform #pan-chans .fx-card.shown{max-height:100%}
   body.perform #pan-chans .fx-card.shown h3{margin-bottom:0}

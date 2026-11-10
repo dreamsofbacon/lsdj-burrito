@@ -4,7 +4,7 @@
 // 'dj-crate'); the files themselves in its file library (kit-library.js: ROMs as 'rom', shared with Sets, and saves
 // as 'sav'), each once. Never uploaded, never in the offline copy.
 import {parseSav, SAV_SIZE} from './lsdj-sav.js';
-import {validateRom} from './lsdj-rom.js';
+import {validateRom, listKits, crc32} from './lsdj-rom.js';
 import {lsdjVersion, versionText} from './lsdj-sets.js';
 
 export const KEY = 'dj-crate';
@@ -24,9 +24,31 @@ export function loadItems(text) {
   if (!Array.isArray(list)) return [];
   return list.filter(i => i && typeof i.id === 'string' && (idOk(i.rom) || idOk(i.sav)))
     .map(i => ({id: i.id, name: String(i.name || 'Untitled').slice(0, 60), rom: idOk(i.rom) ? i.rom : null,
-      sav: idOk(i.sav) ? i.sav : null, added: +i.added || 0}));
+      sav: idOk(i.sav) ? i.sav : null, added: +i.added || 0, color: colorOk(i.color)}));
 }
-export const saveItems = items => JSON.stringify(items.map(({id, name, rom, sav, added}) => ({id, name, rom, sav, added})));
+export const saveItems = items => JSON.stringify(items.map(({id, name, rom, sav, added, color}) => ({id, name, rom, sav, added, color})));
+
+/* a cartridge label's colour (index.html .crate-cart[data-color]) */
+export const CART_COLORS = ['grey', 'red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple'];
+const colorOk = v => CART_COLORS.includes(v) ? v : 'grey';
+export const recolorItem = (items, id, color) => items.map(i => i.id === id ? {...i, color: colorOk(color)} : i);
+/* your own order (a setlist): the item moved to `to` (its new index) */
+export function moveItem(items, id, to) {
+  const from = items.findIndex(i => i.id === id);
+  if (from < 0) return items;
+  const out = items.slice(), [it] = out.splice(from, 1);
+  out.splice(Math.max(0, Math.min(out.length, to)), 0, it);
+  return out;
+}
+/* what the crate shows: search (a card's name, its songs' names, its LSDj version) and sort ('mine': your order,
+   'name', 'newest'); text(item) -> the words searched */
+export function viewItems(items, {query = '', sort = 'mine'} = {}, text = () => '') {
+  const q = query.trim().toLowerCase();
+  const shown = q ? items.filter(i => `${i.name} ${text(i)}`.toLowerCase().includes(q)) : items.slice();
+  if (sort === 'name') shown.sort((a, b) => a.name.localeCompare(b.name, undefined, {sensitivity: 'base', numeric: true}));
+  else if (sort === 'newest') shown.sort((a, b) => b.added - a.added);
+  return shown;
+}
 
 let seq = 0;
 const newId = () => `c${Date.now().toString(36)}${(seq++).toString(36)}`;
@@ -34,7 +56,7 @@ const newId = () => `c${Date.now().toString(36)}${(seq++).toString(36)}`;
 export function addItem(items, {name, rom = null, sav = null}) {
   if (!rom && !sav) return items;
   if (items.some(i => i.rom === rom && i.sav === sav)) return items;
-  return [...items, {id: newId(), name: String(name || 'Untitled').slice(0, 60), rom, sav, added: Date.now()}];
+  return [...items, {id: newId(), name: String(name || 'Untitled').slice(0, 60), rom, sav, added: Date.now(), color: 'grey'}];
 }
 export const removeItem = (items, id) => items.filter(i => i.id !== id);
 export const renameItem = (items, id, name) => items.map(i => i.id === id ? {...i, name: String(name || i.name).slice(0, 60)} : i);
@@ -52,15 +74,22 @@ export const unusedSaves = (items, before) => [...new Set(before.map(i => i.sav)
 
 /* a card's text: {kinds, songs: [names], open, version, missing} from the library's bytes (by id) */
 export function describe(item, bytesOf) {
-  const out = {kinds: [item.rom && 'LSDj', item.sav && '.sav'].filter(Boolean), songs: [], open: null, version: null, missing: false};
+  const out = {kinds: [item.rom && 'LSDj', item.sav && '.sav'].filter(Boolean), songs: [], songList: [], open: null, free: null,
+    version: null, kits: [], crc: null, missing: false};
   if (item.sav) {
     const b = bytesOf(item.sav);
     if (!b) out.missing = true;
-    else try { const s = parseSav(b); out.songs = s.songs.map(x => x.name || '(no name)'); out.open = s.active; } catch { out.missing = true; }
+    else try {
+      const s = parseSav(b);
+      out.songList = s.songs.map(x => ({slot: x.slot, name: x.name || '(no name)', blocks: x.blocks}));
+      out.songs = out.songList.map(x => x.name); out.open = s.active; out.free = s.freeBlocks;
+      out.crc = crc32(b);   /* (what the FM-1 reports for its save once it holds this one: the deck's badge) */
+    } catch { out.missing = true; }
   }
   if (item.rom) {
     const b = bytesOf(item.rom);
-    if (!b) out.missing = true; else out.version = versionText(lsdjVersion(b));
+    if (!b) out.missing = true;
+    else { out.version = versionText(lsdjVersion(b)); try { out.kits = listKits(b).map(k => k.name || `kit ${k.bank}`); } catch { /* not readable: none listed */ } }
   }
   return out;
 }

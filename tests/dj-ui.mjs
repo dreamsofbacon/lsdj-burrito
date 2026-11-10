@@ -11,6 +11,7 @@ import {addToCrate} from '../lsdj/crate-ui.js';
 import {unpackFx, unpackSettings, packSettings, PRESETS, unpackMidi} from '../lsdj/fx-model.js';
 import {pageColours} from '../lsdj/page-theme.js';
 import {crossfade, offset} from '../lsdj/dj.js';
+import {buildSav, SONG_SIZE} from '../lsdj/lsdj-sav.js';
 
 const $ = id => document.getElementById(id);
 const assert = (v, message) => { if (!v) throw Error(message); };
@@ -567,27 +568,41 @@ export async function runDjUiTests() {
     try { localStorage.removeItem('dj-ab-ch'); } catch {}
 
     // 8. the crate: a .sav loads onto deck A's FM-1 while deck B plays on (its clocks keep coming, nothing else goes
-    //    to it); Grab B copies B's songs into the crate while it plays
-    try { localStorage.removeItem('dj-crate'); } catch {}
+    //    to it). Never the browser's confirm() (it stops the page, and B's clock: Colin's test): Load asks on the card,
+    //    held it loads at once. ON A on the card and the deck's cartridge chip; Songs: straight into a chosen song;
+    //    search; ✕ asks on the card; Grab B copies B's songs while it plays
+    try { for (const k of ['dj-crate', 'dj-crate-on', 'dj-crate-view', 'dj-crate-sort', 'dj-crate-open']) localStorage.removeItem(k); } catch {}
     choose(pickA, 'fm1:out-1');
     await until(() => djState().decks[0].fx, 'deck A on FM-1 A again');
     const dB = djState().decks[1];
     if (!dB.clock?.running) play(1);
     await until(() => clocks(B) > 0, 'deck B playing');
-    const friday = fakeSave([{slot: 0, name: 'HOUSE', version: 2, blocks: 5}], 0);
+    const song = n => new Uint8Array(SONG_SIZE).map((_, k) => (k * n + n) & 0x7f);
+    const friday = buildSav(fakeSave([], 0), song(9), [{slot: 0, name: 'HOUSE', song: song(3)}, {slot: 1, name: 'ACID', song: song(5)}], 0);
     await addToCrate({name: 'Friday', sav: friday});
     const crate = document.querySelector('.dj-crate');
-    const card = () => [...crate.querySelectorAll('.crate-card')].find(c => c.querySelector('.crate-name').value === 'Friday');
-    await until(() => card() && /HOUSE/.test(card().textContent), `the card shows its song: ${crate.textContent}`);
-    const cardBtn = text => [...card().querySelectorAll('button')].find(b => b.textContent === text);
+    const cart = name => [...crate.querySelectorAll('.crate-cart')].find(c => c.querySelector('.crate-name').value === name);
+    const card = () => cart('Friday');
+    await until(() => card() && /HOUSE/.test(card().textContent) && /2 songs/.test(card().textContent), `the card: its songs: ${crate.textContent}`);
+    const cardBtn = (text, c = card()) => [...c.querySelectorAll('button')].find(b => b.textContent === text);
     assert(cardBtn('Load A') && cardBtn('Load B'), 'Load A and Load B on the card');
     const realConfirm = window.confirm, bSend = B.output.send;
-    window.confirm = () => true;
+    let confirmed = 0;
+    window.confirm = () => { confirmed++; return true; };
     try {
       const bOps = [];
       B.output.send = (m, ts) => { if (m[0] === 0xf0) bOps.push(m[4]); return bSend(m, ts); };
       const ticksBefore = clocks(B);
+      /* a click asks on the card; Cancel: nothing sent */
       cardBtn('Load A').click();
+      const ask = () => card().querySelector('.crate-ask');
+      assert(ask() && /Replace deck A's songs/.test(ask().textContent), `asked on the card: ${card().textContent}`);
+      const beginsA = A.begins;
+      [...ask().querySelectorAll('button')].find(b => b.textContent === 'Cancel').click();
+      await sleep(300);
+      assert(!ask() && A.begins === beginsA, 'Cancel: nothing sent');
+      cardBtn('Load A').click();
+      [...ask().querySelectorAll('button')].find(b => b.textContent === 'Load A').click();
       await until(() => crc32(A.save) === crc32(friday), 'FM-1 A has the crate\'s songs', 20000);
       await until(() => /Deck A has "Friday"/.test(crate.textContent), `the crate says so: ${crate.querySelector('.crate-status').textContent}`);
       await until(() => clocks(B) > ticksBefore + 20 && dB.clock.running, `deck B kept playing: ${ticksBefore} -> ${clocks(B)}`, 3000);
@@ -595,13 +610,46 @@ export async function runDjUiTests() {
       const bTs = B.midi.filter(m => m[0] === 0xf8).map(m => m.ts).filter(Number.isFinite);
       const gap = Math.max(...bTs.slice(1).map((t, i) => t - bTs[i]));
       assert(gap < 40, `deck B's clocks evenly spaced during the load (one each 20.8 ms at 120): the widest gap ${gap.toFixed(1)} ms`);
+      /* ON A: on the card, and the deck's cartridge chip */
+      const chipA = () => [...document.querySelectorAll('.dj-deck')][0].querySelector('.dj-cart-chip');
+      await until(() => /ON A/.test(card().textContent) && !chipA().hidden && chipA().textContent === 'Friday', `ON A and the chip: ${card().textContent} / ${chipA().textContent}`, 8000);
+      /* held: loads at once, no question (Load A again: the same songs) */
+      const heldFrom = A.begins, holdBtn = cardBtn('Load A');
+      holdBtn.dispatchEvent(new PointerEvent('pointerdown', {button: 0, bubbles: true}));
+      await sleep(1100);
+      holdBtn.dispatchEvent(new PointerEvent('pointerup', {button: 0, bubbles: true}));
+      await until(() => A.begins > heldFrom, 'held: it loads, unasked', 5000);
+      assert(!ask(), 'held: no question');
+      await until(() => /Deck A has "Friday"/.test(crate.querySelector('.crate-status').textContent) && !document.querySelector('.dj-deck.loading'), 'held: loaded', 20000);
+      /* Songs: every song; A on ACID asks on the row, then FM-1 A opens on ACID (in its working area, slot 1) */
+      [...crate.querySelectorAll('[data-crate-view]')].find(b => b.dataset.crateView === 'songs').click();
+      const row = name => [...crate.querySelectorAll('.crate-songview .crate-song')].find(r => r.querySelector('.crate-song-name').textContent === name);
+      await until(() => row('HOUSE') && row('ACID'), `Songs: both: ${crate.textContent}`);
+      [...row('ACID').querySelectorAll('.crate-song-acts button')].find(b => b.textContent === 'A').click();
+      assert(row('ACID').querySelector('.crate-ask') && /opens on ACID/.test(row('ACID').textContent), `asked on the row: ${row('ACID').textContent}`);
+      [...row('ACID').querySelectorAll('.crate-ask button')].find(b => b.textContent === 'Load A').click();
+      await until(() => A.save[0x8140] === 1 && A.save.subarray(0, 64).every((b, k) => b === song(5)[k]), 'FM-1 A opens on ACID', 20000);
+      await until(() => /Deck A has "Friday › ACID"/.test(crate.querySelector('.crate-status').textContent), 'said');
+      await until(() => /ON A/.test(row('ACID').textContent) && !/ON A/.test(row('HOUSE').textContent), `ON A on ACID only: ${row('ACID').textContent} | ${row('HOUSE').textContent}`, 8000);
+      /* search, in Songs: by song */
+      const search = crate.querySelector('.crate-search');
+      search.value = 'aci'; search.dispatchEvent(new Event('input'));
+      assert(row('ACID') && !row('HOUSE'), 'search: ACID only');
+      search.value = ''; search.dispatchEvent(new Event('input'));
+      [...crate.querySelectorAll('[data-crate-view]')].find(b => b.dataset.crateView === 'cards').click();
       /* Grab B: a copy of B's songs as a new card; B keeps its songs and keeps playing */
       const bBegins = B.begins;
       [...crate.querySelectorAll('.crate-top button')].find(b => b.textContent === 'Grab B').click();
-      await until(() => [...crate.querySelectorAll('.crate-card')].some(c => /TECHNO/.test(c.textContent)), `Grab B: B's songs in the crate: ${crate.textContent}`, 20000);
+      await until(() => [...crate.querySelectorAll('.crate-cart')].some(c => /TECHNO/.test(c.textContent)), `Grab B: B's songs in the crate: ${crate.textContent}`, 20000);
       assert(B.begins === bBegins && dB.clock.running, 'B: nothing written, still playing');
+      /* ✕ asks on the card, Remove takes it out */
+      cardBtn('✕').click();
+      assert(/Take "Friday" out of the crate/.test(ask()?.textContent || ''), 'remove: asked on the card');
+      [...ask().querySelectorAll('button')].find(b => b.textContent === 'Remove').click();
+      await until(() => !card(), 'removed');
+      assert(confirmed === 0, `the browser's confirm() never used: ${confirmed}`);
     } finally { window.confirm = realConfirm; B.output.send = bSend; }
-    try { localStorage.removeItem('dj-crate'); } catch {}
+    try { for (const k of ['dj-crate', 'dj-crate-on', 'dj-crate-view', 'dj-crate-open']) localStorage.removeItem(k); } catch {}
 
     // 9. deck B's FM-1 drops off USB while playing and comes back: the deck empties, then takes it back by itself,
     //    playing again; both are in the Log
@@ -751,7 +799,7 @@ export async function runDjUiTests() {
     /* never two links on one FM-1 input (link.js says so in the Log: the older one would stop hearing) */
     { const {logEntries} = await import('../lsdj/conn-log.js'); const two = logEntries().filter(e => /Two links on one FM-1 input/.test(e.text));
       assert(!two.length, `two links on one input: ${two.map(e => e.text).join(' | ')}`); }
-    return 'PASS DJ layout: switch, decks on FM-1s, Start and clocks per deck, the next bar, its own tempo, Sync (a lock: lit, keeps the bar, follows the master, on a stopped deck, lets go when typed), stem kill, DJ filter, Perform › Clock off, 0.9.98 (crossfader to FM-1 volume, Hold), DJ colours (the page and panel; FM-1 decks keep theirs), each deck its FM-1 colours, its label (the .sav sent, the open song, changed since), Screen | Rows (screen, song row map, click to cue), Tap quickly (no redraw), Whole BPM, the tempo controls (− / + held, nudge buttons, ×½ / ×2, MASTER, the fader range, pads, a glide, Next bar), TX-6 button and crossfader, fader mirrored, full volume after, an ArduinoBoy deck (speed notes, its channel, Start and clocks, FM-1 controls hidden), the crate (a .sav onto deck A while B plays on, untouched; Grab B), an FM-1 pulled and back (the deck takes it back, playing, also on new port ids with its .sav label; the Log), stopped on the FM-1 (the deck stops too), never two links on one input, each deck sets its FM-1 up (MIDI settings, LSDj SYNC to KEYBD; the warning strip), the jog every frame, a switch while the decks poll, Follow put in the DJ layout, the screens unframed (the label a tooltip), each deck FX panel (a drawer, only its own FM-1, follows its knobs, Columns, its own window)';
+    return 'PASS DJ layout: switch, decks on FM-1s, Start and clocks per deck, the next bar, its own tempo, Sync (a lock: lit, keeps the bar, follows the master, on a stopped deck, lets go when typed), stem kill, DJ filter, Perform › Clock off, 0.9.98 (crossfader to FM-1 volume, Hold), DJ colours (the page and panel; FM-1 decks keep theirs), each deck its FM-1 colours, its label (the .sav sent, the open song, changed since), Screen | Rows (screen, song row map, click to cue), Tap quickly (no redraw), Whole BPM, the tempo controls (− / + held, nudge buttons, ×½ / ×2, MASTER, the fader range, pads, a glide, Next bar), TX-6 button and crossfader, fader mirrored, full volume after, an ArduinoBoy deck (speed notes, its channel, Start and clocks, FM-1 controls hidden), the crate (asked on the card, never confirm(); held to load; a .sav onto deck A while B plays on, untouched; ON A and the deck chip; Songs straight into a chosen song; search; Grab B; remove), an FM-1 pulled and back (the deck takes it back, playing, also on new port ids with its .sav label; the Log), stopped on the FM-1 (the deck stops too), never two links on one input, each deck sets its FM-1 up (MIDI settings, LSDj SYNC to KEYBD; the warning strip), the jog every frame, a switch while the decks poll, Follow put in the DJ layout, the screens unframed (the label a tooltip), each deck FX panel (a drawer, only its own FM-1, follows its knobs, Columns, its own window)';
   } finally {
     if (descriptor) Object.defineProperty(navigator, 'requestMIDIAccess', descriptor); else delete navigator.requestMIDIAccess;
   }

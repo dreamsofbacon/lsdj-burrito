@@ -585,6 +585,16 @@ function drawLabel(d) {
     !d.savHead ? 'Reading its songs…' : !s ? 'No LSDj songs on it yet' : [
       open ? `Song ${open.name || '(no name)'} .${hex2(open.version)}` : 'Song not saved yet',
       `${s.songs.length} song${s.songs.length === 1 ? '' : 's'}`, `${Math.round(100 * s.freeBlocks / BLOCK_COUNT)} % free`].join(' · ')].join('\n');
+  /* the cartridge it holds (a crate card's, or any .sav sent here): a chip by its name; the crate's ON A / ON B */
+  const held = heldSav(d);
+  if (d.ui.chip) { d.ui.chip.hidden = !held; d.ui.chip.textContent = held ? held.name : ''; d.ui.chip.title = held ? `Deck ${NAMES[d.i]}'s FM-1 has "${held.name}"` : ''; }
+  if ((held?.crc ?? null) !== (d.heldShown ?? null)) { d.heldShown = held?.crc ?? null; crateRedraw(); }
+}
+/* the .sav this page last sent to the deck's FM-1, while the FM-1 still reports it (not changed since) */
+function heldSav(d) {
+  if (d.kind !== 'fm1' || !d.key) return null;
+  const sent = savsSent()[d.key];
+  return sent && d.savMatch !== false ? sent : null;
 }
 /* each FM-1 deck in its FM-1's colours (its THEME setting; CUSTOM: its own colours), as the page takes the theme of
    the FM-1 in use (page-theme.js). Read when the deck is chosen and every so often after (a theme changed on it). */
@@ -1340,6 +1350,7 @@ export function mountDj(box) {
   root = box;
   statusEl = el('p', {className: 'hint dj-status', role: 'status'});
   const deckBox = d => {
+    const chip = el('span', {className: 'dj-cart-chip', hidden: true});   /* the cartridge it holds (drawLabel) */
     const pick = el('select', {onchange: () => { d.gone = null; void assign(d, pick.value); }});
     pick.setAttribute('aria-label', `Deck ${NAMES[d.i]}`);
     const body = el('div', {className: 'dj-deck-body'});
@@ -1347,7 +1358,7 @@ export function mountDj(box) {
     /* the warning strip: what the page couldn't set up on this deck's FM-1 (setWarn), kept across redraws */
     const warn = el('p', {className: 'dj-warn', role: 'status', hidden: true});
     const box = el('section', {className: 'dj-deck', ariaLabel: `Deck ${NAMES[d.i]}`}, el('h4', {className: 'dj-deck-head'},
-      el('span', {className: 'dj-deck-id', title: `Deck ${NAMES[d.i]}`}, el('span', {className: 'sr-only', textContent: 'Deck '}), NAMES[d.i]), pick), warn, body);
+      el('span', {className: 'dj-deck-id', title: `Deck ${NAMES[d.i]}`}, el('span', {className: 'sr-only', textContent: 'Deck '}), NAMES[d.i]), pick, chip), warn, body);
     /* the crate (crate-ui.js): a card dropped here loads onto this deck; meanwhile a cover with its progress */
     const loadText = el('span'), loadBar = el('progress', {value: 0, max: 1, hidden: true});
     const loadEl = el('div', {className: 'dj-loading', hidden: true, role: 'status'}, loadText, loadBar);
@@ -1355,7 +1366,7 @@ export function mountDj(box) {
     box.ondragover = e => { if ([...(e.dataTransfer?.types || [])].includes(CRATE_TYPE)) { e.preventDefault(); box.classList.add('drop'); } };
     box.ondragleave = () => box.classList.remove('drop');
     box.ondrop = e => { box.classList.remove('drop'); dropOnDeck(e, d.i); };
-    d.ui = {pick, body, screen, box, warn, loadEl, loadText, loadBar};
+    d.ui = {pick, body, screen, box, warn, loadEl, loadText, loadBar, chip};
     return box;
   };
   const themePick = sel([['page', 'Page colours'], ...THEMES.map((n, i) => [String(i), n]).filter(([i]) => THEME_COLOURS[+i])], djTheme,
@@ -1474,6 +1485,7 @@ export function djDevicesChanged() {
 let crateBox = null;
 setCrateHooks({}, {
   decks: () => decks.map(d => ({i: d.i, name: NAMES[d.i], kind: d.kind, key: d.key || null})),
+  held: i => heldSav(decks[i])?.crc ?? null,   /* (the crate's ON A / ON B: the checksum of the .sav that deck's FM-1 holds) */
   stop: i => { const d = decks[i]; d.clock?.stop(); setSynced(d, false); deckBend(d, 1); d.nudging = false; draw(); },
   assign: (i, key) => assign(decks[i], key ? `fm1:${key}` : ''),
   avoid: i => [...decks.filter(d => d.i !== i && d.key && d.kind !== 'fm1').map(d => d.key),

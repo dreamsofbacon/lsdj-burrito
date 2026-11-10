@@ -149,6 +149,16 @@ export function songBytes(sav, slot) {
   return decompress(sav.bytes, BLOCKS + s.first * BLOCK_SIZE, b => (b >= 1 && b <= BLOCK_COUNT ? BLOCKS + (b - 1) * BLOCK_SIZE : null)).song;
 }
 
+/* A copy of a save with the song in slot as the one open: LSDj starts on its working song, so that song goes into
+   the working area and the open slot is set (the DJ crate: load a deck straight into a chosen song). The saved
+   songs are unchanged. */
+export function withOpenSong(bytes, slot) {
+  const sav = parseSav(bytes), out = bytes.slice();
+  out.set(songBytes(sav, slot), 0);
+  out[ACTIVE] = slot;
+  return out;
+}
+
 /* .lsdsng -> {name, version, song}. */
 export function readLsdsng(bytes) {
   if (!(bytes instanceof Uint8Array) || bytes.length < 9 + 3) throw new SavError('This is not an .lsdsng song file.');

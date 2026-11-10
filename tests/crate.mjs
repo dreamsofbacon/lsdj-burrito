@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 import assert from 'node:assert/strict';
-import {fileKind, loadItems, saveItems, addItem, removeItem, renameItem, pairItems, unusedSaves, describe} from '../lsdj/crate.js';
-import {SAV_SIZE, BLOCK_COUNT} from '../lsdj/lsdj-sav.js';
-import {BANK} from '../lsdj/lsdj-rom.js';
+import {fileKind, loadItems, saveItems, addItem, removeItem, renameItem, pairItems, unusedSaves, describe, recolorItem, moveItem, viewItems} from '../lsdj/crate.js';
+import {SAV_SIZE, SONG_SIZE, BLOCK_COUNT, buildSav, parseSav, songBytes, withOpenSong} from '../lsdj/lsdj-sav.js';
+import {BANK, crc32} from '../lsdj/lsdj-rom.js';
 
 /* a set-up save with one song "BEATS" in slot 0, and a small LSDj ROM header (no real LSDj: users bring their own) */
 const sav = (() => {
@@ -50,6 +50,42 @@ assert.deepEqual(items, []);
 assert.deepEqual(unusedSaves(items, before), [S], 'its save can go; the ROM stays (Sets shares it)');
 
 const lib = {[R]: rom, [S]: sav};
-assert.deepEqual(describe({rom: R, sav: S}, id => lib[id]), {kinds: ['LSDj', '.sav'], songs: ['BEATS'], open: 0, version: '9.3.9', missing: false});
+{
+  const t = describe({rom: R, sav: S}, id => lib[id]);
+  assert.deepEqual([t.kinds, t.songs, t.open, t.version, t.missing, t.kits], [['LSDj', '.sav'], ['BEATS'], 0, '9.3.9', false, []]);
+  assert.deepEqual(t.songList, [{slot: 0, name: 'BEATS', blocks: 1}]);
+  assert.equal(t.free, BLOCK_COUNT - 1);
+  assert.equal(t.crc, crc32(sav), 'the save\'s checksum, as the FM-1 reports it (the deck badge)');
+}
 assert.equal(describe({sav: S2}, id => lib[id]).missing, true);
-console.log('crate: PASS (file kinds, items, pairing, saved list, card text)');
+
+/* colours, your own order, search and sort */
+{
+  let list = ['Opener', 'closer', 'Breakdown'].reduce((l, n, k) => addItem(l, {name: n, sav: String(k).repeat(64).slice(0, 64).replace(/./g, 'abc'[k])}), []);
+  list = list.map((it, k) => ({...it, added: 100 + k}));
+  assert.ok(list.every(i => i.color === 'grey'));
+  list = recolorItem(list, list[1].id, 'teal');
+  assert.equal(list[1].color, 'teal');
+  assert.equal(recolorItem(list, list[1].id, 'plaid')[1].color, 'grey', 'only known colours');
+  assert.equal(loadItems(saveItems(list))[1].color, 'teal', 'kept');
+  assert.deepEqual(moveItem(list, list[2].id, 0).map(i => i.name), ['Breakdown', 'Opener', 'closer']);
+  assert.deepEqual(moveItem(list, list[0].id, 9).map(i => i.name), ['closer', 'Breakdown', 'Opener']);
+  assert.deepEqual(viewItems(list, {sort: 'name'}).map(i => i.name), ['Breakdown', 'closer', 'Opener']);
+  assert.deepEqual(viewItems(list, {sort: 'newest'}).map(i => i.name), ['Breakdown', 'closer', 'Opener']);
+  assert.deepEqual(viewItems(list, {query: 'OPEN'}).map(i => i.name), ['Opener']);
+  assert.deepEqual(viewItems(list, {query: 'acid'}, i => i.name === 'closer' ? 'ACIDLINE' : '').map(i => i.name), ['closer'], 'by a song\'s name');
+  assert.deepEqual(viewItems(list).map(i => i.name), ['Opener', 'closer', 'Breakdown'], 'your order');
+}
+
+/* straight into a chosen song: that song in the working area, opened; the saved songs untouched */
+{
+  const song = n => new Uint8Array(SONG_SIZE).map((_, k) => (k * n + n) & 0x7f);
+  const two = buildSav(sav, song(9), [{slot: 0, name: 'ONE', song: song(3)}, {slot: 1, name: 'TWO', song: song(5)}], 0);
+  const opened = withOpenSong(two, 1), p = parseSav(opened);
+  assert.equal(p.active, 1);
+  assert.deepEqual(opened.subarray(0, SONG_SIZE), song(5), 'TWO in the working area');
+  assert.deepEqual(opened.subarray(SONG_SIZE), two.subarray(SONG_SIZE).map((b, k) => k === 0x140 ? 1 : b), 'nothing else changed but the open slot');
+  assert.deepEqual(songBytes(p, 0), song(3));
+  assert.throws(() => withOpenSong(two, 7), /No song in slot 7/);
+}
+console.log('crate: PASS (file kinds, items, pairing, saved list, card text, colours, your order, search and sort, a chosen song opened)');
