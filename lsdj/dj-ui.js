@@ -21,7 +21,9 @@ import {startClock, clampBpm, PPQN, CLOCK, START, CONTINUE, STOP} from './midicl
 import {sameFm1} from './link.js';
 import {BAR, BEAT, NUDGE, position, offset, syncBend, nextOn, crossfade, CURVES, djFilter, tapper, clockMeter} from './dj.js';
 import {PRESETS, preset, readMidi, actionFor, out, learnRule, saveLearned, loadLearned} from './mixers.js';
-import {unpackFx, packFx, unpackReverb, packReverb, packReverbSends, CHANNELS, firmwareNumber, unpackSettings, PRESETS as THEME_COLOURS, CUSTOM_THEME, THEMES, unpackMidi, packMidi} from './fx-model.js';
+import {unpackFx, packFx, unpackReverb, packReverb, packReverbSends, CHANNELS, firmwareNumber, unpackSettings, PRESETS as THEME_COLOURS, CUSTOM_THEME, THEMES, unpackMidi, packMidi, paramSet, PARAM} from './fx-model.js';
+import {fxPanel} from './dj-fx.js';
+import {popOut, bringBack, isOut} from './popout.js';
 import {pageColours} from './page-theme.js';
 import {mountCrate, setCrateHooks, dropOnDeck, crateRedraw, CRATE_TYPE} from './crate-ui.js';
 import {savHeader, HEADER, HEADER_SIZE, BLOCK_COUNT} from './lsdj-sav.js';
@@ -129,7 +131,7 @@ function deckClock(d) {
 async function assign(d, value) {
   d.clock?.stop(); d.clock?.close(); d.clock = null;
   if (d.kind === 'fm1' && d.levelSent !== 127) void fullVolume(d.key);   /* the FM-1 leaving the deck: full volume again */
-  d.key = ''; d.kind = ''; d.live = null; d.fx = null; d.rv = null; d.base = null; d.kill = 0; d.filter = 0; setSynced(d, false); deckBend(d, 1); d.nudging = false;
+  d.key = ''; d.kind = ''; d.live = null; d.fx = null; d.rv = null; d.base = null; d.throwing = null; d.kill = 0; d.filter = 0; setSynced(d, false); deckBend(d, 1); d.nudging = false;
   d.savHead = null; d.sav = null; d.savMatch = null; d.savAt = 0; d.seenPlaying = false; d.idlePolls = 0;
   d.syncTried = null; d.clockOut = null; d.midiKnown = false; d.warn = {}; d.ownRow = null; setWarn(d, 'midi', '');
   d.level = null; d.levelSent = 127; d.scrOk = true; d.themeAt = 0; d.map = null; d.mapFrom = -1; d.mapFill = null;
@@ -137,7 +139,7 @@ async function assign(d, value) {
   if (value) { const [kind, ...k] = value.split(':'); d.kind = kind; d.key = k.join(':'); }
   if (d.kind && d.kind !== 'fm1') d.filterBy = d.throwBy = 'mixer';   /* only an FM-1 has effects of its own */
   if (d.kind === 'ab') abSpeed(d, 0);   /* a known start: normal speed */
-  drawLabel(d);
+  drawLabel(d); d.fxPanel?.rebuild();
   draw();
   crateRedraw();   /* its Load and Grab buttons follow the decks */
   if (d.kind !== 'fm1') return;
@@ -150,6 +152,7 @@ async function assign(d, value) {
       const w = await l.reverbGet(); d.rv = w === null ? null : unpackReverb(w, await l.reverbSendsGet());
     }
     d.base = structuredClone({ch: d.fx.ch, echo: d.fx.echo, rv: d.rv});
+    d.fxPanel?.rebuild();   /* its effects panel: this FM-1's */
   } catch (e) { say(`Deck ${NAMES[d.i]}: ${e.message}`); }
   await deckTheme(d, l);
   await deckSav(d, l).catch(() => {});
@@ -228,8 +231,57 @@ function pushFx(d) {
     catch (e) { say(`Deck ${NAMES[d.i]}: ${e.message}`); }
   }, 60);
 }
+/* ---------- each deck's effects panel (dj-fx.js): a drawer on its outer edge, a column, or its own window ---------- */
+let fxView = store.get('dj-fx-view', 'drawers') === 'columns' ? 'columns' : 'drawers';
+const fxOf = d => d.kind === 'fm1' && d.fx ? Object.assign(d.fx, {reverb: d.rv}) : null;
+/* a change from the panel: on the deck's FM-1 (coalesced, as the filter knob), and kept as what the DJ filter and
+   the throws put back afterwards */
+function fxEdit(d, key, c, v) {
+  const fx = fxOf(d);
+  if (!fx) return;
+  try { paramSet(fx, key, c, v); } catch (e) { return say(`Deck ${NAMES[d.i]}: ${e.message}`); }
+  d.fxTouched = now();
+  if (d.base) {
+    const p = PARAM[key];
+    if (!d.filter && !d.throwing) d.base = structuredClone({ch: d.fx.ch, echo: d.fx.echo, rv: d.rv});
+    else if (p.where === 'ch') d.base.ch[c] = {...d.base.ch[c], [key]: v, ...(key === 'type' ? {} : {type: d.fx.ch[c].type})};
+    else if (p.where === 'echo') d.base.echo[key] = v;
+    else if (p.where === 'rv' && d.base.rv) d.base.rv[key] = v;
+    else if (p.where === 'rvch' && d.base.rv?.rvSend) d.base.rv.rvSend[c] = v;
+  }
+  pushFx(d);
+  d.fxPanel?.refresh();
+}
+/* the FM-1's own knobs turned (LIVE carries its effects): taken in, unless this page is changing them right now (a
+   send waiting, the panel or the filter knob just moved, a throw held) */
+function adoptLiveFx(d) {
+  if (!d.fx || !d.live?.fx || d.sendTimer || d.throwing || now() - (d.fxTouched || 0) < 1500) return;
+  if (packFx(d.fx).join() === d.live.fx.join()) return;
+  let f;
+  try { f = unpackFx(d.live.fx); } catch { return; }
+  d.fx = f;
+  if (!d.filter) d.base = structuredClone({ch: f.ch, echo: f.echo, rv: d.rv});
+  d.fxPanel?.refresh();
+}
+function fxOpen(d, on) {
+  d.fxOpen = !!on; store.set(`dj-fx-open-${d.i}`, on ? '1' : '0');
+  d.ui?.fxBox?.classList.toggle('open', d.fxOpen);
+  d.ui?.fxTab?.setAttribute('aria-expanded', String(d.fxOpen));
+}
+const fxWin = d => `dj-fx-${d.i}`;
+function fxPop(d) {
+  if (isOut(fxWin(d))) return bringBack(fxWin(d));
+  if (!popOut(fxWin(d), d.ui.fxBox, {title: `Deck ${NAMES[d.i]} FX`, width: 460, height: 720}))
+    say('The browser blocked the new window: allow pop-ups for this page, then press ⇱ again.');
+}
+function setFxView(v) {
+  fxView = v === 'columns' ? 'columns' : 'drawers'; store.set('dj-fx-view', fxView);
+  root?.querySelector('.dj-grid')?.classList.toggle('fx-columns', fxView === 'columns');
+  root?.querySelectorAll('[data-fx-view]').forEach(b => { const on = b.dataset.fxView === fxView; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); });
+}
 function deckFilter(d, v) {
-  d.filter = v;
+  d.filter = v; d.fxTouched = now();
+  queueMicrotask(() => d.fxPanel?.refresh());
   if (d.filterBy === 'mixer') { const ch = mixer.map[d.i]; if (ch) mixerSend('filter', ch, v); }
   else if (d.fx && d.base) {
     const f = djFilter(v);
@@ -243,6 +295,8 @@ function deckFilter(d, v) {
 function deckThrow(d, what, on) {
   if (d.throwBy === 'mixer') { const ch = mixer.map[d.i]; if (ch) mixerSend('fx', ch, on ? 1 : 0); return; }
   if (!d.fx || !d.base) return;
+  d.throwing = on ? what : null; d.fxTouched = now();
+  queueMicrotask(() => d.fxPanel?.refresh());
   if (what === 'echo') {
     d.fx.ch.forEach((c, n) => { c.send = on ? 127 : d.base.ch[n].send; });
     d.fx.echo.mix = on && !d.base.echo.mix ? 64 : d.base.echo.mix;
@@ -376,9 +430,12 @@ async function deckTheme(d, l) {
 function paintDeck(d, vars) {
   const box = d.ui?.box;
   if (!box) return;
-  THEME_VARS.forEach(k => box.style.removeProperty(k));
-  if (vars) Object.entries(vars).forEach(([k, v]) => box.style.setProperty(k, v));
-  box.classList.toggle('themed', !!vars);
+  for (const b of [box, d.ui.fxBox]) {   /* its effects panel in the same colours */
+    if (!b) continue;
+    THEME_VARS.forEach(k => b.style.removeProperty(k));
+    if (vars) Object.entries(vars).forEach(([k, v]) => b.style.setProperty(k, v));
+    b.classList.toggle('themed', !!vars);
+  }
   const s = mixer.ui?.strips?.[d.i];
   if (s) stripColours(s, d);   /* its channel strip on the mixer too */
 }
@@ -447,7 +504,7 @@ async function pollRound() {
     if (!l) continue;
     try {
       d.live = await l.live();
-      fm1Stopped(d); ownAnchor(d);
+      fm1Stopped(d); ownAnchor(d); adoptLiveFx(d);
       await lsdjSync(d, l);
       if (d.live.level != null && !d.levelBusy) d.levelSent = d.live.level;
       if (d.live.level != null && d.levelSent !== (d.level ?? 127)) void sendLevel(d);   /* power cycled, or another page */
@@ -566,7 +623,7 @@ function drawDeck(d) {
   const fm1 = d.kind === 'fm1', fw = firmwareNumber(hooks.devices().find(x => x.key === d.key)?.fw), has98 = fw >= 998;
   u.body.replaceChildren();
   u.box.classList.toggle('empty', !d.key);
-  u.info = null; u.hold = null; u.map = null; u.rowIn = null; u.pitch = null; u.jog = null;
+  u.info = null; u.hold = null; u.map = null; u.rowIn = null; u.pitch = null; u.jog = null; u.led = null; u.beatShown = undefined;
   if (!d.key) { u.body.append(el('p', {className: 'hint dj-empty', textContent: 'Choose an FM-1 or another MIDI device for this deck.'})); return; }
   const running = !!d.clock?.running;
 
@@ -579,7 +636,11 @@ function drawDeck(d) {
     const view = deckView(d);
     const viewBtn = (v, text, title, disabled = false) => btn(text, () => setView(d, v),
       {className: view === v ? 'on' : '', disabled, title, ariaPressed: String(view === v)});
-    const box = el('div', {className: `dj-view-box ${view}`});
+    /* a Game Boy-style bezel in the FM-1's colours (index.html .dj-view-box.bezel): its padding is the frame, so the
+       screen keeps its exact shape inside; the band's two lines and the deck's name; a light lit while it plays */
+    const box = el('div', {className: `dj-view-box bezel ${view}`},
+      el('div', {className: 'dj-bezel-band', ariaHidden: 'true'}, el('i'), el('span', {textContent: `DECK ${NAMES[d.i]} · LSDJ`}), el('i')),
+      u.led = el('div', {className: `dj-bezel-led${running ? ' on' : ''}`, ariaHidden: 'true'}, el('b'), el('small', {textContent: 'PLAY'})));
     if (view === 'rows') { u.map = el('div', {className: 'dj-map mono', role: 'group', ariaLabel: `Deck ${NAMES[d.i]} song rows`}); box.append(u.map); }
     else box.append(d.scrOk ? u.screen
       : el('p', {className: 'hint dj-view-note', textContent: fw >= 983 ? 'This FM-1 did not send its screen. Choose the deck again to retry.' : `This FM-1's screen shows here with FM-1_983 or newer (it runs ${fw ? `FM-1_${fw}` : 'older firmware'}).`}));
@@ -900,7 +961,10 @@ function animate() {
     const u = d.ui;
     if (!u?.phase || !u.jog?.isConnected) continue;
     const p = deckPos(d, t), beat = p == null ? -1 : Math.floor(p / BEAT) % 4;
-    if (beat !== u.beatShown) { u.beatShown = beat; [...u.phase.children].forEach((s, b) => s.classList.toggle('on', b === beat)); }
+    if (beat !== u.beatShown) {
+      u.beatShown = beat; [...u.phase.children].forEach((s, b) => s.classList.toggle('on', b === beat));
+      if (u.led) { u.led.classList.toggle('on', beat >= 0); u.led.classList.toggle('one', beat === 0); }   /* the bezel's light: playing; brighter on the one */
+    }
     if (p != null) u.jog.style.setProperty('--turn', `${(p / BAR * 360).toFixed(1)}deg`);   /* once round a bar */
   }
 }
@@ -1025,9 +1089,29 @@ export function mountDj(box) {
   };
   const themePick = sel([['page', 'Page colours'], ...THEMES.map((n, i) => [String(i), n]).filter(([i]) => THEME_COLOURS[+i])], djTheme,
     v => { djTheme = v; store.set('dj-theme', v); applyDjTheme(); }, 'DJ colours');
+  /* each deck's effects panel (dj-fx.js), on its outer edge: a drawer with a tab, or a column (FX: Drawers |
+     Columns); ⇱ puts it in its own window (popout.js), ⇱ there or closing the window brings it back */
+  const fxBox = d => {
+    const ab = d.i ? 'b' : 'a';
+    d.fxPanel = fxPanel({name: `Deck ${NAMES[d.i]}`, get: () => fxOf(d), set: (k, c, v) => fxEdit(d, k, c, v),
+      fw: () => fwOf(d) || Infinity, page: +store.get(`dj-fx-page-${d.i}`, 1), onPage: p => store.set(`dj-fx-page-${d.i}`, String(p)),
+      actions: [btn('⇱', () => fxPop(d), {className: 'dj-fx-pop', title: 'In its own window (again: back here)', ariaLabel: `Deck ${NAMES[d.i]} FX in its own window`}),
+        btn('✕', () => fxOpen(d, false), {className: 'dj-fx-close', title: 'Close the drawer', ariaLabel: `Close deck ${NAMES[d.i]} FX`})]});
+    d.ui.fxBox = el('section', {className: `dj-fx dj-fx-${ab}`, ariaLabel: `Deck ${NAMES[d.i]} effects`}, d.fxPanel.el);
+    d.ui.fxTab = btn(`FX ${NAMES[d.i]}`, () => fxOpen(d, !d.fxOpen), {className: `dj-fx-tab dj-fx-tab-${ab}`, title: `Deck ${NAMES[d.i]}'s effects`});
+    fxOpen(d, store.get(`dj-fx-open-${d.i}`, '0') === '1');
+    return d.ui.fxBox;
+  };
+  const deckA = deckBox(decks[0]), deckB = deckBox(decks[1]);
+  const viewBtn = (v, text) => btn(text, () => setFxView(v), {className: fxView === v ? 'on' : '', ariaPressed: String(fxView === v)});
+  const fxViews = el('div', {className: 'seg dj-fx-views', role: 'group', ariaLabel: 'FX panels'}, viewBtn('drawers', 'Drawers'), viewBtn('columns', 'Columns'));
+  fxViews.querySelectorAll('button').forEach((b, n) => { b.dataset.fxView = n ? 'columns' : 'drawers'; });
   box.replaceChildren(
-    el('div', {className: 'dj-top'}, statusEl, logBox(), el('details', {className: 'dj-help'}, el('summary', {textContent: 'How to set up'}), el('p', {textContent: HELP})), el('label', {className: 'hint', title: 'The DJ layout\'s own colours: its background and the master and mixer. FM-1 decks keep their FM-1\'s theme.'}, 'DJ colours ', themePick)),
-    el('div', {className: 'dj-grid'}, deckBox(decks[0]), el('section', {className: 'dj-mixer', ariaLabel: 'Master and mixer'}), deckBox(decks[1])),
+    el('div', {className: 'dj-top'}, statusEl, logBox(), el('details', {className: 'dj-help'}, el('summary', {textContent: 'How to set up'}), el('p', {textContent: HELP})),
+      el('label', {className: 'hint', title: 'Each deck\'s effects: drawers that open from the outer edges, or columns always open'}, 'FX ', fxViews),
+      el('label', {className: 'hint', title: 'The DJ layout\'s own colours: its background and the master and mixer. FM-1 decks keep their FM-1\'s theme.'}, 'DJ colours ', themePick)),
+    el('div', {className: `dj-grid${fxView === 'columns' ? ' fx-columns' : ''}`}, fxBox(decks[0]), deckA, el('section', {className: 'dj-mixer', ariaLabel: 'Master and mixer'}), deckB, fxBox(decks[1]),
+      decks[0].ui.fxTab, decks[1].ui.fxTab),
     crateBox = el('section', {className: 'dj-crate', ariaLabel: 'Crate'}),
   );
   void mountCrate(crateBox);

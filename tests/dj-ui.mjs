@@ -35,7 +35,7 @@ function fm1(n, title, fw = 'FM-1_997') {
     settings: packSettings({...unpackSettings(0x5a000000), theme: n % PRESETS.length}),   /* each its own theme */
     infos: 0, reads: 0, begins: 0, importing: null, save: fakeSave([{slot: 0, name: 'TECHNO', version: 2, blocks: 10}], 0),
     midiWord: (0x4D000000 | 1 | 8 | 1 << 17) >>> 0, midiSets: [], sync: 5, syncSets: [], dev2: true};   /* MIDI: CLOCK IN ALL, TRANSPORT ON, PC CUE ON; LSDj SYNC KEYBD */
-  const fx = Array(68).fill(0);
+  const fx = Array(68).fill(0); d.fxBytes = fx;   /* (a knob turned on the FM-1: change these) */
   fx[36] = 5; fx[37] = 2; fx[42] = 0xf2; fx[38] = 1;
   d.input = Object.assign(new EventTarget(), {id: `in-${n}`, name: 'FM-1', state: 'connected', onmidimessage: null});
   d.output = {id: `out-${n}`, name: 'FM-1', state: 'connected', send(message, ts) {
@@ -54,7 +54,7 @@ function fm1(n, title, fw = 'FM-1_997') {
     if (op === OP.CHUNK) { const off = body[0] | body[1] << 8 | body[2] << 16 | body[3] << 24; d.importing?.set(body.slice(4, 132), off); return send(); }
     if (op === OP.COMMIT) { if (d.importing) { d.save = d.importing; d.importing = null; } return send(); }
     if (op === OP.FX_GET) return send(fx);
-    if (op === OP.FX_SET) { d.fxSets.push(body); return send(); }
+    if (op === OP.FX_SET) { d.fxSets.push(body); fx.splice(0, body.length, ...body); return send(); }   /* (kept, as the FM-1 does: LIVE then reports it) */
     if (op === OP.MUTE_SET) { d.mutes.push(body[0]); return send(); }
     if (op === OP.SETTINGS_GET) return send([0, 8, 16, 24].map(s => (d.settings >>> s) & 255));
     if (op >= OP.SCREEN_INFO && op <= OP.SCREEN_FRAME) d.screens++;   /* (no screen here: the deck says so) */
@@ -92,7 +92,7 @@ export async function runDjUiTests() {
   const AB = {sent: []};
   AB.output = {id: 'ab-out', name: 'Arduinoboy', state: 'connected', send(m) { AB.sent.push([...m]); }};
   access.outputs = new Map([['a', A.output], ['b', B.output], ['t', T.output], ['ab', AB.output]]);
-  for (const k of ['lsdj-burrito-stage', 'dj-mixer', 'dj-mixer-in', 'dj-mixer-out', 'dj-mixer-map', 'dj-bpm', 'dj-learned', 'dj-view-0', 'dj-view-1', 'dj-whole', 'dj-theme', 'dj-ab-ch']) try { localStorage.removeItem(k); } catch {}
+  for (const k of ['lsdj-burrito-stage', 'dj-mixer', 'dj-mixer-in', 'dj-mixer-out', 'dj-mixer-map', 'dj-bpm', 'dj-learned', 'dj-view-0', 'dj-view-1', 'dj-whole', 'dj-theme', 'dj-ab-ch', 'dj-fx-view', 'dj-fx-open-0', 'dj-fx-open-1', 'dj-fx-page-0', 'dj-fx-page-1']) try { localStorage.removeItem(k); } catch {}
   try {
     Object.defineProperty(navigator, 'requestMIDIAccess', {configurable: true, value: async () => access});
     await $('connect-btn').onclick();
@@ -528,12 +528,47 @@ export async function runDjUiTests() {
     assert(/running LSDj-BBB/.test($('device').textContent), `Follow in the DJ layout: the FM-1 in use stays: ${$('device').textContent}`);
     if (followBtn.getAttribute('aria-pressed') === 'true') followBtn.click();
     play(1);
+
+    // 12. the bezel round each FM-1 deck's screen; each deck's FX panel (lsdj/dj-fx.js): a drawer from its outer
+    //     edge, changes only its own FM-1, follows a knob turned on the FM-1, a Columns view, its own window and back
+    choose(pickA, ''); choose(pickA, 'fm1:out-1');
+    await until(() => djState().decks[0].fx, 'deck A read FM-1 A\'s effects again');
+    const deckBoxA = [...document.querySelectorAll('.dj-deck')][0];
+    assert(deckBoxA.querySelector('.dj-view-box.bezel .dj-bezel-band') && deckBoxA.querySelector('.dj-bezel-led'), 'deck A: its screen in a bezel, with the band and the light');
+    const fxA = document.querySelector('.dj-fx-a'), tabA = document.querySelector('.dj-fx-tab-a');
+    assert(fxA && !fxA.classList.contains('open') && getComputedStyle(fxA).visibility === 'hidden', 'drawer A closed at first');
+    tabA.click();
+    await until(() => getComputedStyle(fxA).visibility === 'visible', 'drawer A opens', 2000);
+    [...fxA.querySelectorAll('.dj-fx-pages button')].find(b => b.textContent === 'FILTER').click();
+    const cut = () => fxA.querySelector('input[aria-label="Deck A Cutoff PU1"]');
+    assert(cut(), `the FILTER page: a cutoff for each channel: ${fxA.textContent.slice(0, 200)}`);
+    const aSets = A.fxSets.length, bSets = B.fxSets.length;
+    cut().value = 90; cut().dispatchEvent(new Event('input', {bubbles: true}));
+    await until(() => A.fxSets.length > aSets && A.fxSets.at(-1)[1] === 90 && A.fxSets.at(-1)[0] === 1, `PU1 cutoff 90 (and a filter type) sent to FM-1 A: ${A.fxSets.at(-1)?.slice(0, 3)}`, 2000);
+    assert(B.fxSets.length === bSets, 'nothing to FM-1 B');
+    /* a knob turned on FM-1 A (PU1 resonance): the panel follows, once the page's own change has settled */
+    A.fxBytes[2] = 9;
+    const resoOut = () => fxA.querySelector('input[aria-label="Deck A Resonance PU1"]')?.closest('.dj-fx-cell')?.querySelector('output')?.textContent;
+    await until(() => resoOut() === '9', `the panel follows FM-1 A's knob: ${resoOut()}`, 5000);
+    /* Columns: both panels open beside the decks; Drawers again */
+    document.querySelector('[data-fx-view=columns]').click();
+    assert(document.querySelector('.dj-grid').classList.contains('fx-columns') && getComputedStyle(document.querySelector('.dj-fx-b')).position === 'static', 'Columns: both panels in the grid');
+    document.querySelector('[data-fx-view=drawers]').click();
+    assert(!document.querySelector('.dj-grid').classList.contains('fx-columns'), 'Drawers again');
+    /* its own window, and back */
+    fxA.querySelector('.dj-fx-pop').click();
+    await until(() => document.body.classList.contains('pop-dj-fx-0') && fxA.ownerDocument !== document, 'drawer A in its own window', 3000);
+    fxA.querySelector('.dj-fx-pop').click();
+    await until(() => !document.body.classList.contains('pop-dj-fx-0') && fxA.ownerDocument === document && fxA.isConnected, 'back in the layout', 3000);
+    fxA.querySelector('.dj-fx-close').click();
+    assert(!fxA.classList.contains('open'), 'closed with ✕');
+
     document.querySelector('#stage-mode [data-mode="fx"]').click();
     djState().decks.forEach(d => d.clock?.stop());
     /* never two links on one FM-1 input (link.js says so in the Log: the older one would stop hearing) */
     { const {logEntries} = await import('../lsdj/conn-log.js'); const two = logEntries().filter(e => /Two links on one FM-1 input/.test(e.text));
       assert(!two.length, `two links on one input: ${two.map(e => e.text).join(' | ')}`); }
-    return 'PASS DJ layout: switch, decks on FM-1s, Start and clocks per deck, the next bar, its own tempo, Sync (a lock: lit, keeps the bar, follows the master, on a stopped deck, lets go when typed), stem kill, DJ filter, Perform › Clock off, 0.9.98 (crossfader to FM-1 volume, Hold), DJ colours (the page and panel; FM-1 decks keep theirs), each deck its FM-1 colours, its label (the .sav sent, the open song, changed since), Screen | Rows (screen, song row map, click to cue), Tap quickly (no redraw), Whole BPM, TX-6 button and crossfader, fader mirrored, full volume after, an ArduinoBoy deck (speed notes, its channel, Start and clocks, FM-1 controls hidden), the crate (a .sav onto deck A while B plays on, untouched; Grab B), an FM-1 pulled and back (the deck takes it back, playing, also on new port ids with its .sav label; the Log), stopped on the FM-1 (the deck stops too), never two links on one input, each deck sets its FM-1 up (MIDI settings, LSDj SYNC to KEYBD; the warning strip), the jog every frame, a switch while the decks poll, Follow put in the DJ layout';
+    return 'PASS DJ layout: switch, decks on FM-1s, Start and clocks per deck, the next bar, its own tempo, Sync (a lock: lit, keeps the bar, follows the master, on a stopped deck, lets go when typed), stem kill, DJ filter, Perform › Clock off, 0.9.98 (crossfader to FM-1 volume, Hold), DJ colours (the page and panel; FM-1 decks keep theirs), each deck its FM-1 colours, its label (the .sav sent, the open song, changed since), Screen | Rows (screen, song row map, click to cue), Tap quickly (no redraw), Whole BPM, TX-6 button and crossfader, fader mirrored, full volume after, an ArduinoBoy deck (speed notes, its channel, Start and clocks, FM-1 controls hidden), the crate (a .sav onto deck A while B plays on, untouched; Grab B), an FM-1 pulled and back (the deck takes it back, playing, also on new port ids with its .sav label; the Log), stopped on the FM-1 (the deck stops too), never two links on one input, each deck sets its FM-1 up (MIDI settings, LSDj SYNC to KEYBD; the warning strip), the jog every frame, a switch while the decks poll, Follow put in the DJ layout, the screens bezels, each deck FX panel (a drawer, only its own FM-1, follows its knobs, Columns, its own window)';
   } finally {
     if (descriptor) Object.defineProperty(navigator, 'requestMIDIAccess', descriptor); else delete navigator.requestMIDIAccess;
   }
