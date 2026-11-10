@@ -16,6 +16,12 @@ const PUSH_MS = 1000, PUSH_RETRY_MS = 100;   // FM-1_990: renew the push (it las
 
 /* RGB565 (as the LCD) -> [r, g, b] */
 export const rgb = c => [Math.round((c >> 11) * 255 / 31), Math.round((c >> 5 & 63) * 255 / 63), Math.round((c & 31) * 255 / 31)];
+/* rgb for every RGB565 value, made once: put() runs for 23,040 pixels a picture */
+let RGB = null;
+const rgbTable = () => {
+  if (!RGB) { RGB = new Uint8Array(65536 * 3); for (let c = 0; c < 65536; c++) RGB.set(rgb(c), 3 * c); }
+  return RGB;
+};
 
 /* A SCREEN_ROW reply's data -> {row, px: 160 RGB565 values}, or null if it is malformed */
 export function decodeRow(d) {
@@ -294,10 +300,10 @@ export class ScreenMirror {
     this.ctx.putImageData(this.img, 0, 0);
   }
   put({row, px}) {
-    const d = this.img.data;
-    for (let x = 0; x < W; x++) {
-      const [r, g, b] = rgb(px[x]), o = 4 * (row * W + x);
-      d[o] = r; d[o + 1] = g; d[o + 2] = b; d[o + 3] = 255;
+    const d = this.img.data, t = rgbTable();
+    for (let x = 0, o = 4 * row * W; x < W; x++, o += 4) {
+      const k = 3 * px[x];
+      d[o] = t[k]; d[o + 1] = t[k + 1]; d[o + 2] = t[k + 2]; d[o + 3] = 255;
     }
   }
   /* the picture as RGB565 (tests) */

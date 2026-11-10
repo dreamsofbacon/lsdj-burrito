@@ -19,7 +19,7 @@
 //   on that FM-1's link, or (0.9.98) the song row map: click a row to cue it.
 import {startClock, clampBpm, PPQN, CLOCK, START, CONTINUE, STOP, LOOKAHEAD_MS} from './midiclock.js';
 import {sameFm1, OP} from './link.js';
-import {BAR, BEAT, NUDGE, position, offset, syncBend, nextOn, crossfade, CURVES, djFilter, tapper, clockMeter} from './dj.js';
+import {BAR, BEAT, NUDGE, offset, syncBend, nextOn, crossfade, CURVES, djFilter, tapper, clockMeter} from './dj.js';
 import {PRESETS, preset, readMidi, actionFor, out, learnRule, saveLearned, loadLearned} from './mixers.js';
 import {stepBpm, repeater, scaleBpm, glide, glideAt, GLIDE_BARS, PITCH_RANGES, rangeText, pickRange, pitchOf, bpmOfPitch, PADS, loadPads, savePads} from './dj-tempo.js';
 import {unpackFx, packFx, unpackReverb, packReverb, packReverbSends, CHANNELS, firmwareNumber, unpackSettings, PRESETS as THEME_COLOURS, CUSTOM_THEME, THEMES, unpackMidi, packMidi, paramSet, PARAM} from './fx-model.js';
@@ -61,8 +61,13 @@ const decks = [0, 1].map(i => ({i, key: '', kind: '', bpm: master.bpm, clock: nu
   view: store.get(`dj-view-${i}`, 'screen'), map: null, mapFrom: -1, mapAt: 0, mapFill: null, abSpeed: 0,
   range: pickRange(store.get(`dj-range-${i}`, 800))}));
 let root = null, ticker = 0, polling = 0, shown = false;
-/* the deck's FM-1 firmware number (998: 0.9.98), 0 for other gear */
-const fwOf = d => d.kind === 'fm1' ? firmwareNumber(hooks.devices().find(x => x.key === d.key)?.fw) || 0 : 0;
+/* the deck's FM-1 firmware number (998: 0.9.98), 0 for other gear; cached until the FM-1 list changes */
+const fwCache = new Map();
+const fwOf = d => {
+  if (d.kind !== 'fm1') return 0;
+  if (!fwCache.has(d.key)) fwCache.set(d.key, firmwareNumber(hooks.devices().find(x => x.key === d.key)?.fw) || 0);
+  return fwCache.get(d.key);
+};
 const hex2 = n => n.toString(16).toUpperCase().padStart(2, '0');
 
 /* ---------- the master clock ---------- */
@@ -676,24 +681,29 @@ function fm1Stopped(d) {
   say(`Deck ${NAMES[d.i]}: stopped on the FM-1.`);
   drawDeck(d);
 }
+/* while a deck plays, its colours are read less often: those reads queue ahead of its sends */
+const THEME_MS = 8000, THEME_PLAYING_MS = 30000;
+const playingNow = d => !!d.clock?.running || !!d.live?.playing;
+/* the decks at once: each FM-1 has its own link, so deck B no longer waits for deck A's whole round */
 async function pollRound() {
-  for (const d of decks) {
-    deckScreen(d);
-    if (d.kind !== 'fm1') continue;
-    const l = hooks.linkFor(d.key);
-    if (!l) continue;
-    try {
-      const asked = now();
-      d.live = await l.live(); d.live.askedAt = asked;   /* (when it was asked: killSettle trusts only a fresh one) */
-      fm1Stopped(d); ownAnchor(d); adoptLiveFx(d); killSettle(d);
-      await lsdjSync(d, l);
-      if (d.live.level != null && !d.levelBusy) d.levelSent = d.live.level;
-      if (d.live.level != null && d.levelSent !== (d.level ?? 127)) void sendLevel(d);   /* power cycled, or another page */
-      if (now() - (d.themeAt || 0) > 8000) await deckTheme(d, l);
-      if (now() - (d.savAt || 0) > SAV_MS) await deckSav(d, l).catch(() => {});   /* (an import under way: next time) */
-      if (deckView(d) === 'rows') { await readMap(d, l); drawMap(d); }   /* (read only while the rows show) */
-    } catch { d.live = null; }
-  }
+  await Promise.all(decks.map(pollDeck));
+}
+async function pollDeck(d) {
+  deckScreen(d);
+  if (d.kind !== 'fm1') return;
+  const l = hooks.linkFor(d.key);
+  if (!l) return;
+  try {
+    const asked = now();
+    d.live = await l.live(); d.live.askedAt = asked;   /* (when it was asked: killSettle trusts only a fresh one) */
+    fm1Stopped(d); ownAnchor(d); adoptLiveFx(d); killSettle(d);
+    await lsdjSync(d, l);
+    if (d.live.level != null && !d.levelBusy) d.levelSent = d.live.level;
+    if (d.live.level != null && d.levelSent !== (d.level ?? 127)) void sendLevel(d);   /* power cycled, or another page */
+    if (now() - (d.themeAt || 0) > (playingNow(d) ? THEME_PLAYING_MS : THEME_MS)) await deckTheme(d, l);
+    if (now() - (d.savAt || 0) > SAV_MS) await deckSav(d, l).catch(() => {});   /* (an import under way: next time) */
+    if (deckView(d) === 'rows') { await readMap(d, l); drawMap(d); }   /* (read only while the rows show) */
+  } catch { d.live = null; }
 }
 
 /* ---------- the mixer ---------- */
@@ -702,7 +712,8 @@ function mixerPorts() {
   return {ins: [...(a?.inputs?.values() || [])], outs: [...(a?.outputs?.values() || [])]};
 }
 function mixerSend(what, ...args) {
-  const o = mixerPorts().outs.find(p => p.id === mixer.outId);
+  const outs = hooks.access()?.outputs;
+  const o = outs?.get?.(mixer.outId) ?? [...(outs?.values() || [])].find(p => p.id === mixer.outId);
   if (!o) return false;
   const msgs = out(preset(mixer.id), what, ...args);
   try { msgs.forEach(m => o.send(m)); } catch { return false; }
@@ -1216,23 +1227,24 @@ function tick() {
   decks.forEach(d => {
     const u = d.ui;
     if (!u?.bpm) return;
-    const ph = d.clock?.phase(t) ?? null, pos = position(ph);
+    const ph = d.clock?.phase(t) ?? null;
     /* not clocked by this page: the FM-1's own phrase row (0.9.98; a phrase is a bar, 4 rows a beat), as last polled */
     const own = ph == null ? fm1Row(d) : null;
-    u.bpm.textContent = own != null ? String(d.live.bpm) : bpmText(d.bpm * (d.clock?.factor || 1));
-    void pos;   /* (the beat lights and the jog: animate, every frame) */
+    setText(u.bpm, own != null ? String(d.live.bpm) : bpmText(d.bpm * (d.clock?.factor || 1)));
     /* the pitch against the master: the fader (unless held) and its percentage */
     const pv = pitchValue(d), pt = `${pv > 0 ? '+' : pv < 0 ? '−' : '±'}${(Math.abs(pv) / 100).toFixed(2)} %`;
     if (u.pitchTxt && u.pitchTxt.textContent !== pt) u.pitchTxt.textContent = pt;
     if (u.pitch && !u.pitchHeld && u.pitch.ownerDocument.activeElement !== u.pitch && +u.pitch.value !== pv) u.pitch.value = pv;
     const gap = offset(ph, m.phase);
-    u.gap.textContent = gap != null ? (Math.abs(gap) < 0.5 ? 'in sync' : `${gap > 0 ? 'behind' : 'ahead'} ${(Math.abs(gap) / 6).toFixed(1)} rows`)
-      : own != null ? `own clock · row ${hex2(own)}` : d.clock?.running ? 'no master' : 'stopped';
-    if (u.info) u.info.textContent = !d.live ? '' : [`On the FM-1: ${d.live.bpm} BPM · playing ${CHANNELS.filter((n, c) => (d.live.playing >> c) & 1).join(' ') || 'nothing'}`,
-      d.live.level != null && d.live.level < 127 ? `volume ${Math.round(d.live.level / 1.27)} % from this page` : ''].filter(Boolean).join(' · ');
-    if (u.hold && d.live?.live != null) { u.hold.textContent = d.live.live ? 'Held' : 'Hold'; u.hold.classList.toggle('on', d.live.live); }
+    setText(u.gap, gap != null ? (Math.abs(gap) < 0.5 ? 'in sync' : `${gap > 0 ? 'behind' : 'ahead'} ${(Math.abs(gap) / 6).toFixed(1)} rows`)
+      : own != null ? `own clock · row ${hex2(own)}` : d.clock?.running ? 'no master' : 'stopped');
+    if (u.info) setText(u.info, !d.live ? '' : [`On the FM-1: ${d.live.bpm} BPM · playing ${CHANNELS.filter((n, c) => (d.live.playing >> c) & 1).join(' ') || 'nothing'}`,
+      d.live.level != null && d.live.level < 127 ? `volume ${Math.round(d.live.level / 1.27)} % from this page` : ''].filter(Boolean).join(' · '));
+    if (u.hold && d.live?.live != null) { setText(u.hold, d.live.live ? 'Held' : 'Hold'); u.hold.classList.toggle('on', d.live.live); }
   });
 }
+/* (20 times a second: a write only when the text changed, so the page isn't laid out again for nothing) */
+const setText = (e, s) => { if (e.textContent !== s) e.textContent = s; };
 /* The jog wheels and beat lights, every frame the screen draws (requestAnimationFrame), not on the 50 ms tick: they
    turned in 20 steps a second, unevenly. Colin saw deck A's skip. */
 let animating = 0;
@@ -1444,6 +1456,7 @@ export function djShown(on) {
 /* the FM-1s plugged in changed: the choices follow; a deck whose FM-1 went away is emptied */
 let seenFm1s = new Map();   /* key -> {title, fw, crc}: what each FM-1 in the list last said, for knowing it again */
 export function djDevicesChanged() {
+  fwCache.clear();
   const list = hooks.devices();
   /* its FM-1 gone (pulled, a USB hiccup, or it didn't answer a search): the deck empties, and remembers it, playing
      and Sync included, so it takes it back by itself when it's found again (until another is chosen here) */
@@ -1499,3 +1512,8 @@ setCrateHooks({}, {
   },
 });
 export const djState = () => ({master, mixer, decks});
+/* a deck's LIVE of this FM-1 asked within maxAge ms, or null: app.js takes it instead of asking the same link again */
+export function djLive(key, maxAge = 1000) {
+  const d = decks.find(x => x.kind === 'fm1' && x.key === key && x.live?.askedAt != null);
+  return d && now() - d.live.askedAt <= maxAge ? d.live : null;
+}

@@ -15,7 +15,7 @@ import {CHANNELS, pagesForFx, PARAM, paramGet, paramSet, valueText, channelSumma
 import {fxDiagram, pageFor} from './fx-diagram.js';
 import {zipStore} from './zip.js';
 import {startClock, startRelay, clampBpm} from './midiclock.js';
-import {mountDj, setDjHooks, djShown, djDevicesChanged, rememberSav} from './dj-ui.js';
+import {mountDj, setDjHooks, djShown, djDevicesChanged, rememberSav, djLive} from './dj-ui.js';
 import {romFromSlot} from './lsdj-rom.js';
 import {ScreenMirror} from './screen.js';
 import {popOut, onPopChange, isOut, docs, seen, anyVisible, visibleWindow} from './popout.js';
@@ -1025,6 +1025,7 @@ function changedKeys(a, b) {
     (PARAM[k].where !== 'rvch' || (a.reverb?.rvSend && b.reverb?.rvSend)) &&
     [0, 1, 2, 3].some(c => paramGet(a, k, c) !== paramGet(b, k, c)));
 }
+let lastBadges = '';
 async function tick() {
   if (!link || busy || !anyVisible() || (virtual && virtualPaused())) return;   /* a paused virtual FM-1 answers nothing */
   if (portGone()) return lost(UNPLUGGED);
@@ -1035,7 +1036,7 @@ async function tick() {
   if (dj && ++ticks % 2) return;
   try {
     if (!dj && ++ticks % 8 === 0) await followThemeSetting();
-    const l = await link.live();
+    const l = (dj && djLive(curKey())) || await link.live();   /* a deck already polls this FM-1: its answer, not another LIVE on the link */
     { const key = liveKey(l); if (lastKey !== null && key !== lastKey) activeAt = Date.now(); lastKey = key; }   /* played: Follow stays */
     const live = unpackFx(l.fx);
     live.reverb = fx.reverb && ticks % 2 === 0 && !dj ? await readReverb()
@@ -1052,10 +1053,11 @@ async function tick() {
     lastLive = l; missed = 0;
     refresh(hot);
     const bat = l.battery;   // {bars, usb} or null (lsdj/link.js)
-    $('live-badges').innerHTML = `<span class="badge">${pagesForFx(live, fwNum)[fm1Page]?.name || ''}</span><span class="badge">${l.bpm} BPM</span>` +
+    const badges = `<span class="badge">${pagesForFx(live, fwNum)[fm1Page]?.name || ''}</span><span class="badge">${l.bpm} BPM</span>` +
       (live.bypass ? '<span class="badge">ALL FX OFF</span>' : '') +
       (l.freeze ? '<span class="badge on">FROZEN</span>' : '') +
       (bat ? `<span class="badge" title="The FM-1's battery (3 bars: full)">${bat.usb ? 'USB power' : 'Battery ' + '▮'.repeat(bat.bars) + '▯'.repeat(3 - bat.bars)}</span>` : '');
+    if (badges !== lastBadges) { lastBadges = badges; $('live-badges').innerHTML = badges; }
   } catch (e) {   /* a missed poll: try again on the next; LOST_POLLS in a row: the FM-1 is gone */
     if (portGone()) lost(UNPLUGGED);
     else if (e.cause === 'timeout' && ++missed >= LOST_POLLS && silent(link)) lost('The FM-1 stopped answering. Check the cable and that LSDJ Burrito is running, then press Connect.');

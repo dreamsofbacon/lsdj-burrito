@@ -6,6 +6,7 @@
 /* One cache per site: the live page and the dev page (/lsdj-burrito-dev/) share dreamsofbacon.github.io,
    so each keeps its own and only ever clears its own older ones (and the first, unnamed burrito-v1). */
 const SCOPE = self.registration.scope, CACHE = 'burrito-v2 ' + SCOPE;
+const NET_MS = 4000;
 const FILES = [
   './', 'index.html', 'manifest.webmanifest', 'manifest-dev.webmanifest', 'favicon.ico', 'LICENSE',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png', 'icons/apple-touch-icon.png', 'icons/favicon-32.png',
@@ -36,9 +37,19 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   const req = e.request, url = new URL(req.url);
   if (req.method !== 'GET' || url.origin !== location.origin || req.headers.has('range')) return;
-  e.respondWith(fetch(req).then(res => {
-    if (res.ok && res.type === 'basic') { const copy = res.clone(); caches.open(CACHE).then(c => c.put(req, copy)); }
+  let stored = Promise.resolve();
+  const net = fetch(req).then(res => {
+    if (res.ok && res.type === 'basic') { const copy = res.clone(); stored = caches.open(CACHE).then(c => c.put(req, copy)).catch(() => {}); }
     return res;
-  }).catch(async () => (await caches.match(req, {ignoreSearch: true})) ||
-    (req.mode === 'navigate' && await caches.match('index.html')) || Response.error()));
+  });
+  const kept = async () => (await caches.match(req, {ignoreSearch: true})) || (req.mode === 'navigate' && await caches.match('index.html')) || null;
+  /* a network slower than NET_MS (venue Wi-Fi): the kept copy now, while the fresh one still goes into the cache */
+  e.respondWith(new Promise(resolve => {
+    let done = false;
+    const give = r => { if (!done && r) { done = true; resolve(r); } };
+    const t = setTimeout(() => kept().then(give), NET_MS);
+    net.then(res => { clearTimeout(t); give(res); },
+      async () => { clearTimeout(t); give((await kept()) || Response.error()); });
+  }));
+  e.waitUntil(net.then(() => stored, () => {}));
 });

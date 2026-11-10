@@ -22,6 +22,6 @@ assert.match(html, /id="install-app"[^>]* hidden/);
 const sw = readFileSync(join(root, 'sw.js'), 'utf8');
 const listed = [...sw.match(/const FILES = \[([\s\S]*?)\];/)[1].matchAll(/'([^']+)'/g)].map(x => x[1]).filter(f => f !== './');
 const walk = d => readdirSync(d).flatMap(n => { const p = join(d, n); return statSync(p).isDirectory() ? walk(p) : [relative(root, p).split('\\').join('/')]; });
-const site = walk(root).filter(f => !/^(\.git\/|tests\/)/.test(f) && !['README.md', '.nojekyll', 'sw.js'].includes(f)).sort();
+const site = walk(root).filter(f => !/^(\.git\/|\.github\/|tests\/)/.test(f) && !['README.md', '.nojekyll', 'sw.js'].includes(f)).sort();
 assert.deepEqual([...listed].sort(), site, 'sw.js FILES must list every site file');
 console.log(`PASS installable app: manifest, ${m.icons.length} icons, offline copy of all ${site.length} site files`);
