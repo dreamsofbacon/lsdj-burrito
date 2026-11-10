@@ -92,7 +92,7 @@ export async function runDjUiTests() {
   const AB = {sent: []};
   AB.output = {id: 'ab-out', name: 'Arduinoboy', state: 'connected', send(m) { AB.sent.push([...m]); }};
   access.outputs = new Map([['a', A.output], ['b', B.output], ['t', T.output], ['ab', AB.output]]);
-  for (const k of ['lsdj-burrito-stage', 'dj-mixer', 'dj-mixer-in', 'dj-mixer-out', 'dj-mixer-map', 'dj-bpm', 'dj-learned', 'dj-view-0', 'dj-view-1', 'dj-whole', 'dj-theme', 'dj-ab-ch', 'dj-fx-view', 'dj-fx-open-0', 'dj-fx-open-1', 'dj-fx-page-0', 'dj-fx-page-1']) try { localStorage.removeItem(k); } catch {}
+  for (const k of ['lsdj-burrito-stage', 'dj-mixer', 'dj-mixer-in', 'dj-mixer-out', 'dj-mixer-map', 'dj-bpm', 'dj-learned', 'dj-view-0', 'dj-view-1', 'dj-whole', 'dj-theme', 'dj-ab-ch', 'dj-fx-view', 'dj-fx-open-0', 'dj-fx-open-1', 'dj-fx-page-0', 'dj-fx-page-1', 'dj-pads', 'dj-tempo-bar', 'dj-pad-glide', 'dj-glide-bars', 'dj-range-0', 'dj-range-1']) try { localStorage.removeItem(k); } catch {}
   try {
     Object.defineProperty(navigator, 'requestMIDIAccess', {configurable: true, value: async () => access});
     await $('connect-btn').onclick();
@@ -333,6 +333,92 @@ export async function runDjUiTests() {
     assert(!djState().master.whole, 'Whole BPM off again');
     for (const i of document.querySelectorAll('.dj-bpm-in')) { i.value = '120'; i.dispatchEvent(new Event('change')); }   /* back to 120 for the rest */
 
+    // 4f. the tempo controls (lsdj/dj-tempo.js): − / + (held: repeating), nudge buttons, ×½ / ×2, MASTER, the
+    // fader's range, the tempo pads, a glide, Next bar
+    { const deckEl = i => [...document.querySelectorAll('.dj-deck')][i];
+      const by = (root, label) => root.querySelector(`button[aria-label="${label}"]`);
+      const press = b => b.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter'}));
+      const lift = b => b.dispatchEvent(new KeyboardEvent('keyup', {key: 'Enter'}));
+      const mx = document.querySelector('.dj-mixer'), M = djState().master, dB = djState().decks[1];
+      assert(M.bpm === 120 && dB.bpm === 120, `start at 120: ${M.bpm}, ${dB.bpm}`);
+      const up = by(mx, 'Master tempo up');
+      press(up); lift(up);
+      assert(M.bpm === 120.1, `master +: 120.1: ${M.bpm}`);
+      press(by(mx, 'Master tempo down')); lift(by(mx, 'Master tempo down'));
+      assert(M.bpm === 120, `master −: 120: ${M.bpm}`);
+      press(up); await sleep(1000); lift(up);
+      const held = M.bpm;
+      assert(held >= 120.5, `master + held a second: repeating, ${held}`);
+      await sleep(300);
+      assert(M.bpm === held, `let go: no more steps (${held} → ${M.bpm})`);
+      mx.querySelector('.dj-bpm-in').value = '120'; mx.querySelector('.dj-bpm-in').dispatchEvent(new Event('change'));
+      const bUp = by(deckEl(1), 'Deck B tempo up');
+      press(bUp); lift(bUp);
+      assert(dB.bpm === 120.1 && !dB.synced, `deck B +: 120.1, not synced: ${dB.bpm}`);
+      if (dB.clock?.running) {
+        const nf = by(deckEl(1), 'Deck B nudge faster');
+        assert(!nf.disabled, 'a playing deck: nudge on');
+        press(nf); assert(dB.clock.factor > 1 && dB.nudging, `nudge ▶ held: faster: ${dB.clock.factor}`);
+        lift(nf); assert(dB.clock.factor === 1 && !dB.nudging, `let go: back: ${dB.clock.factor}`);
+      }
+      by(deckEl(1), 'Deck B double time').click();
+      assert(dB.bpm === 240.2, `deck B ×2: 240.2: ${dB.bpm}`);
+      by(deckEl(1), 'Deck B double time').click();
+      assert(dB.bpm === 240.2, `×2 again would be 480: unchanged: ${dB.bpm}`);
+      by(deckEl(1), 'Deck B half time').click();
+      assert(dB.bpm === 120.1, `×½: 120.1: ${dB.bpm}`);
+      deckEl(1).querySelector('.dj-match').click();
+      assert(dB.bpm === M.bpm && !dB.synced, `MASTER: the master's tempo: ${dB.bpm}`);
+      const range = deckEl(1).querySelector('.dj-range'), pitch = deckEl(1).querySelector('.dj-pitch');
+      assert(range.textContent === '±8 %' && pitch.max === '800', `the fader ±8 %: ${range.textContent} ${pitch.max}`);
+      range.click();
+      assert(range.textContent === '±16 %' && pitch.max === '1600' && pitch.min === '-1600', `±16 %: ${pitch.min}..${pitch.max}`);
+      range.click();
+      pitch.value = '5000'; pitch.dispatchEvent(new Event('input'));
+      assert(dB.bpm === 180, `±50 %, fader at the top: 180: ${dB.bpm}`);
+      range.click();
+      assert(range.textContent === '±8 %' && localStorage.getItem('dj-range-1') === '800', 'round to ±8 % again, kept');
+      deckEl(1).querySelector('.dj-match').click();
+      /* pads: an empty one tapped keeps the tempo now; a full one tapped goes there; right-click keeps a new one */
+      const pad = n => mx.querySelectorAll('.dj-tpad')[n];
+      assert(mx.querySelectorAll('.dj-tpad').length === 4 && pad(0).classList.contains('empty'), 'four empty pads');
+      pad(0).click();
+      assert(M.pads[0] === 120 && pad(0).textContent === '120.0', `pad 1 kept 120: ${M.pads[0]} (${pad(0).textContent})`);
+      mx.querySelector('.dj-bpm-in').value = '128'; mx.querySelector('.dj-bpm-in').dispatchEvent(new Event('change'));
+      pad(1).dispatchEvent(new MouseEvent('contextmenu', {cancelable: true}));
+      assert(M.pads[1] === 128, `right-click: pad 2 kept 128: ${M.pads[1]}`);
+      pad(0).click();
+      assert(M.bpm === 120, `pad 1 tapped: 120: ${M.bpm}`);
+      assert(JSON.parse(localStorage.getItem('dj-pads'))[1] === 128, 'pads kept in this browser');
+      /* a glide: 120 → 126 over a bar (2 s at 120): in between on the way, there at the end, and a hand change stops one */
+      const glideTo = mx.querySelector('input[aria-label="Glide to (BPM)"]'), gBtn = () => mx.querySelector('.dj-glide button');
+      choose(mx.querySelector('select[aria-label="Glide length"]'), '1');
+      glideTo.value = '126'; gBtn().click();
+      assert(M.glide && gBtn().textContent === 'STOP', 'gliding: STOP');
+      await sleep(900);
+      assert(M.bpm > 120.5 && M.bpm < 125.5, `half way or so: ${M.bpm}`);
+      await until(() => !M.glide, 'the glide ends', 4000);
+      assert(M.bpm === 126 && gBtn().textContent === 'GLIDE' && localStorage.getItem('dj-bpm') === '126', `there: 126, kept: ${M.bpm}`);
+      glideTo.value = '120'; gBtn().click(); await sleep(200);
+      press(up); lift(up);
+      assert(!M.glide && gBtn().textContent === 'GLIDE', '+ by hand: the glide stops');
+      mx.querySelector('.dj-bpm-in').value = '120'; mx.querySelector('.dj-bpm-in').dispatchEvent(new Event('change'));
+      /* Next bar: with the master playing, ×2 waits for its next bar */
+      const nextBar = [...mx.querySelectorAll('label')].find(l => /Next bar/.test(l.textContent)).querySelector('input');
+      nextBar.click();
+      assert(M.onBar, 'Next bar on');
+      if (M.clock?.running) {
+        by(mx, 'Master double time').click();
+        assert((M.bpm === 120 && M.pending) || M.bpm === 240, `×2 waits for the bar (or the bar was there): ${M.bpm}`);
+        await until(() => M.bpm === 240, 'on the bar: 240', 2600);
+        by(mx, 'Master half time').click();
+        await until(() => M.bpm === 120, 'on the bar: 120 again', 2600);
+      }
+      nextBar.click();
+      for (const k of ['dj-pads', 'dj-tempo-bar', 'dj-pad-glide', 'dj-glide-bars', 'dj-range-0', 'dj-range-1']) try { localStorage.removeItem(k); } catch {}
+      M.pads.fill(null); M.glideBars = 8;
+      for (const i of document.querySelectorAll('.dj-bpm-in')) { i.value = '120'; i.dispatchEvent(new Event('change')); } }
+
     // 5. the TX-6: its track 1 button stops deck A; the crossfader sets its channel 1 and 2 volumes
     const mixerSel = document.querySelector('.dj-mixer select[aria-label="Mixer"]');
     choose(mixerSel, 'tx6');
@@ -568,7 +654,7 @@ export async function runDjUiTests() {
     /* never two links on one FM-1 input (link.js says so in the Log: the older one would stop hearing) */
     { const {logEntries} = await import('../lsdj/conn-log.js'); const two = logEntries().filter(e => /Two links on one FM-1 input/.test(e.text));
       assert(!two.length, `two links on one input: ${two.map(e => e.text).join(' | ')}`); }
-    return 'PASS DJ layout: switch, decks on FM-1s, Start and clocks per deck, the next bar, its own tempo, Sync (a lock: lit, keeps the bar, follows the master, on a stopped deck, lets go when typed), stem kill, DJ filter, Perform › Clock off, 0.9.98 (crossfader to FM-1 volume, Hold), DJ colours (the page and panel; FM-1 decks keep theirs), each deck its FM-1 colours, its label (the .sav sent, the open song, changed since), Screen | Rows (screen, song row map, click to cue), Tap quickly (no redraw), Whole BPM, TX-6 button and crossfader, fader mirrored, full volume after, an ArduinoBoy deck (speed notes, its channel, Start and clocks, FM-1 controls hidden), the crate (a .sav onto deck A while B plays on, untouched; Grab B), an FM-1 pulled and back (the deck takes it back, playing, also on new port ids with its .sav label; the Log), stopped on the FM-1 (the deck stops too), never two links on one input, each deck sets its FM-1 up (MIDI settings, LSDj SYNC to KEYBD; the warning strip), the jog every frame, a switch while the decks poll, Follow put in the DJ layout, the screens bezels, each deck FX panel (a drawer, only its own FM-1, follows its knobs, Columns, its own window)';
+    return 'PASS DJ layout: switch, decks on FM-1s, Start and clocks per deck, the next bar, its own tempo, Sync (a lock: lit, keeps the bar, follows the master, on a stopped deck, lets go when typed), stem kill, DJ filter, Perform › Clock off, 0.9.98 (crossfader to FM-1 volume, Hold), DJ colours (the page and panel; FM-1 decks keep theirs), each deck its FM-1 colours, its label (the .sav sent, the open song, changed since), Screen | Rows (screen, song row map, click to cue), Tap quickly (no redraw), Whole BPM, the tempo controls (− / + held, nudge buttons, ×½ / ×2, MASTER, the fader range, pads, a glide, Next bar), TX-6 button and crossfader, fader mirrored, full volume after, an ArduinoBoy deck (speed notes, its channel, Start and clocks, FM-1 controls hidden), the crate (a .sav onto deck A while B plays on, untouched; Grab B), an FM-1 pulled and back (the deck takes it back, playing, also on new port ids with its .sav label; the Log), stopped on the FM-1 (the deck stops too), never two links on one input, each deck sets its FM-1 up (MIDI settings, LSDj SYNC to KEYBD; the warning strip), the jog every frame, a switch while the decks poll, Follow put in the DJ layout, the screens bezels, each deck FX panel (a drawer, only its own FM-1, follows its knobs, Columns, its own window)';
   } finally {
     if (descriptor) Object.defineProperty(navigator, 'requestMIDIAccess', descriptor); else delete navigator.requestMIDIAccess;
   }

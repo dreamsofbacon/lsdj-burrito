@@ -70,4 +70,28 @@ assert.deepEqual(out(preset('none'), 'fader', 1, 1), []);
   assert.deepEqual(a([0xB0, 8, 127]), {act: 'xfader', v: 1});
   assert.deepEqual(loadLearned('{not json'), []); }
 
-console.log('PASS mixers: MIDI messages, presets (TX-6, K.O.-sidekick, generic, none), actions in, messages out, MIDI learn');
+/* MIDI learn, the tempo controls: − / + (master and a deck), a held nudge, ×½ / ×2, the pads, back to the master */
+{ const learned = loadLearned(saveLearned([
+    learnRule(readMidi([0xB0, 60, 127]), {act: 'step', dir: 1}),
+    learnRule(readMidi([0xB0, 61, 127]), {act: 'step', dir: -1, deck: 1}),
+    learnRule(readMidi([0x90, 40, 127]), {act: 'nudge', dir: 1, deck: 0}),
+    learnRule(readMidi([0x90, 41, 127]), {act: 'half'}),
+    learnRule(readMidi([0x90, 42, 127]), {act: 'double', deck: 0}),
+    learnRule(readMidi([0x90, 43, 127]), {act: 'pad', n: 2}),
+    learnRule(readMidi([0x90, 44, 127]), {act: 'match', deck: 1}),
+    learnRule(readMidi([0xB0, 62, 70]), {act: 'tempo', deck: 0})]));
+  const p = preset('learn'), a = m => actionFor(p, readMidi(m), [1, 2], learned);
+  assert.deepEqual(a([0xB0, 60, 127]), {act: 'step', dir: 1, v: 1}, 'master +');
+  assert.equal(a([0xB0, 60, 0]), null, '− / + let go: nothing');
+  assert.deepEqual(a([0xB0, 61, 127]), {act: 'step', deck: 1, dir: -1, v: 1}, 'deck B −');
+  assert.deepEqual(a([0x90, 40, 127]), {act: 'nudge', deck: 0, dir: 1, v: 1}, 'nudge held');
+  assert.deepEqual(a([0x80, 40, 0]), {act: 'nudge', deck: 0, dir: 1, v: 0}, 'nudge let go: it ends');
+  assert.deepEqual(a([0x90, 41, 127]), {act: 'half', v: 1});
+  assert.deepEqual(a([0x90, 42, 127]), {act: 'double', deck: 0, v: 1});
+  assert.deepEqual(a([0x90, 43, 127]), {act: 'pad', n: 2, v: 1});
+  assert.deepEqual(a([0x90, 44, 127]), {act: 'match', deck: 1, v: 1});
+  assert.deepEqual(a([0xB0, 62, 66]), {act: 'tempo', deck: 0, v: 2}, 'a deck\'s tempo encoder');
+  const knob = learnRule(readMidi([0xB0, 63, 40]), {act: 'step', dir: 1}, [41, 42]);
+  assert.ok(knob.press, 'a knob learned for +: a press when past half way, never every turn'); }
+
+console.log('PASS mixers: MIDI messages, presets (TX-6, K.O.-sidekick, generic, none), actions in, messages out, MIDI learn (tempo controls too)');

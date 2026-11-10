@@ -15,7 +15,10 @@
 //   Pioneer DJM, Allen & Heath Xone: no built-in map yet (their MIDI lists couldn't be checked): MIDI learn.
 // Actions (deck: 0 = A, 1 = B; ch: the mixer channel):
 //   in:  fader {ch, v 0-1}, xfader {v}, filter {deck, v -64..63}, echo {deck, v 0-1}, reverb {deck, v 0-1},
-//        start {deck} (a press), cue {deck} (a press), play (a press: master Play / Stop), tempo {delta bpm}
+//        start {deck} (a press), cue {deck} (a press), play (a press: master Play / Stop), tempo {delta bpm} (with a
+//        deck: that deck's), step {dir, deck?} (a press: − / + on the master or a deck), nudge {deck, dir} (held),
+//        half / double {deck?} (a press), pad {n 0-3} (a press: a tempo memory pad), match {deck} (a press: the
+//        deck back to the master's tempo)
 //   out: fader (ch, v 0-1), filter (ch, v -64..63), fx (ch, v 0-1), play (), tempo (delta)
 
 /* a MIDI message -> {type: 'cc'|'note'|'pc', ch 1-16, num, v 0-127} or null */
@@ -85,11 +88,13 @@ export function actionFor(p, msg, map = [1, 2], learned = []) {
     const a = {act: r.act};
     if (ch != null) a.ch = ch;
     if (r.deck != null) a.deck = r.deck; else if (ch != null) a.deck = deckOf(map, ch);
+    if (r.dir != null) a.dir = r.dir;
+    if (r.n != null) a.n = r.n;
     if (['fader', 'xfader', 'echo', 'reverb'].includes(r.act)) a.v = r.press ? (on ? 1 : 0) : unit(msg.v);
     else if (r.act === 'filter') a.v = bipolar(msg.v);
     else if (r.act === 'tempo') a.v = bipolar(msg.v);
     else a.v = on ? 1 : 0;
-    if (['filter', 'echo', 'reverb', 'start', 'cue'].includes(r.act) && a.deck == null) return null;   /* not a deck's */
+    if (['filter', 'echo', 'reverb', 'start', 'cue', 'nudge', 'match'].includes(r.act) && a.deck == null) return null;   /* not a deck's */
     return a;
   }
   return null;
@@ -100,6 +105,7 @@ export function out(p, what, ...args) {
   return f ? f(...args) : [];
 }
 
+const PRESSES = ['step', 'nudge', 'half', 'double', 'pad', 'match'], HOLDS = ['echo', 'reverb', 'nudge'];
 /* MIDI learn: a message moved -> a rule for the chosen action ({act, deck} or {act: 'xfader'} ...); a button
    (note, or a CC that only sent 0 / 127) is a press. Kept by the page in localStorage as JSON. */
 export function learnRule(msg, action, seen = []) {
@@ -109,7 +115,12 @@ export function learnRule(msg, action, seen = []) {
   const r = {type: msg.type, ch: msg.ch, num: msg.num, act: action.act};
   if (action.deck != null) r.deck = action.deck;
   if (action.mixCh != null) r.mixCh = action.mixCh;
-  if (button && ['start', 'cue', 'play', 'echo', 'reverb'].includes(action.act)) { r.press = true; if (action.act === 'echo' || action.act === 'reverb') r.hold = true; }
+  if (action.dir != null) r.dir = action.dir;
+  if (action.n != null) r.n = action.n;
+  /* buttons only, whatever they send: a knob learned for − / + or a pad would fire on every turn */
+  if (PRESSES.includes(action.act)) r.press = true;
+  else if (button && ['start', 'cue', 'play', 'echo', 'reverb'].includes(action.act)) r.press = true;
+  if (r.press && HOLDS.includes(action.act)) r.hold = true;
   return r;
 }
 export function saveLearned(list) { return JSON.stringify(list.filter(r => r && r.type && r.act)); }
