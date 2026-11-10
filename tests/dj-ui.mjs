@@ -199,6 +199,28 @@ export async function runDjUiTests() {
     barA.click();   /* (Bar off again) */
     padsA()[1].click(); padsA()[2].click();
     await until(() => A.mutes.at(-1) === 8, `back to NOI only: ${A.mutes.at(-1)}`);
+    /* 4m. hard mutes on a slow link (Colin: "when I click one, sometimes other channels mute as well"; the cause is
+       not found yet: this checks the page's side holds): FM-1 A answers LIVE late; NOI unmuted, then PU1 pressed
+       1.6 s later: only PU1 mutes; and each mute sent is in the Log, to find the cause next time */
+    A.slow = {[OP.LIVE]: 1800};   /* (later than its 1.5 s timeout) */
+    await sleep(500);   /* (a LIVE on its way) */
+    padsA()[3].click();
+    await until(() => A.mutes.at(-1) === 0, `NOI unmuted: ${A.mutes.at(-1)}`);
+    await sleep(2400);
+    assert(killedA() === '0000', `the pads still show nothing muted (not the stale LIVE): ${killedA()}`);
+    padsA()[0].click();
+    await until(() => A.mutes.at(-1) === 1, `only PU1 muted, NOI not back: ${A.mutes.at(-1)}`);
+    await sleep(2600);
+    assert(A.mutes.at(-1) === 1 && killedA() === '1000', `still only PU1: ${A.mutes.at(-1)} ${killedA()}`);
+    const {logText: logNow4} = await import('../lsdj/conn-log.js');
+    assert(/Deck A: mutes sent: PU1\./.test(logNow4()), 'the mute sent is in the Log');
+    A.slow = null;
+    /* the FM-1 itself mutes WAV too (its keys, a MIDI CC 81): the pads follow, and the Log says it wasn't the page */
+    A.mutes.push(1 | 4);
+    await until(() => killedA() === '1010', `the pads follow the FM-1: ${killedA()}`, 3000);
+    assert(/Deck A: its FM-1 reports mutes PU1 WAV; this page last sent PU1\./.test(logNow4()), `logged: ${logNow4().slice(-200)}`);
+    padsA()[0].click(); padsA()[2].click(); padsA()[3].click();
+    await until(() => A.mutes.at(-1) === 8, `back to NOI only: ${A.mutes.at(-1)}`);
     const filt = document.querySelectorAll('.dj-mixer .dj-filter')[0];   /* deck A's FILTER, on its mixer strip */
     filt.value = '-40'; filt.dispatchEvent(new Event('input'));
     await until(() => A.fxSets.length > 0, 'the filter sent');

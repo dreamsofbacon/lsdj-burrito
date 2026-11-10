@@ -232,7 +232,7 @@ function deckClock(d) {
 async function assign(d, value) {
   d.clock?.stop(); d.clock?.close(); d.clock = null;
   if (d.kind === 'fm1' && d.levelSent !== 127) void fullVolume(d.key);   /* the FM-1 leaving the deck: full volume again */
-  d.key = ''; d.kind = ''; d.live = null; d.fx = null; d.rv = null; d.base = null; d.throwing = null; d.kill = 0; d.killWant = null; clearTimeout(d.killTimer); d.killTimer = 0; d.levelPosted = null; d.filter = 0; setSynced(d, false); deckBend(d, 1); d.nudging = false;
+  d.key = ''; d.kind = ''; d.live = null; d.fx = null; d.rv = null; d.base = null; d.throwing = null; d.kill = 0; d.killWant = null; d.killDoneAt = null; clearTimeout(d.killTimer); d.killTimer = 0; d.levelPosted = null; d.filter = 0; setSynced(d, false); deckBend(d, 1); d.nudging = false;
   d.savHead = null; d.sav = null; d.savMatch = null; d.savAt = 0; d.seenPlaying = false; d.idlePolls = 0;
   d.syncTried = null; d.clockOut = null; d.midiKnown = false; d.warn = {}; d.ownRow = null; setWarn(d, 'midi', '');
   d.level = null; d.levelSent = 127; d.scrOk = true; d.themeAt = 0; d.map = null; d.mapFrom = -1; d.mapFill = null;
@@ -410,17 +410,21 @@ function deckThrow(d, what, on) {
 /* Stem kills. d.killWant: the mask the pads ask for, toggled by each press: on top of the last press (sent or
    still waiting for the bar), never the last poll's (which can be a press behind, so two quick presses undid each
    other). On the bar: one timer for the deck sends whatever is wanted then, so every kill pressed before the bar
-   lands. The FM-1's own mask (LIVE) is taken again KILL_SETTLE_MS after the last send (its MUTE button). */
-const KILL_SETTLE_MS = 1200;
-const killShown = d => d.killWant ?? d.live?.mute ?? d.kill;
+   lands. The FM-1's own mask (LIVE: its MUTE button) is taken again only from a LIVE asked for after the last send
+   was answered: one asked before it (late on a busy link) still has the old mask, and a press on top of that put
+   back channels unmuted since (Colin: "other channels mute as well"). Four channels only (& 15). */
+const KILL_STALE_MS = 6000;   /* (no fresh LIVE for this long, e.g. its polls failing: the FM-1's last word anyway) */
+const killShown = d => (d.killWant ?? d.live?.mute ?? d.kill) & 15;
 async function setKill(d, mask) {
   const l = hooks.linkFor(d.key);
   if (!l) return;
-  d.kill = mask; d.killSentAt = now();
+  mask &= 15;
+  logEvent(`Deck ${NAMES[d.i]}: mutes sent: ${muteNames(mask)}.`);   /* (to tell, if channels mute that weren't asked, where it came from) */
+  d.kill = mask; d.killSends = (d.killSends || 0) + 1;
   if (d.live) d.live.mute = mask;   /* (the pads show it at once, not after the next poll) */
   paintKills(d);
   try { await l.muteSet(mask, d.live?.freeze ? 1 : 0); } catch (e) { say(`Deck ${NAMES[d.i]}: ${e.message}`); }
-  d.killSentAt = now();
+  finally { d.killSends--; d.killDoneAt = now(); }
 }
 function kill(d, c) {
   d.killWant = killShown(d) ^ (1 << c);
@@ -431,14 +435,23 @@ function kill(d, c) {
 }
 /* after a poll: the page's kills win until they've settled on the FM-1, then the FM-1's own mask again */
 function killSettle(d) {
-  if (d.killWant != null && !d.killTimer && now() - (d.killSentAt || 0) >= KILL_SETTLE_MS) d.killWant = null;
+  const fresh = d.killDoneAt != null && (d.live?.askedAt ?? -Infinity) > d.killDoneAt;
+  if (d.killWant != null && !d.killTimer && !d.killSends && d.killDoneAt != null && (fresh || now() - d.killDoneAt > KILL_STALE_MS)) d.killWant = null;
+  /* the FM-1 says other mutes than this page last sent (its MUTE keys, a MIDI CC 81, or something else): said once */
+  const fm1 = (d.live?.mute ?? 0) & 15;
+  if (fresh && !d.killSends && !d.killTimer && fm1 !== d.kill && fm1 !== d.killToldFor) {
+    d.killToldFor = fm1;
+    logEvent(`Deck ${NAMES[d.i]}: its FM-1 reports mutes ${muteNames(fm1)}; this page last sent ${muteNames(d.kill)}.`);
+    d.kill = fm1;
+  }
   paintKills(d);
 }
+const muteNames = m => CHANNELS.filter((_, c) => (m >> c) & 1).join(' ') || 'none';
 /* the pads' lights: killed (dark, struck), or waiting for the bar to change (blinking) */
 function paintKills(d) {
   const pads = d.ui?.kills;
   if (!pads) return;
-  const shown = killShown(d), now_ = d.live?.mute ?? d.kill;
+  const shown = killShown(d), now_ = d.kill & 15;
   pads.forEach((p, c) => {
     p.classList.toggle('killed', !!((shown >> c) & 1));
     p.classList.toggle('pending', !!d.killTimer && ((shown ^ now_) >> c & 1) === 1);
@@ -639,7 +652,8 @@ async function pollRound() {
     const l = hooks.linkFor(d.key);
     if (!l) continue;
     try {
-      d.live = await l.live();
+      const asked = now();
+      d.live = await l.live(); d.live.askedAt = asked;   /* (when it was asked: killSettle trusts only a fresh one) */
       fm1Stopped(d); ownAnchor(d); adoptLiveFx(d); killSettle(d);
       await lsdjSync(d, l);
       if (d.live.level != null && !d.levelBusy) d.levelSent = d.live.level;

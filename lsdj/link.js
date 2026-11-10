@@ -47,6 +47,7 @@ export function parse(msg) {
 }
 
 export class LinkError extends Error {}
+const LIVE_DRAIN_MS = 1000;   /* after a LIVE timed out: how long the next LIVE waits for the late reply */
 const owners = new WeakMap();   /* an input -> the Link listening on it */
 
 export class Link {
@@ -57,6 +58,12 @@ export class Link {
     /* when the FM-1 last sent anything on this link (a reply, screen rows): one reply missed is not a lost FM-1
        while it is still talking (app.js: lost only after HEARD_MS of silence) */
     this.heard = Date.now();
+    /* A LIVE timed out (liveLate: when): the protocol has no request numbers, so its reply coming late was taken as
+       the answer to the next LIVE, with what was true before. On a busy link the DJ deck then read an old mute
+       mask, and a press on top of it muted channels unmuted since (Colin's flaky mutes). Now the next LIVE first
+       waits up to LIVE_DRAIN_MS for that late reply, which is dropped. (Only LIVE: a lost request is far more
+       common than a late reply, and the reads that are sent again have their own checks: accept.) */
+    this.liveLate = 0;
     /* one Link an input: a second one takes the replies from the first, which then times out ("did not answer").
        Said in the connection Log, to find where (the first should be closed before) */
     const owner = owners.get(input);
@@ -72,6 +79,7 @@ export class Link {
         this.onPixels?.(m); return;
       }
       const r = parse(Array.from(m));
+      if (r && r.op === OP.LIVE && this.liveLate && this.waiting?.op !== OP.LIVE) { this.liveLate = 0; return; }   /* the late one */
       if (r && this.waiting && r.op === this.waiting.op && (r.status || this.waiting.accept(r))) {
         const w = this.waiting; w.resolve(r);
       }
@@ -103,7 +111,7 @@ export class Link {
       const cleanup = () => { clearTimeout(t); this.waiting = null; signal?.removeEventListener('abort', abort); };
       const fail = e => { cleanup(); reject(e); };
       const abort = () => fail(new LinkError('Cartridge read cancelled.'));
-      const t = setTimeout(() => fail(new LinkError('The FM-1 did not answer. Is LSDJ Burrito running and the cable connected?', {cause: 'timeout'})), timeout);
+      const t = setTimeout(() => { if (op === OP.LIVE) this.liveLate = Date.now(); fail(new LinkError('The FM-1 did not answer. Is LSDJ Burrito running and the cable connected?', {cause: 'timeout'})); }, timeout);
       this.waiting = {op, accept, reject: fail, resolve: r => {
         cleanup();
         if (!allow.includes(r.status)) reject(new LinkError(`FM-1: ${STATUS[r.status] || 'error ' + r.status}`));
@@ -113,6 +121,10 @@ export class Link {
       try { this.output.send(frame(op, bytes)); } catch (e) { fail(e); }
     });
     const run = async () => {
+      if (op === OP.LIVE && this.liveLate && Date.now() - this.heard < 1000) {   /* the last LIVE's late reply first (dropped when it comes), or give up on it; not when the FM-1 has gone quiet (its loss is noticed as soon as before) */
+        while (this.liveLate && Date.now() - this.liveLate < LIVE_DRAIN_MS && !this.closed) await new Promise(r => setTimeout(r, 20));
+        this.liveLate = 0;
+      }
       for (let tries = 1; ; tries++) {
         try { const r = await once(); r.tries = tries; return r; }
         catch (e) { if (e.cause !== 'timeout' || tries > retries) throw e; this.retried = (this.retried || 0) + 1; }
@@ -237,7 +249,7 @@ export class Link {
     return r.status ? null : r.data;
   }
   async live() {
-    const {data: d} = await this.req(OP.LIVE, [], {timeout: 800});
+    const {data: d} = await this.req(OP.LIVE, [], {timeout: 1500});   /* (a busy DJ link answers late: a timeout drops its late reply) */
     const words = d.length >= 7 + 4 * 17 ? 17 : 11;   // 11 before alpha 66; FM-1_979: a battery byte after them
     const l = {page: d[0], cursor: d[1], bpm: rd16(d, 2), mute: d[4], freeze: d[5], playing: d[6],
                fx: Array.from({length: words}, (_, i) => rd32(d, 7 + 4 * i)), battery: battery(d[7 + 4 * words])};

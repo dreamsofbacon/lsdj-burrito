@@ -73,7 +73,7 @@ export async function runDisconnectUiTests() {
     const missedFrom = lives;
     await sleep(6000);
     clearInterval(chatter); dropLive = false;
-    assert(lives - missedFrom >= 4, `the poll kept asking: ${lives - missedFrom}`);
+    assert(lives - missedFrom >= 2, `the poll kept asking: ${lives - missedFrom}`);   /* (a 1.5 s LIVE timeout, then up to 1 s for its late reply) */
     assert(isConnected() && !/stopped answering/.test(device()), `a busy FM-1 that still talks stays connected: ${device()}`);
     const back = lives;
     await until(() => lives > back + 2, 'the poll carries on');
