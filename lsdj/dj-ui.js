@@ -232,7 +232,7 @@ function deckClock(d) {
 async function assign(d, value) {
   d.clock?.stop(); d.clock?.close(); d.clock = null;
   if (d.kind === 'fm1' && d.levelSent !== 127) void fullVolume(d.key);   /* the FM-1 leaving the deck: full volume again */
-  d.key = ''; d.kind = ''; d.live = null; d.fx = null; d.rv = null; d.base = null; d.throwing = null; d.kill = 0; d.killWant = null; d.killDoneAt = null; clearTimeout(d.killTimer); d.killTimer = 0; d.levelPosted = null; d.filter = 0; setSynced(d, false); deckBend(d, 1); d.nudging = false;
+  d.key = ''; d.kind = ''; d.live = null; d.fx = null; d.rv = null; d.base = null; d.throwing = null; d.kill = 0; d.killWant = null; d.killDoneAt = null; d.killDirty = 0; d.ccFx = 0; clearTimeout(d.killTimer); d.killTimer = 0; d.levelPosted = null; d.filter = 0; setSynced(d, false); deckBend(d, 1); d.nudging = false;
   d.savHead = null; d.sav = null; d.savMatch = null; d.savAt = 0; d.seenPlaying = false; d.idlePolls = 0;
   d.syncTried = null; d.clockOut = null; d.midiKnown = false; d.warn = {}; d.ownRow = null; setWarn(d, 'midi', '');
   d.level = null; d.levelSent = 127; d.scrOk = true; d.themeAt = 0; d.map = null; d.mapFrom = -1; d.mapFill = null;
@@ -415,6 +415,25 @@ function deckThrow(d, what, on) {
    back channels unmuted since (Colin: "other channels mute as well"). Four channels only (& 15). */
 const KILL_STALE_MS = 6000;   /* (no fresh LIVE for this long, e.g. its polls failing: the FM-1's last word anyway) */
 const killShown = d => (d.killWant ?? d.live?.mute ?? d.kill) & 15;
+/* the kills pressed (d.killDirty: a bit each, since the last send) to the FM-1. Hard mutes (Colin): each one only
+   its own channel, by MIDI CC 81 on that channel's CC FX channel (64+ muted; firmware lsdj_midi.h), so no press can
+   touch another channel whatever the page thinks the others are. Without CC FX (it couldn't be set, or older
+   firmware without MIDI settings): the whole mask, MUTE_SET. */
+function sendKills(d) {
+  const dirty = (d.killDirty || 0) & 15, want = d.killWant & 15;
+  d.killDirty = 0;
+  const o = d.ccFx ? deckOut(d) : null;
+  if (!o) return void setKill(d, want);
+  const base = d.ccFx - 1;
+  try {
+    for (let c = 0; c < 4; c++) if ((dirty >> c) & 1) o.send([0xB0 | (base + c), 81, (want >> c) & 1 ? 127 : 0]);
+  } catch (e) { say(`Deck ${NAMES[d.i]}: ${e.message}`); return; }
+  d.kill = (d.kill & ~dirty) | (want & dirty);
+  logEvent(`Deck ${NAMES[d.i]}: ${CHANNELS.filter((_, c) => (dirty >> c) & 1).map(n => `${n} ${(want >> CHANNELS.indexOf(n)) & 1 ? 'muted' : 'playing'}`).join(', ')} (CC 81).`);
+  if (d.live) d.live.mute = d.kill;
+  d.killDoneAt = now() + 150;   /* (a LIVE asked from a moment on has it: the CC goes ahead of the link's next request) */
+  paintKills(d);
+}
 async function setKill(d, mask) {
   const l = hooks.linkFor(d.key);
   if (!l) return;
@@ -428,9 +447,10 @@ async function setKill(d, mask) {
 }
 function kill(d, c) {
   d.killWant = killShown(d) ^ (1 << c);
+  d.killDirty = (d.killDirty || 0) ^ (1 << c);   /* (pressed twice before the bar: back as it was, nothing sent for it) */
   const m = masterNow();
-  if (!d.killOnBar || m.phase == null) { clearTimeout(d.killTimer); d.killTimer = 0; return void setKill(d, d.killWant); }
-  if (!d.killTimer) d.killTimer = setTimeout(() => { d.killTimer = 0; void setKill(d, d.killWant); }, Math.max(0, nextOn(m.phase, m.bpm, now()) - now()));
+  if (!d.killOnBar || m.phase == null) { clearTimeout(d.killTimer); d.killTimer = 0; return sendKills(d); }
+  if (!d.killTimer) d.killTimer = setTimeout(() => { d.killTimer = 0; sendKills(d); }, Math.max(0, nextOn(m.phase, m.bpm, now()) - now()));
   paintKills(d);   /* (waiting for the bar: the pad blinks) */
 }
 /* after a poll: the page's kills win until they've settled on the FM-1, then the FM-1's own mask again */
@@ -1251,17 +1271,19 @@ async function deckMidi(d, l) {
   let w = null;
   try { w = await l.midiGet(); } catch { return; }
   if (d.key !== key) return;
-  if (w == null) { d.clockOut = null; d.midiKnown = true; return; }   /* (no MIDI settings: CLOCK OUT unknown, SYNC = LSDJ left) */
+  if (w == null) { d.clockOut = null; d.midiKnown = true; d.ccFx = 0; return; }   /* (no MIDI settings: CLOCK OUT unknown, SYNC = LSDJ left) */
   const m = unpackMidi(w), fix = [];
   d.clockOut = !!m.clockOut; d.midiKnown = true;
   if (m.clockIn !== 1 && m.clockIn !== 2) { fix.push('CLOCK IN to ALL'); m.clockIn = 1; }
   if (!m.transport) { fix.push('TRANSPORT ON'); m.transport = 1; }
   if (!m.pcCue) { fix.push('PC CUE ON'); m.pcCue = 1; }
+  if (!m.ccFx) { fix.push('CC FX to channels 1-4'); m.ccFx = 1; }   /* (the kill pads: CC 81, one channel each) */
+  d.ccFx = m.ccFx;
   if (!fix.length) return;
   try {
     await l.midiSet(packMidi(m));
     say(`Deck ${NAMES[d.i]}: set the FM-1's ${fix.join(', ')} (the deck needs them).`);
-  } catch (e) { setWarn(d, 'midi', `The FM-1's MIDI settings couldn't be set (${e.message}): GLO › MIDI › CLOCK IN = ALL, TRANSPORT ON, PC CUE ON.`); }
+  } catch (e) { d.ccFx = 0; setWarn(d, 'midi', `The FM-1's MIDI settings couldn't be set (${e.message}): GLO › MIDI › CLOCK IN = ALL, TRANSPORT ON, PC CUE ON, CC FX on.`); }   /* (kills: the whole mask then) */
 }
 /* LSDj's SYNC, each poll (LIVE, 0.9.98): set to KEYBD while LSDj is stopped (0.9.98-dev.2 SYNC_SET), once a value;
    SYNC = LSDJ with CLOCK OUT on is left (that FM-1 leads: choose it as the master clock) */

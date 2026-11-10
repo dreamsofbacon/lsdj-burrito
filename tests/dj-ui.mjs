@@ -31,15 +31,23 @@ function fakeSave(songs, active) {
   return s;
 }
 function fm1(n, title, fw = 'FM-1_997') {
-  const d = {n, title, midi: [], fxSets: [], mutes: [], levels: [], seqs: [], mapReads: [], screens: 0, level: 127, seq: 0,
+  const d = {n, title, midi: [], fxSets: [], mutes: [], ccMutes: [], muteSets: 0, levels: [], seqs: [], mapReads: [], screens: 0, level: 127, seq: 0,
     settings: packSettings({...unpackSettings(0x5a000000), theme: n % PRESETS.length}),   /* each its own theme */
     infos: 0, reads: 0, begins: 0, importing: null, save: fakeSave([{slot: 0, name: 'TECHNO', version: 2, blocks: 10}], 0),
-    midiWord: (0x4D000000 | 1 | 8 | 1 << 17) >>> 0, midiSets: [], sync: 5, syncSets: [], dev2: true};   /* MIDI: CLOCK IN ALL, TRANSPORT ON, PC CUE ON; LSDj SYNC KEYBD */
+    midiWord: (0x4D000000 | 1 | 8 | 1 << 11 | 1 << 17) >>> 0, midiSets: [], sync: 5, syncSets: [], dev2: true};   /* MIDI: CLOCK IN ALL, TRANSPORT ON, PC CUE ON; LSDj SYNC KEYBD */
   const fx = Array(68).fill(0); d.fxBytes = fx;   /* (a knob turned on the FM-1: change these) */
   fx[36] = 5; fx[37] = 2; fx[42] = 0xf2; fx[38] = 1;
   d.input = Object.assign(new EventTarget(), {id: `in-${n}`, name: 'FM-1', state: 'connected', onmidimessage: null});
   d.output = {id: `out-${n}`, name: 'FM-1', state: 'connected', send(message, ts) {
-    if (message[0] !== 0xf0) { const m = [...message]; m.ts = ts; d.midi.push(m); return; }   /* ts: when it plays */
+    if (message[0] !== 0xf0) {
+      const m = [...message]; m.ts = ts; d.midi.push(m);   /* ts: when it plays */
+      /* CC 81 on a CC FX channel: that one channel muted (64+) or not, as the firmware does (lsdj_midi.h) */
+      const ccFx = (d.midiWord >>> 11) & 15, c = (m[0] & 15) - (ccFx - 1);
+      if ((m[0] & 0xf0) === 0xb0 && m[1] === 81 && ccFx && c >= 0 && c < 4) {
+        const was = d.mutes.at(-1) || 0; d.mutes.push(m[2] >= 64 ? was | 1 << c : was & ~(1 << c)); d.ccMutes.push([c, m[2]]);
+      }
+      return;
+    }
     const op = message[4], body = [];
     for (let i = 5; i + 1 < message.length - 1; i += 2) body.push(message[i] | (message[i + 1] & 1) << 7);
     const reply = (data = [], status = 0) => () => d.input.onmidimessage?.({   /* d.slow[op]: ms before that op's reply (a busy FM-1) */
@@ -55,7 +63,7 @@ function fm1(n, title, fw = 'FM-1_997') {
     if (op === OP.COMMIT) { if (d.importing) { d.save = d.importing; d.importing = null; } return send(); }
     if (op === OP.FX_GET) return send(fx);
     if (op === OP.FX_SET) { d.fxSets.push(body); fx.splice(0, body.length, ...body); return send(); }   /* (kept, as the FM-1 does: LIVE then reports it) */
-    if (op === OP.MUTE_SET) { d.mutes.push(body[0]); return send(); }
+    if (op === OP.MUTE_SET) { d.mutes.push(body[0]); d.muteSets++; return send(); }
     if (op === OP.SETTINGS_GET) return send([0, 8, 16, 24].map(s => (d.settings >>> s) & 255));
     if (op >= OP.SCREEN_INFO && op <= OP.SCREEN_FRAME) d.screens++;   /* (no screen here: the deck says so) */
     if (op === OP.THEME_GET) return send(Array(16).fill(0));
@@ -186,16 +194,29 @@ export async function runDjUiTests() {
     const padsA = () => [...[...document.querySelectorAll('.dj-deck')][0].querySelectorAll('.dj-kill')];
     const killedA = () => padsA().map(p => p.classList.contains('killed') ? 1 : 0).join('');
     assert(killedA() === '0001', `the NOI pad lit at once: ${killedA()}`);
+    const ccFrom = A.ccMutes.length, setsFrom = A.muteSets;
     padsA()[0].click(); padsA()[1].click();
     assert(killedA() === '1101', `PU1 and PU2 lit at once: ${killedA()}`);
     await until(() => A.mutes.at(-1) === 11, `two quick kills both land: ${A.mutes}`);
+    /* hard mutes: each press is CC 81 for its own channel only (CC FX channels 1-4), never the whole mask */
+    assert(JSON.stringify(A.ccMutes.slice(ccFrom)) === '[[0,127],[1,127]]' && A.muteSets === setsFrom,
+      `CC 81 for PU1 then PU2 only, no MUTE_SET: ${JSON.stringify(A.ccMutes.slice(ccFrom))} ${A.muteSets - setsFrom}`);
+    /* WAV muted on the FM-1 itself, the page not told yet: a press on PU2 changes PU2 only, WAV stays muted */
+    A.mutes.push(11 | 4);
+    padsA()[1].click();
+    await until(() => A.mutes.at(-1) === ((11 | 4) & ~2), `PU2 back, WAV untouched on the FM-1: ${A.mutes.at(-1)}`);
+    padsA()[1].click();   /* (PU2 again) */
+    await until(() => A.mutes.at(-1) === 15, `PU2 muted again: ${A.mutes.at(-1)}`);
+    await until(() => killedA() === '1111', `the pads follow the FM-1 (WAV muted there): ${killedA()}`, 4000);
+    padsA()[2].click();   /* (WAV off again, as before this check) */
+    await until(() => A.mutes.at(-1) === 11 && killedA() === '1101', `back to PU1 PU2 NOI: ${A.mutes.at(-1)} ${killedA()}`, 4000);
     const barA = [...[...document.querySelectorAll('.dj-deck')][0].querySelectorAll('.dj-pad')].find(p => p.textContent === 'Bar');
     if (!barA.classList.contains('on')) barA.click();
     const before4k = A.mutes.length;
     padsA()[2].click(); padsA()[0].click();
     assert(A.mutes.length === before4k && padsA()[2].classList.contains('pending') && padsA()[0].classList.contains('pending'), `on the bar: nothing sent yet, both pads blinking: ${A.mutes.slice(before4k)}`);
     await until(() => A.mutes.at(-1) === 14, `both bar kills land on the bar: ${A.mutes.slice(before4k)}`, 5000);
-    assert(A.mutes.length === before4k + 1 && !padsA().some(p => p.classList.contains('pending')), `one send on the bar, no pad blinking: ${A.mutes.slice(before4k)}`);
+    assert(A.mutes.length === before4k + 2 && !padsA().some(p => p.classList.contains('pending')), `the two on the bar, no pad blinking: ${A.mutes.slice(before4k)}`);
     barA.click();   /* (Bar off again) */
     padsA()[1].click(); padsA()[2].click();
     await until(() => A.mutes.at(-1) === 8, `back to NOI only: ${A.mutes.at(-1)}`);
@@ -213,7 +234,7 @@ export async function runDjUiTests() {
     await sleep(2600);
     assert(A.mutes.at(-1) === 1 && killedA() === '1000', `still only PU1: ${A.mutes.at(-1)} ${killedA()}`);
     const {logText: logNow4} = await import('../lsdj/conn-log.js');
-    assert(/Deck A: mutes sent: PU1\./.test(logNow4()), 'the mute sent is in the Log');
+    assert(/Deck A: PU1 muted \(CC 81\)\./.test(logNow4()), `the mute sent is in the Log: ${logNow4().slice(-300)}`);
     A.slow = null;
     /* the FM-1 itself mutes WAV too (its keys, a MIDI CC 81): the pads follow, and the Log says it wasn't the page */
     A.mutes.push(1 | 4);
@@ -639,20 +660,20 @@ export async function runDjUiTests() {
     assert(B.syncSets.length === 1, 'LSDJ with CLOCK OUT on: not changed');
     /* a leading FM-1 (SYNC = LSDJ, CLOCK OUT on) taken by a deck while its MIDI settings come back late: its SYNC is
        never touched before they're known (it was set to KEYBD, and stopped sending its clock: Colin) */
-    B.midiWord = (0x4D000000 | 1 | 8 | 1 << 15 | 1 << 17) >>> 0; B.slow = {[OP.SETTINGS_GET]: 1200}; B.sync = 1;   /* (its colours read late: the deck's polls come in before its MIDI settings are read) */
+    B.midiWord = (0x4D000000 | 1 | 8 | 1 << 11 | 1 << 15 | 1 << 17) >>> 0; B.slow = {[OP.SETTINGS_GET]: 1200}; B.sync = 1;   /* (its colours read late: the deck's polls come in before its MIDI settings are read) */
     choose(pickB, ''); choose(pickB, 'fm1:out-2');
     await sleep(2500);
     assert(B.syncSets.length === 1 && B.sync === 1, `a leading FM-1 taken by a deck, its settings late: SYNC left LSDJ: ${B.syncSets} (${B.sync})`);
     B.slow = null;
     /* the master clock's own FM-1: never changed, even with CLOCK OUT off; the strip says to turn CLOCK OUT on */
-    B.midiWord = (0x4D000000 | 1 | 8 | 1 << 17) >>> 0;
+    B.midiWord = (0x4D000000 | 1 | 8 | 1 << 11 | 1 << 17) >>> 0;
     choose(document.querySelector('.dj-mixer select[aria-label="Master clock"]'), 'in-2');
     choose(pickB, ''); choose(pickB, 'fm1:out-2');
     await until(() => !warnB().hidden && /master clock, but its CLOCK OUT is off/.test(warnB().textContent), `the master's FM-1, CLOCK OUT off: the strip: ${warnB().textContent}`, 4000);
     assert(B.syncSets.length === 1 && B.sync === 1, `the master clock's FM-1: SYNC left LSDJ: ${B.syncSets}`);
     choose(document.querySelector('.dj-mixer select[aria-label="Master clock"]'), 'page');
     /* 0.9.98-dev.1 (no SYNC_SET) with SYNC = MIDI: nothing set, the strip says how */
-    B.dev2 = false; B.sync = 3; B.midiWord = (0x4D000000 | 1 | 8 | 1 << 17) >>> 0;
+    B.dev2 = false; B.sync = 3; B.midiWord = (0x4D000000 | 1 | 8 | 1 << 11 | 1 << 17) >>> 0;
     choose(pickB, ''); choose(pickB, 'fm1:out-2');
     await until(() => !warnB().hidden && /SYNC is MIDI: set it to KEYBD/.test(warnB().textContent), `dev.1, SYNC MIDI: the warning: ${warnB().textContent}`, 3000);
     assert(B.syncSets.length === 1 && B.midiSets.length === 1, 'dev.1: nothing more sent');
