@@ -18,7 +18,7 @@
 //   Each FM-1 deck shows, as chosen (Screen | Rows): its FM-1's screen (as Perform › Screen; FM-1_983 and newer),
 //   on that FM-1's link, or (0.9.98) the song row map: click a row to cue it.
 import {startClock, clampBpm, PPQN, CLOCK, START, CONTINUE, STOP, LOOKAHEAD_MS} from './midiclock.js';
-import {sameFm1} from './link.js';
+import {sameFm1, OP} from './link.js';
 import {BAR, BEAT, NUDGE, position, offset, syncBend, nextOn, crossfade, CURVES, djFilter, tapper, clockMeter} from './dj.js';
 import {PRESETS, preset, readMidi, actionFor, out, learnRule, saveLearned, loadLearned} from './mixers.js';
 import {stepBpm, repeater, scaleBpm, glide, glideAt, GLIDE_BARS, PITCH_RANGES, rangeText, pickRange, pitchOf, bpmOfPitch, PADS, loadPads, savePads} from './dj-tempo.js';
@@ -222,7 +222,7 @@ function deckClock(d) {
 async function assign(d, value) {
   d.clock?.stop(); d.clock?.close(); d.clock = null;
   if (d.kind === 'fm1' && d.levelSent !== 127) void fullVolume(d.key);   /* the FM-1 leaving the deck: full volume again */
-  d.key = ''; d.kind = ''; d.live = null; d.fx = null; d.rv = null; d.base = null; d.throwing = null; d.kill = 0; d.filter = 0; setSynced(d, false); deckBend(d, 1); d.nudging = false;
+  d.key = ''; d.kind = ''; d.live = null; d.fx = null; d.rv = null; d.base = null; d.throwing = null; d.kill = 0; d.killWant = null; clearTimeout(d.killTimer); d.killTimer = 0; d.levelPosted = null; d.filter = 0; setSynced(d, false); deckBend(d, 1); d.nudging = false;
   d.savHead = null; d.sav = null; d.savMatch = null; d.savAt = 0; d.seenPlaying = false; d.idlePolls = 0;
   d.syncTried = null; d.clockOut = null; d.midiKnown = false; d.warn = {}; d.ownRow = null; setWarn(d, 'midi', '');
   d.level = null; d.levelSent = 127; d.scrOk = true; d.themeAt = 0; d.map = null; d.mapFrom = -1; d.mapFill = null;
@@ -397,18 +397,42 @@ function deckThrow(d, what, on) {
   } else return say('Reverb throws need 0.9.97 on that FM-1.');
   pushFx(d);
 }
+/* Stem kills. d.killWant: the mask the pads ask for, toggled by each press: on top of the last press (sent or
+   still waiting for the bar), never the last poll's (which can be a press behind, so two quick presses undid each
+   other). On the bar: one timer for the deck sends whatever is wanted then, so every kill pressed before the bar
+   lands. The FM-1's own mask (LIVE) is taken again KILL_SETTLE_MS after the last send (its MUTE button). */
+const KILL_SETTLE_MS = 1200;
+const killShown = d => d.killWant ?? d.live?.mute ?? d.kill;
 async function setKill(d, mask) {
   const l = hooks.linkFor(d.key);
   if (!l) return;
-  d.kill = mask;
+  d.kill = mask; d.killSentAt = now();
+  if (d.live) d.live.mute = mask;   /* (the pads show it at once, not after the next poll) */
+  paintKills(d);
   try { await l.muteSet(mask, d.live?.freeze ? 1 : 0); } catch (e) { say(`Deck ${NAMES[d.i]}: ${e.message}`); }
-  drawDeck(d);
+  d.killSentAt = now();
 }
 function kill(d, c) {
-  const mask = (d.live?.mute ?? d.kill) ^ (1 << c);
+  d.killWant = killShown(d) ^ (1 << c);
   const m = masterNow();
-  if (!d.killOnBar || m.phase == null) return void setKill(d, mask);
-  setTimeout(() => void setKill(d, mask), Math.max(0, nextOn(m.phase, m.bpm, now()) - now()));
+  if (!d.killOnBar || m.phase == null) { clearTimeout(d.killTimer); d.killTimer = 0; return void setKill(d, d.killWant); }
+  if (!d.killTimer) d.killTimer = setTimeout(() => { d.killTimer = 0; void setKill(d, d.killWant); }, Math.max(0, nextOn(m.phase, m.bpm, now()) - now()));
+  paintKills(d);   /* (waiting for the bar: the pad blinks) */
+}
+/* after a poll: the page's kills win until they've settled on the FM-1, then the FM-1's own mask again */
+function killSettle(d) {
+  if (d.killWant != null && !d.killTimer && now() - (d.killSentAt || 0) >= KILL_SETTLE_MS) d.killWant = null;
+  paintKills(d);
+}
+/* the pads' lights: killed (dark, struck), or waiting for the bar to change (blinking) */
+function paintKills(d) {
+  const pads = d.ui?.kills;
+  if (!pads) return;
+  const shown = killShown(d), now_ = d.live?.mute ?? d.kill;
+  pads.forEach((p, c) => {
+    p.classList.toggle('killed', !!((shown >> c) & 1));
+    p.classList.toggle('pending', !!d.killTimer && ((shown ^ now_) >> c & 1) === 1);
+  });
 }
 /* an ArduinoBoy deck (its mode 1, LSDJ slave sync): it follows the deck's clock, Start and Stop. Notes 50-53 on its
    channel (16 unless changed in its editor) set LSDj's speed: every clock, or every 2nd, 4th or 8th. It only listens:
@@ -435,7 +459,20 @@ function cueRow(d) {
 function deckLevel(d, v) {
   if (d.kind !== 'fm1' || fwOf(d) < 998) return;
   d.level = v == null ? null : Math.round(Math.max(0, Math.min(1, v)) * 127);
-  void sendLevel(d);
+  postLevel(d);
+}
+/* While the crossfader moves: each new level sent at once (Link.post, past the requests queued on that FM-1's link,
+   which on the FM-1 in use are many), at most every LEVEL_MS; once it rests, the last one sent again through the
+   queue and confirmed (sendLevel), so a lost one is put right. */
+const LEVEL_MS = 30, LEVEL_CONFIRM_MS = 250;
+function postLevel(d) {
+  clearTimeout(d.levelConfirm); d.levelConfirm = setTimeout(() => void sendLevel(d), LEVEL_CONFIRM_MS);
+  const want = d.level ?? 127, t = now();
+  if (want === d.levelPosted || d.levelPostTimer) return;
+  const wait = LEVEL_MS - (t - (d.levelPostAt || 0));
+  if (wait > 0) { d.levelPostTimer = setTimeout(() => { d.levelPostTimer = 0; postLevel(d); }, wait); return; }
+  const l = hooks.linkFor(d.key);
+  if (l?.post?.(OP.VOLUME_SET, [want])) { d.levelPosted = want; d.levelPostAt = t; }
 }
 async function sendLevel(d) {
   if (d.levelBusy) return;
@@ -595,7 +632,7 @@ async function pollRound() {
     if (!l) continue;
     try {
       d.live = await l.live();
-      fm1Stopped(d); ownAnchor(d); adoptLiveFx(d);
+      fm1Stopped(d); ownAnchor(d); adoptLiveFx(d); killSettle(d);
       await lsdjSync(d, l);
       if (d.live.level != null && !d.levelBusy) d.levelSent = d.live.level;
       if (d.live.level != null && d.levelSent !== (d.level ?? 127)) void sendLevel(d);   /* power cycled, or another page */
@@ -738,7 +775,7 @@ function drawDeck(d) {
   const fm1 = d.kind === 'fm1', fw = firmwareNumber(hooks.devices().find(x => x.key === d.key)?.fw), has98 = fw >= 998;
   u.body.replaceChildren();
   u.box.classList.toggle('empty', !d.key);
-  u.info = null; u.hold = null; u.map = null; u.rowIn = null; u.pitch = null; u.jog = null; u.led = null; u.beatShown = undefined;
+  u.info = null; u.hold = null; u.map = null; u.rowIn = null; u.pitch = null; u.jog = null; u.led = null; u.kills = null; u.beatShown = undefined;
   if (!d.key) { u.body.append(el('p', {className: 'hint dj-empty', textContent: 'Choose an FM-1 or another MIDI device for this deck.'})); return; }
   const running = !!d.clock?.running;
 
@@ -785,8 +822,9 @@ function drawDeck(d) {
   /* the pads */
   const pads = el('div', {className: 'dj-pads'});
   if (fm1) {
-    const mask = d.live?.mute ?? d.kill, held = !!d.live?.live;
-    pads.append(...CHANNELS.map((n, c) => btn(n, () => kill(d, c), {className: `dj-pad dj-kill${(mask >> c) & 1 ? ' killed' : ''}`, title: `Mute or play ${n}`})));
+    const held = !!d.live?.live;
+    pads.append(...(u.kills = CHANNELS.map((n, c) => btn(n, () => kill(d, c), {className: 'dj-pad dj-kill', title: `Mute or play ${n}`}))));
+    paintKills(d);
     pads.append(
       holdBtn('Echo', () => deckThrow(d, 'echo', true), () => deckThrow(d, 'echo', false), {className: 'dj-pad dj-throw', title: 'Echo throw: the sends up while held'}),
       holdBtn('Reverb', () => deckThrow(d, 'reverb', true), () => deckThrow(d, 'reverb', false),
@@ -1019,7 +1057,7 @@ function drawMixer() {
     note,
     el('div', {className: 'dj-setup'},
       el('h4', {textContent: 'Mixer'}),
-      sel(PRESETS.map(x => [x.id, x.name + (x.verified ? '' : ' (unverified)')]), mixer.id, v => { mixer.id = v; store.set('dj-mixer', v); setXfader(mixer.xfader); draw(); }, 'Mixer'),
+      sel(PRESETS.map(x => [x.id, x.name + (x.verified ? '' : ' (unverified)')]), mixer.id, v => { mixer.id = v; mixer.faders = {}; store.set('dj-mixer', v); setXfader(mixer.xfader); draw(); }, 'Mixer'),
       p.id === 'none' ? null : el('div', {className: 'dj-row'}, el('label', {}, 'From ', portSel(ports.ins, mixer.inId, setMixerIn, 'Mixer MIDI in')),
         el('label', {}, 'To ', portSel(ports.outs, mixer.outId, v => { mixer.outId = v; store.set('dj-mixer-out', v); }, 'Mixer MIDI out'))),
       p.id === 'none' ? null : el('div', {className: 'dj-row'}, el('label', {}, 'A on ', chSel(0)), el('label', {}, 'B on ', chSel(1))),
@@ -1068,10 +1106,11 @@ function mixerNumbers() {
   const u = mixer.ui;
   if (!u?.xf) return;
   const g = crossfade(mixer.xfader, mixer.curve);
+  /* what reaches each deck: its channel fader on the mixer (when the mixer has sent one) times its crossfader share */
   u.meters.forEach((x, i) => {
-    const f = mixer.faders[mixer.map[i]];
-    x.bar.style.setProperty('--v', (f ?? g[i]).toFixed(3));
-    x.src.textContent = f != null ? 'fader' : 'xfade';
+    const f = mixer.id === 'none' ? null : mixer.faders[mixer.map[i]];
+    x.bar.style.setProperty('--v', ((f ?? 1) * g[i]).toFixed(3));
+    x.src.textContent = f != null ? 'fader × xfade' : 'xfade';
   });
   const v = String(Math.round(mixer.xfader * 1000));
   if (u.xf.value !== v) u.xf.value = v;   /* (dragged here: already that value) */

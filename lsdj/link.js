@@ -77,6 +77,13 @@ export class Link {
       }
     };
   }
+  /* A request sent at once, past the queue, its reply not waited for: only for a setting that is safe to lose and
+     is sent again anyway (the DJ crossfader's VOLUME_SET while it moves: the last one is then confirmed through
+     req). Its reply is ignored, or taken by a waiting request of the same op (the same answer). */
+  post(op, bytes = []) {
+    if (this.closed) return false;
+    try { this.output.send(frame(op, bytes)); return true; } catch { return false; }
+  }
   close() {
     this.closed = true;
     this.waiting?.reject(new LinkError('Disconnected from the FM-1.'));

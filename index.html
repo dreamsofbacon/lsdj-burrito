@@ -333,6 +333,9 @@ body.popped .dj-fx{min-height:100%;border-radius:0}
 /* a channel's pad lit while it plays, dark when killed */
 .dj-pad.dj-kill{background:color-mix(in srgb,var(--accent) 80%,#000);color:var(--accent-ink);box-shadow:0 0 8px color-mix(in srgb,var(--accent) 35%,transparent),0 2px 0 #000a}
 .dj-pad.dj-kill.killed{background:color-mix(in srgb,var(--card) 55%,#000);color:var(--muted);text-decoration:line-through;box-shadow:inset 0 1px 0 #ffffff12,0 2px 0 #000a}
+.dj-pad.dj-kill.pending{animation:dj-pending .5s steps(2) infinite}   /* waiting for the bar (Bar lit) */
+@keyframes dj-pending{50%{filter:brightness(1.6);outline:2px solid var(--accent);outline-offset:-2px}}
+@media (prefers-reduced-motion:reduce){.dj-pad.dj-kill.pending{animation:none;outline:2px dashed var(--accent);outline-offset:-2px}}
 /* the middle: CUE and PLAY | the jog wheel | SYNC and the tempo fader (the jog as big as the space allows) */
 .dj-deck-mid{display:grid;grid-template-columns:78px minmax(0,1fr) 72px;gap:8px;height:clamp(240px,30vw,360px);container-type:size}
 .dj-left{display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:10px}

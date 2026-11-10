@@ -181,6 +181,24 @@ export async function runDjUiTests() {
     killNoi.click();
     await until(() => A.mutes.at(-1) === 8, `NOI muted on A: ${A.mutes}`);
     assert(B.mutes.length === 0, 'B untouched');
+    /* 4k. kills (Colin's test report): the pad lit at once; two quick presses both land (PU1 then PU2: 8|1|2); two
+       pressed before the bar both land on it (WAV, then PU1 again: 11^4^1 = 14), blinking until then; back to NOI */
+    const padsA = () => [...[...document.querySelectorAll('.dj-deck')][0].querySelectorAll('.dj-kill')];
+    const killedA = () => padsA().map(p => p.classList.contains('killed') ? 1 : 0).join('');
+    assert(killedA() === '0001', `the NOI pad lit at once: ${killedA()}`);
+    padsA()[0].click(); padsA()[1].click();
+    assert(killedA() === '1101', `PU1 and PU2 lit at once: ${killedA()}`);
+    await until(() => A.mutes.at(-1) === 11, `two quick kills both land: ${A.mutes}`);
+    const barA = [...[...document.querySelectorAll('.dj-deck')][0].querySelectorAll('.dj-pad')].find(p => p.textContent === 'Bar');
+    if (!barA.classList.contains('on')) barA.click();
+    const before4k = A.mutes.length;
+    padsA()[2].click(); padsA()[0].click();
+    assert(A.mutes.length === before4k && padsA()[2].classList.contains('pending') && padsA()[0].classList.contains('pending'), `on the bar: nothing sent yet, both pads blinking: ${A.mutes.slice(before4k)}`);
+    await until(() => A.mutes.at(-1) === 14, `both bar kills land on the bar: ${A.mutes.slice(before4k)}`, 5000);
+    assert(A.mutes.length === before4k + 1 && !padsA().some(p => p.classList.contains('pending')), `one send on the bar, no pad blinking: ${A.mutes.slice(before4k)}`);
+    barA.click();   /* (Bar off again) */
+    padsA()[1].click(); padsA()[2].click();
+    await until(() => A.mutes.at(-1) === 8, `back to NOI only: ${A.mutes.at(-1)}`);
     const filt = document.querySelectorAll('.dj-mixer .dj-filter')[0];   /* deck A's FILTER, on its mixer strip */
     filt.value = '-40'; filt.dispatchEvent(new Event('input'));
     await until(() => A.fxSets.length > 0, 'the filter sent');
@@ -249,6 +267,18 @@ export async function runDjUiTests() {
     xf0.value = '500'; xf0.dispatchEvent(new Event('input'));
     await until(() => B.level === want(0.5), `back to the middle: ${B.levels}`);
     assert(B.levels.length < 12, `one request at a time, the latest value: ${B.levels}`);
+    /* 4b'. a busy link (Colin's test: the FM-1 in use got 3 volumes in a 2 s fade, the last 4 s late): B answers its
+       polls slowly, and a 1 s sweep still reaches it smoothly and on time (sent past the queue, at most every 30 ms) */
+    B.slow = {[OP.LIVE]: 500, [OP.SETTINGS_GET]: 500, [OP.THEME_GET]: 500, [OP.READ]: 300};
+    const sweepFrom = B.levels.length, t0 = performance.now();
+    for (let k = 0; k <= 20; k++) { xf0.value = String(500 - k * 25); xf0.dispatchEvent(new Event('input')); await sleep(50); }
+    const during = B.levels.length - sweepFrom;
+    await until(() => B.level === want(0), `the sweep's last value: ${B.level}, want ${want(0)}`, 1500);
+    const late = performance.now() - t0;
+    assert(during >= 10 && late < 2000, `smooth and on time on a busy link: ${during} volumes during the 1 s sweep, settled after ${Math.round(late)} ms`);
+    B.slow = null;
+    xf0.value = '500'; xf0.dispatchEvent(new Event('input'));
+    await until(() => B.level === want(0.5), `back to the middle again: ${B.levels.slice(-3)}`);
     const deckBEl = [...document.querySelectorAll('.dj-deck')][1];
     const hold = [...deckBEl.querySelectorAll('button')].find(b => b.textContent === 'Hold');
     assert(hold && !hold.disabled, 'B: Hold on 0.9.98');
@@ -434,10 +464,14 @@ export async function runDjUiTests() {
     assert(Math.abs(djState().mixer.faders[1] - 64 / 127) < 1e-9, 'fader 1 mirrored');
     /* a fader moved fast (200 messages): the meter follows, the mixer panel is not rebuilt */
     const head = document.querySelector('.dj-mixer > h4');
+    xf.value = '500'; xf.dispatchEvent(new Event('input'));   /* (the crossfader in the middle: A's meter is its fader times its share) */
     for (let i = 0; i < 200; i++) T.play([0xb0, 1, i & 127]);
     const meterA = document.querySelector('.dj-meter span');
     assert(head.isConnected && xf.isConnected, 'mixer messages: the panel not rebuilt');
-    assert(Math.abs(parseFloat(meterA.style.getPropertyValue('--v')) - (199 & 127) / 127) < 0.01, `the meter follows: ${meterA.style.getPropertyValue('--v')}`);
+    const shareA = crossfade(0.5, djState().mixer.curve)[0];
+    assert(Math.abs(parseFloat(meterA.style.getPropertyValue('--v')) - (199 & 127) / 127 * shareA) < 0.01, `the meter follows the fader times the crossfader: ${meterA.style.getPropertyValue('--v')}`);
+    xf.value = '1000'; xf.dispatchEvent(new Event('input'));
+    assert(parseFloat(meterA.style.getPropertyValue('--v')) < 0.01, `crossfader to B: A's meter down: ${meterA.style.getPropertyValue('--v')}`);
     T.play([0xb0, 1, 64]);
     await until(() => B.level === 127, `with a mixer, B's own volume full again: ${B.levels}`);
 
