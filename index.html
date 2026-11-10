@@ -410,7 +410,19 @@ body.popped .dj-fx{min-height:100%;border-radius:0}
 .dj-tpads{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin:4px 0}
 .dj-tpad{padding:7px 2px;font:700 .8em var(--font-data);touch-action:manipulation;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
 .dj-tpad.empty{color:var(--muted);font-weight:600}
-.dj-glide .dj-bpm-in{width:4.2em}
+/* the master's controls: even grids the panel's full width (narrow in Columns view: nothing wraps but the options) */
+.dj-mgrid{display:grid;gap:4px;margin:4px 0;align-items:stretch}
+.dj-mg-tempo{grid-template-columns:minmax(0,1fr) minmax(0,1.7fr) minmax(0,1fr) minmax(0,1.3fr)}
+.dj-mg-4{grid-template-columns:repeat(4,minmax(0,1fr))}
+.dj-mg-2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.dj-mgrid.dj-glide{grid-template-columns:minmax(0,1.1fr) minmax(0,1.4fr) minmax(0,1fr)}
+.dj-mixer .dj-mgrid .dj-bpm-in,.dj-mgrid select{width:100%;min-width:0;box-sizing:border-box}
+.dj-mixer .dj-mgrid select{padding:3px 2px 3px 5px;font-size:.82em;text-overflow:ellipsis}
+.dj-mgrid .dj-pad{min-width:0;padding:7px 2px}
+.dj-mgrid .dj-pad.dj-from-deck{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;padding:3px 2px;line-height:1.05}
+.dj-from-deck small{font-size:.7em;letter-spacing:.04em;opacity:.75}
+.dj-from-deck b{font:700 1.05em var(--font-data)}
+.dj-mopts{display:flex;flex-wrap:wrap;justify-content:center;gap:2px 12px;margin:2px 0 6px}
 .dj-strips{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px 0;flex:1;min-height:230px}
 .dj-strip{display:flex;flex-direction:column;align-items:center;gap:5px;padding:8px 4px;border-radius:10px;background:color-mix(in srgb,var(--card) 70%,#000);box-shadow:inset 0 1px 4px #0008}
 .dj-strip-id{display:grid;place-items:center;width:26px;height:26px;border-radius:50%;background:var(--accent);color:var(--accent-ink);box-shadow:0 0 10px color-mix(in srgb,var(--accent) 50%,transparent)}

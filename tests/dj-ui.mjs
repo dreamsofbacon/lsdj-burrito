@@ -448,11 +448,11 @@ export async function runDjUiTests() {
       /* SYNC TO LSDJ: the master takes deck B's LSDj tempo (as its FM-1 says), shown on the button */
       B.lsdjBpm = 137;
       const fromB = by(mx, 'Master to deck B\'s LSDj tempo');
-      await until(() => fromB.textContent === 'B · 137' && !fromB.disabled, `B's LSDj tempo shown: ${fromB.textContent}`, 3000);
+      await until(() => fromB.lastChild.textContent === '137' && !fromB.disabled, `B's LSDj tempo shown: ${fromB.textContent}`, 3000);
       fromB.click();
       assert(M.bpm === 137, `the master: deck B's LSDj tempo, 137: ${M.bpm}`);
       delete B.lsdjBpm;
-      await until(() => fromB.textContent === 'B · 120', 'back to 120 on the FM-1', 3000);
+      await until(() => fromB.lastChild.textContent === '120', 'back to 120 on the FM-1', 3000);
       for (const k of ['dj-pads', 'dj-tempo-bar', 'dj-pad-glide', 'dj-glide-bars', 'dj-range-0', 'dj-range-1']) try { localStorage.removeItem(k); } catch {}
       M.pads.fill(null); M.glideBars = 8;
       for (const i of document.querySelectorAll('.dj-bpm-in')) { i.value = '120'; i.dispatchEvent(new Event('change')); } }
