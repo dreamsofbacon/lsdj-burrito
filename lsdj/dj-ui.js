@@ -127,6 +127,16 @@ function matchMaster(d) {
   if (d.ui?.pitch) d.ui.pitch.value = pitchValue(d);
   say(`Deck ${NAMES[d.i]}: back to the master's ${bpmText(d.bpm)} BPM.`);
 }
+/* the master onto a deck's LSDj tempo (its song's TEMPO, as the FM-1 last said: d.live.bpm), on the next bar with
+   Next bar; decks synced to the master follow. (A deck this page clocks plays at the page's tempo instead.) */
+function masterFromDeck(d) {
+  if (!pageMaster()) return;
+  const b = d.live?.bpm;
+  if (!b) return say(`Deck ${NAMES[d.i]}: no LSDj tempo yet (an FM-1 deck, once it has answered).`);
+  onBar(() => { handMasterBpm(b); say(`Master: deck ${NAMES[d.i]}'s LSDj tempo, ${bpmText(master.bpm)} BPM.`); },
+    `Master to deck ${NAMES[d.i]}'s LSDj tempo, ${b} BPM`);
+}
+const lsdjBpmText = d => `${NAMES[d.i]} · ${d.live?.bpm || '—'}`;
 /* a pad: tapped, the master goes to its tempo (on the next bar with Next bar; a glide with Pads glide); held, or
    tapped while empty, it keeps the master's tempo now */
 function padGo(n) {
@@ -686,6 +696,7 @@ function act(a) {
   case 'half': case 'double': halfDouble(d, a.act === 'half' ? 0.5 : 2); break;
   case 'pad': if (a.n != null) padGo(a.n); break;
   case 'match': if (d) matchMaster(d); break;
+  case 'fromdeck': if (d) masterFromDeck(d); break;
   }
   if (['start', 'cue', 'play'].includes(a.act)) drawMixer();   /* a press: Play / Stop may change */
   else mixerNumbers();   /* a fader, a knob, an encoder: many a second, the numbers only */
@@ -715,13 +726,13 @@ const ACTIONS = [{act: 'xfader'}, {act: 'play'}, {act: 'tempo'}, {act: 'step', d
   ...Array.from({length: PADS}, (_, n) => ({act: 'pad', n})),
   ...[0, 1].flatMap(deck => ['start', 'cue', 'filter', 'echo', 'reverb'].map(act => ({act, deck}))),
   ...[0, 1].flatMap(deck => [{act: 'tempo', deck}, {act: 'step', dir: -1, deck}, {act: 'step', dir: 1, deck}, {act: 'nudge', dir: -1, deck},
-    {act: 'nudge', dir: 1, deck}, {act: 'half', deck}, {act: 'double', deck}, {act: 'match', deck}]),
+    {act: 'nudge', dir: 1, deck}, {act: 'half', deck}, {act: 'double', deck}, {act: 'match', deck}, {act: 'fromdeck', deck}]),
   ...[0, 1].map(deck => ({act: 'fader', deck, mixCh: deck + 1}))];
 function actName(a) {
   const n = {xfader: 'Crossfader', play: 'Master Play / Stop', tempo: 'Tempo (relative)', start: 'Play / Stop', cue: 'Cue row',
     filter: 'DJ filter', echo: 'Echo throw', reverb: 'Reverb throw', fader: 'Fader', step: a.dir < 0 ? 'Tempo −' : 'Tempo +',
     nudge: a.dir < 0 ? 'Nudge slower (held)' : 'Nudge faster (held)', half: 'Half time ×½', double: 'Double time ×2',
-    pad: `Tempo pad ${(a.n ?? 0) + 1}`, match: 'Back to the master\'s tempo'}[a.act];
+    pad: `Tempo pad ${(a.n ?? 0) + 1}`, match: 'Back to the master\'s tempo', fromdeck: 'Master to its LSDj tempo'}[a.act];
   return a.deck != null ? `Deck ${NAMES[a.deck]}: ${n}` : ['tempo', 'step', 'half', 'double'].includes(a.act) ? `Master: ${n}` : n;
 }
 
@@ -1031,7 +1042,9 @@ function drawMixer() {
   glideTo.setAttribute('aria-label', 'Glide to (BPM)');
   const glideBtn = btn(master.glide ? 'STOP' : 'GLIDE', () => master.glide ? stopGlide() : startGlide(+glideTo.value),
     {className: `dj-pad dj-tbtn${master.glide ? ' on' : ''}`, disabled: off, title: 'Move the master\'s tempo evenly to this one over the bars chosen'});
-  mixer.ui = {bpmIn, big, xf, meters: meterParts, note, strips, pads, glideBtn, glideTo};
+  const fromDeck = decks.map(d => btn(lsdjBpmText(d), () => masterFromDeck(d), {className: 'dj-pad dj-tbtn dj-from-deck', disabled: off || !d.live?.bpm,
+    ariaLabel: `Master to deck ${NAMES[d.i]}'s LSDj tempo`, title: `The master takes deck ${NAMES[d.i]}'s LSDj tempo (its song's TEMPO on the FM-1)`}));
+  mixer.ui = {bpmIn, big, xf, meters: meterParts, note, strips, pads, glideBtn, glideTo, fromDeck};
   const running = master.source === 'page' ? !!master.clock?.running : !!master.ext?.running;
   m.replaceChildren(...[
     el('h4', {textContent: 'Master'}),
@@ -1047,6 +1060,7 @@ function drawMixer() {
       el('label', {className: 'dj-small', title: 'Every tempo set here snaps to a whole number: Tap, typing, − / +, the decks, the mixer\'s tempo control'}, whole, ' Whole BPM'),
       check(master.onBar, v => { master.onBar = v; store.set('dj-tempo-bar', v ? '1' : '0'); }, ' Next bar',
         'Pads, ×½ / ×2 and a glide\'s start wait for the master\'s next bar (while it plays)')),
+    el('div', {className: 'dj-row dj-master-row'}, el('span', {className: 'dj-small', textContent: 'SYNC TO LSDJ'}), ...fromDeck),
     el('div', {className: 'dj-tpads', role: 'group', ariaLabel: 'Tempo pads: tap to go, hold to keep the tempo now'}, ...pads),
     el('div', {className: 'dj-row dj-master-row dj-glide'}, glideTo,
       sel(GLIDE_BARS.map(b => [String(b), `${b} bar${b > 1 ? 's' : ''}`]), String(master.glideBars), v => { master.glideBars = +v; store.set('dj-glide-bars', v); }, 'Glide length'),
@@ -1140,6 +1154,11 @@ function tick() {
   glideTick(now());   /* (before the readouts: they show the tempo it has reached) */
   const t = now(), m = masterNow(t);
   if (mixer.ui?.big) { const s = m.bpm ? bpmText(m.bpm) : '—'; if (mixer.ui.big.textContent !== s) mixer.ui.big.textContent = s; }   /* the master's tempo */
+  mixer.ui?.fromDeck?.forEach((b, i) => {   /* each deck's LSDj tempo, as last polled */
+    const d = decks[i], s = lsdjBpmText(d), off = !pageMaster() || !d.live?.bpm;
+    if (b.textContent !== s) b.textContent = s;
+    if (b.disabled !== off) b.disabled = off;
+  });
   decks.forEach(d => { if (d.synced) followMaster(d); });   /* Sync: the master's tempo and bar, kept */
   decks.forEach(d => {
     const u = d.ui;

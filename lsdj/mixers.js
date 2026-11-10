@@ -18,7 +18,7 @@
 //        start {deck} (a press), cue {deck} (a press), play (a press: master Play / Stop), tempo {delta bpm} (with a
 //        deck: that deck's), step {dir, deck?} (a press: − / + on the master or a deck), nudge {deck, dir} (held),
 //        half / double {deck?} (a press), pad {n 0-3} (a press: a tempo memory pad), match {deck} (a press: the
-//        deck back to the master's tempo)
+//        deck back to the master's tempo), fromdeck {deck} (a press: the master onto that deck's LSDj tempo)
 //   out: fader (ch, v 0-1), filter (ch, v -64..63), fx (ch, v 0-1), play (), tempo (delta)
 
 /* a MIDI message -> {type: 'cc'|'note'|'pc', ch 1-16, num, v 0-127} or null */
@@ -94,7 +94,7 @@ export function actionFor(p, msg, map = [1, 2], learned = []) {
     else if (r.act === 'filter') a.v = bipolar(msg.v);
     else if (r.act === 'tempo') a.v = bipolar(msg.v);
     else a.v = on ? 1 : 0;
-    if (['filter', 'echo', 'reverb', 'start', 'cue', 'nudge', 'match'].includes(r.act) && a.deck == null) return null;   /* not a deck's */
+    if (['filter', 'echo', 'reverb', 'start', 'cue', 'nudge', 'match', 'fromdeck'].includes(r.act) && a.deck == null) return null;   /* not a deck's */
     return a;
   }
   return null;
@@ -105,7 +105,7 @@ export function out(p, what, ...args) {
   return f ? f(...args) : [];
 }
 
-const PRESSES = ['step', 'nudge', 'half', 'double', 'pad', 'match'], HOLDS = ['echo', 'reverb', 'nudge'];
+const PRESSES = ['step', 'nudge', 'half', 'double', 'pad', 'match', 'fromdeck'], HOLDS = ['echo', 'reverb', 'nudge'];
 /* MIDI learn: a message moved -> a rule for the chosen action ({act, deck} or {act: 'xfader'} ...); a button
    (note, or a CC that only sent 0 / 127) is a press. Kept by the page in localStorage as JSON. */
 export function learnRule(msg, action, seen = []) {
