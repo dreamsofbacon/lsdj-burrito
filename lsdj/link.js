@@ -29,22 +29,27 @@ export const le32 = v => [v & 255, (v >>> 8) & 255, (v >>> 16) & 255, (v >>> 24)
 export const rd32 = (b, i) => (b[i] | b[i + 1] << 8 | b[i + 2] << 16 | b[i + 3] << 24) >>> 0;
 export const rd16 = (b, i) => b[i] | b[i + 1] << 8;
 
-/* Bytes -> the SysEx request (pairs). */
-export function frame(op, bytes = []) {
-  const out = [0xF0, 0x7D, 0x47, 0x53, op];
+/* Bytes -> the SysEx request (pairs). tag (0.9.98-dev.3, INFO flags bit 1): op + 0x40 and the tag before the data. */
+export const TAGGED = 0x40;
+export function frame(op, bytes = [], tag = null) {
+  const out = tag == null ? [0xF0, 0x7D, 0x47, 0x53, op] : [0xF0, 0x7D, 0x47, 0x53, op | TAGGED, tag & 127];
   for (const b of bytes) out.push(b & 127, b >> 7);
   out.push(0xF7);
   return out;
 }
-/* A reply -> {op, status, data} or null if it is not one of ours. */
+/* A reply -> {op, status, data, tag (tagged replies only)} or null if it is not one of ours. */
 export function parse(msg) {
   if (msg.length < 7 || msg[0] !== 0xF0 || msg[1] !== 0x7D || msg[2] !== 0x47 || msg[3] !== 0x53 || msg[msg.length - 1] !== 0xF7) return null;
-  const pairs = msg.slice(6, msg.length - 1);
+  const tagged = (msg[4] & TAGGED) !== 0;
+  if (tagged && msg.length < 8) return null;
+  const pairs = msg.slice(tagged ? 7 : 6, msg.length - 1);
   if (pairs.length % 2) return null;
   const data = new Uint8Array(pairs.length / 2);
   for (let i = 0; i < data.length; i++) data[i] = pairs[2 * i] | (pairs[2 * i + 1] & 1) << 7;
-  return {op: msg[4], status: msg[5], data};
+  return tagged ? {op: msg[4] & ~TAGGED, status: msg[5], tag: msg[6], data} : {op: msg[4], status: msg[5], data};
 }
+/* the FM-1s (by their MIDI output) that said in INFO they take tagged requests; every Link to one tags */
+const tagsOn = new WeakMap();
 
 export class LinkError extends Error {}
 const LIVE_DRAIN_MS = 1000;   /* after a LIVE timed out: how long the next LIVE waits for the late reply */
@@ -55,7 +60,7 @@ const URGENT = new Set([OP.FX_SET, OP.REVERB_SET, OP.REVERB_SENDS_SET, OP.MUTE_S
 export class Link {
   /* input / output: Web MIDI ports (or anything with onmidimessage / send). */
   constructor(input, output) {
-    this.input = input; this.output = output; this.waiting = null; this.jobs = []; this.running = false;
+    this.input = input; this.output = output; this.waiting = null; this.jobs = []; this.running = false; this.tag = 0;
     this.onPixels = null;   // FM-1_985: rows the FM-1 sends by itself after SCREEN_SYNC (lsdj/screen.js); FM-1_990: and SCREEN_FRAME
     /* when the FM-1 last sent anything on this link (a reply, screen rows): one reply missed is not a lost FM-1
        while it is still talking (app.js: lost only after HEARD_MS of silence) */
@@ -81,8 +86,8 @@ export class Link {
         this.onPixels?.(m); return;
       }
       const r = parse(Array.from(m));
-      if (r && r.op === OP.LIVE && this.liveLate && this.waiting?.op !== OP.LIVE) { this.liveLate = 0; return; }   /* the late one */
-      if (r && this.waiting && r.op === this.waiting.op && (r.status || this.waiting.accept(r))) {
+      if (r && r.op === OP.LIVE && r.tag === undefined && this.liveLate && this.waiting?.op !== OP.LIVE) { this.liveLate = 0; return; }   /* the late one */
+      if (r && this.waiting && r.op === this.waiting.op && r.tag === this.waiting.tag && (r.status || this.waiting.accept(r))) {
         const w = this.waiting; w.resolve(r);
       }
     };
@@ -106,24 +111,27 @@ export class Link {
      The USB link drops about one message in a hundred or more (measured on alpha 55: a request or
      its reply never arrives; a late reply was never seen), so a request that is safe to repeat is
      sent again after a timeout: retries more times. */
+  /* this FM-1 takes tagged requests (0.9.98-dev.3): a late reply then carries an old tag and is never taken */
+  get tagged() { return tagsOn.get(this.output) === true; }
   req(op, bytes = [], {timeout = 1500, allow = [0], retries = 0, signal, accept = () => true} = {}) {
     const once = () => new Promise((resolve, reject) => {
       if (this.closed) return reject(new LinkError('Disconnected from the FM-1.'));
       if (signal?.aborted) return reject(new LinkError('Cartridge read cancelled.'));
+      const tag = this.tagged ? (this.tag = (this.tag + 1) & 127) : undefined;
       const cleanup = () => { clearTimeout(t); this.waiting = null; signal?.removeEventListener('abort', abort); };
       const fail = e => { cleanup(); reject(e); };
       const abort = () => fail(new LinkError('Cartridge read cancelled.'));
-      const t = setTimeout(() => { if (op === OP.LIVE) this.liveLate = Date.now(); fail(new LinkError('The FM-1 did not answer. Is LSDJ Burrito running and the cable connected?', {cause: 'timeout'})); }, timeout);
-      this.waiting = {op, accept, reject: fail, resolve: r => {
+      const t = setTimeout(() => { if (op === OP.LIVE && tag === undefined) this.liveLate = Date.now(); fail(new LinkError('The FM-1 did not answer. Is LSDJ Burrito running and the cable connected?', {cause: 'timeout'})); }, timeout);
+      this.waiting = {op, tag, accept, reject: fail, resolve: r => {
         cleanup();
         if (!allow.includes(r.status)) reject(new LinkError(`FM-1: ${STATUS[r.status] || 'error ' + r.status}`));
         else resolve(r);
       }};
       signal?.addEventListener('abort', abort, {once: true});
-      try { this.output.send(frame(op, bytes)); } catch (e) { fail(e); }
+      try { this.output.send(frame(op, bytes, tag ?? null)); } catch (e) { fail(e); }
     });
     const run = async () => {
-      if (op === OP.LIVE && this.liveLate && Date.now() - this.heard < 3000) {   /* the last LIVE's late reply first (dropped when it comes), or give up on it; not when the FM-1 has gone quiet (its loss is noticed as soon as before) */
+      if (op === OP.LIVE && !this.tagged && this.liveLate && Date.now() - this.heard < 3000) {   /* the last LIVE's late reply first (dropped when it comes), or give up on it; not when the FM-1 has gone quiet (its loss is noticed as soon as before) */
         while (this.liveLate && Date.now() - this.liveLate < LIVE_DRAIN_MS && !this.closed) await new Promise(r => setTimeout(r, 20));
         this.liveLate = 0;
       }
@@ -146,7 +154,11 @@ export class Link {
     job.run().then(job.resolve, job.reject).finally(() => { this.running = false; this.pump(); });
   }
 
-  async info() { return infoFrom((await this.req(OP.INFO, [], {retries: 2})).data); }
+  async info() {
+    const i = infoFrom((await this.req(OP.INFO, [], {retries: 2})).data);
+    tagsOn.set(this.output, i.tags);
+    return i;
+  }
   async cartridgeInfo(signal) {
     const r = await this.req(OP.CART_INFO, [], {retries: 2, allow: [0, 1], signal});
     if (r.status === 1) throw new LinkError('This firmware cannot read back its cartridge. Install FM-1_974 or newer once using your original LSDj ROM, then reconnect. Nothing was prepared.');
@@ -306,7 +318,7 @@ export function battery(b) {
 /* INFO's reply -> {protocol, firmware, title, ...} */
 export function infoFrom(d) {
   const str = (a, b) => String.fromCharCode(...d.slice(a, b)).replace(/\0.*$/, '');
-  return {protocol: d[0], firmware: str(1, 9), title: str(9, 25), saveSize: rd32(d, 25), saveCrc: rd32(d, 29), importing: d[33], liveKnown: !!(d[34] & 1)};
+  return {protocol: d[0], firmware: str(1, 9), title: str(9, 25), saveSize: rd32(d, 25), saveCrc: rd32(d, 29), importing: d[33], liveKnown: !!(d[34] & 1), tags: !!(d[34] & 2)};
 }
 
 /* An FM-1 known again on new ports (Windows numbers them again when it comes back, and its port name can change:
@@ -352,7 +364,7 @@ export async function findFm1s(access, {known = [], wait = 500} = {}) {
       }
     /* (put back only where nothing took the input meanwhile: a Link made during the probe keeps its own) */
     } finally { free.forEach((i, n) => { if (i.onmidimessage === ours[n]) i.onmidimessage = before[n]; }); }
-    if (hit?.info.protocol === 1) { found.push({input: hit.input, output, name: output.name, info: hit.info}); used.add(hit.input); used.add(output); }
+    if (hit?.info.protocol === 1) { tagsOn.set(output, hit.info.tags); found.push({input: hit.input, output, name: output.name, info: hit.info}); used.add(hit.input); used.add(output); }
   }
   return found;
 }

@@ -20,8 +20,11 @@ assert.match(html, /<script type="module" src="lsdj\/pwa\.js"><\/script>/);
 assert.match(html, /id="install-app"[^>]* hidden/);
 
 const sw = readFileSync(join(root, 'sw.js'), 'utf8');
-const listed = [...sw.match(/const FILES = \[([\s\S]*?)\];/)[1].matchAll(/'([^']+)'/g)].map(x => x[1]).filter(f => f !== './');
+const names = list => [...sw.match(new RegExp(`const ${list} = \\[([\\s\\S]*?)\\];`))[1].matchAll(/'([^']+)'/g)].map(x => x[1]).filter(f => f !== './');
+const now = names('FILES'), later = names('LATER'), listed = [...now, ...later];
+assert.ok(!now.some(f => later.includes(f)), 'a file stored at install or on first use, not both');
+assert.ok(now.includes('index.html') && now.includes('lsdj/fm1-lsdj-template.fwsc'), 'the page and the firmware template work offline from the start');
 const walk = d => readdirSync(d).flatMap(n => { const p = join(d, n); return statSync(p).isDirectory() ? walk(p) : [relative(root, p).split('\\').join('/')]; });
 const site = walk(root).filter(f => !/^(\.git\/|\.github\/|tests\/)/.test(f) && !['README.md', '.nojekyll', 'sw.js'].includes(f)).sort();
-assert.deepEqual([...listed].sort(), site, 'sw.js FILES must list every site file');
-console.log(`PASS installable app: manifest, ${m.icons.length} icons, offline copy of all ${site.length} site files`);
+assert.deepEqual([...listed].sort(), site, 'sw.js FILES and LATER must list every site file');
+console.log(`PASS installable app: manifest, ${m.icons.length} icons, offline copy of all ${site.length} site files (${later.length} on first use)`);

@@ -40,20 +40,22 @@ let hooks = {devices: () => [], linkFor: () => null, access: () => null, outputF
 export function setDjHooks(h) { hooks = {...hooks, ...h}; }
 
 const now = () => performance.now();
-/* one-shot timers on a Worker's beat (bar-timed kills and tempo changes, a bend's end): a hidden tab slows
-   setTimeout to once a second, which would land them bars late. later -> an id (never 0); cancelLater(id) */
+/* one-shot timers (bar-timed kills and tempo changes, a bend's end): a page timer, and a Worker's beat as well, as
+   a hidden tab slows page timers to once a second (bars late). Whichever comes first runs it, once. (A new Worker can
+   take seconds to start beating while the page loads: the page timer alone is never late in a shown tab.)
+   later -> an id (never 0); cancelLater(id) */
 const due = new Map();
 let dueSeq = 0, dueStop = null;
 function later(ms, f) {
   const id = ++dueSeq;
-  due.set(id, {at: now() + ms, f});
+  due.set(id, {at: now() + ms, f, t: setTimeout(runDue, ms)});
   dueStop ??= workerTimer(runDue, 5);
   return id;
 }
-const cancelLater = id => { due.delete(id); };
+const cancelLater = id => { clearTimeout(due.get(id)?.t); due.delete(id); };
 function runDue() {
   const t = now();
-  for (const [id, x] of due) if (x.at <= t) { due.delete(id); x.f(); }
+  for (const [id, x] of due) if (x.at <= t) { due.delete(id); clearTimeout(x.t); x.f(); }
   if (!due.size && dueStop) { dueStop(); dueStop = null; }
 }
 /* whole: Whole BPM (kept in this browser): every tempo set here snaps to a whole number (tap, typing, the mixer's +/-) */
@@ -210,11 +212,19 @@ function nextRange(d) {
 function masterPlay() {
   if (master.source !== 'page') { mixerSend('play'); return; }   /* an outside master: ask it (a mixer that takes it) */
   const c = masterClock();
-  if (c.running) { c.stop(); decks.forEach(d => d.clock?.running && d.clock.stop()); draw(); return; }
+  if (c.running) { c.stop(); decks.forEach(d => d.clock?.running && d.clock.stop()); drawPlay(); return; }
   const at = now() + 60;
   c.start(at);
   decks.forEach(d => { if (d.key) { deckClock(d).setTempo(d.bpm); if (!d.clock.running) d.clock.start(at); } });
-  draw();
+  drawPlay();
+}
+/* Play / Stop changed: the decks' PLAY and nudge buttons and the mixer's Play all, not the whole layout */
+function drawPlay(only = null) {
+  (only ? [only] : decks).forEach(drawDeck);
+  const b = mixer.ui?.playAll;
+  if (!b) return;
+  const running = master.source === 'page' ? !!master.clock?.running : !!master.ext?.running;
+  b.textContent = running ? '■ Stop all' : '▶ Play all'; b.classList.toggle('on', running);
 }
 /* an outside master on a MIDI input: its clocks counted, its tempo measured */
 function hearMaster(e) {
@@ -285,13 +295,13 @@ function deckPlay(d) {
   if (!d.key) return;
   const c = deckClock(d);
   d.seenPlaying = false; d.idlePolls = 0;
-  if (c.running) { c.stop(); draw(); return; }
+  if (c.running) { c.stop(); drawPlay(d); return; }
   if (d.synced) followMaster(d);   /* (the master's tempo; starting on its bar puts the bars together) */
   c.setTempo(d.bpm);
   const m = masterNow();
   if (m.phase == null && master.source === 'page') { const at = now() + 60; masterClock().start(at); c.start(at); }
   else c.start(nextOn(m.phase, m.bpm, now()));   /* on the master's next bar */
-  draw();
+  drawPlay(d);
 }
 /* Sync: a lock, lit while on (as DJ software has). On: the deck takes the master's tempo at once and keeps
    following it (a tap, a new master tempo, an outside clock), and while both play its bar is kept on the master's:
@@ -1131,7 +1141,7 @@ function drawMixer() {
     el('div', {className: 'dj-mgrid dj-glide'}, glideTo,
       sel(GLIDE_BARS.map(b => [String(b), `${b} bar${b > 1 ? 's' : ''}`]), String(master.glideBars), v => { master.glideBars = +v; store.set('dj-glide-bars', v); }, 'Glide length'),
       glideBtn),
-    el('div', {className: 'dj-mgrid dj-mg-2'}, btn(running ? '■ Stop all' : '▶ Play all', masterPlay, {className: `dj-pad${running ? ' on' : ''}`}), source),
+    el('div', {className: 'dj-mgrid dj-mg-2'}, mixer.ui.playAll = btn(running ? '■ Stop all' : '▶ Play all', masterPlay, {className: `dj-pad${running ? ' on' : ''}`}), source),
     el('div', {className: 'dj-mopts'},
       el('label', {className: 'dj-small', title: 'Every tempo set here snaps to a whole number: Tap, typing, − / +, the decks, the mixer\'s tempo control'}, whole, ' Whole BPM'),
       check(master.onBar, v => { master.onBar = v; store.set('dj-tempo-bar', v ? '1' : '0'); }, ' Next bar',
@@ -1466,7 +1476,10 @@ export function djShown(on) {
   if (!on) { decks.forEach(d => deckLevel(d, null)); return; }   /* the Effects layout: the FM-1s at full volume */
   applyVolumes();
   draw();
-  ticker = workerTimer(tick, 50);   /* (Sync keeps the bar in a hidden tab too) */
+  {   /* (a hidden tab's interval comes once a second: the Worker keeps Sync on the bar meanwhile) */
+    const iv = setInterval(tick, 50), stopW = workerTimer(() => { if (document.hidden) tick(); }, 50);
+    ticker = () => { clearInterval(iv); stopW(); };
+  }
   animating = requestAnimationFrame(animate);
   polling = setInterval(() => void poll(), 400);
 }
@@ -1506,9 +1519,14 @@ export function djDevicesChanged() {
     });
   }
   for (const x of list) seenFm1s.set(x.key, {title: x.title, fw: x.fw, crc: x.crc});
+  /* a search that found the same FM-1s and ports (it runs on every port change): nothing to redraw */
+  const seen = JSON.stringify([list.map(x => [x.key, x.label, x.fw]), mixerPorts().outs.map(p => p.id), decks.map(d => d.key)]);
+  if (seen === lastSeen) return;
+  lastSeen = seen;
   draw();
   crateRedraw();
 }
+let lastSeen = '';
 /* the crate (crate-ui.js): which decks there are, stopping one, giving it an FM-1 (or none), the ports it must not
    touch (the other deck's gear, the mixer, an outside master clock: the FM-1s themselves come from app.js), and the
    cover while one loads */
