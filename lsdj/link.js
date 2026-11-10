@@ -121,7 +121,7 @@ export class Link {
       try { this.output.send(frame(op, bytes)); } catch (e) { fail(e); }
     });
     const run = async () => {
-      if (op === OP.LIVE && this.liveLate && Date.now() - this.heard < 1000) {   /* the last LIVE's late reply first (dropped when it comes), or give up on it; not when the FM-1 has gone quiet (its loss is noticed as soon as before) */
+      if (op === OP.LIVE && this.liveLate && Date.now() - this.heard < 3000) {   /* the last LIVE's late reply first (dropped when it comes), or give up on it; not when the FM-1 has gone quiet (its loss is noticed as soon as before) */
         while (this.liveLate && Date.now() - this.liveLate < LIVE_DRAIN_MS && !this.closed) await new Promise(r => setTimeout(r, 20));
         this.liveLate = 0;
       }

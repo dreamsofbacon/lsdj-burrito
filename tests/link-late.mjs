@@ -10,7 +10,8 @@ const output = {send(m) {
   if (m[4] !== OP.LIVE) return;
   const data = [1, 1, 120, 0, mute, 0, 0, ...Array(68).fill(0)];   /* what is true now */
   const reply = [0xf0, 0x7d, 0x47, 0x53, OP.LIVE, 0, ...data.flatMap(b => [b & 127, b >> 7]), 0xf7];
-  setTimeout(() => input.onmidimessage?.({data: reply}), delays.shift() ?? 0);
+  const ms = delays.shift() ?? 0;
+  if (Number.isFinite(ms)) setTimeout(() => input.onmidimessage?.({data: reply}), ms);   /* (Infinity: lost) */
 }};
 const link = new Link(input, output);
 await assert.rejects(link.live(), /did not answer/);   /* asked while NOI was muted; gave up */
@@ -20,7 +21,7 @@ assert.equal(l.mute, 0, 'the next LIVE gets its own answer, not the late one (wh
 const l2 = await link.live();
 assert.equal(l2.mute, 0);
 /* a LIVE lost for good: the next one waits at most LIVE_DRAIN_MS, then asks */
-delays = [1e9, 0];
+delays = [Infinity, 0];
 await assert.rejects(link.live(), /did not answer/);
 const t0 = Date.now(); await link.live();
 assert.ok(Date.now() - t0 < 1500, `a lost reply holds the next LIVE up at most a moment: ${Date.now() - t0} ms`);
