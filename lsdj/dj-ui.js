@@ -17,7 +17,7 @@
 //   from the FM-1's own phrase rows when this page isn't clocking it.
 //   Each FM-1 deck shows, as chosen (Screen | Rows): its FM-1's screen (as Perform › Screen; FM-1_983 and newer),
 //   on that FM-1's link, or (0.9.98) the song row map: click a row to cue it.
-import {startClock, clampBpm, PPQN, CLOCK, START, CONTINUE, STOP, LOOKAHEAD_MS} from './midiclock.js';
+import {startClock, clampBpm, PPQN, CLOCK, START, CONTINUE, STOP, LOOKAHEAD_MS, workerTimer} from './midiclock.js';
 import {sameFm1, OP} from './link.js';
 import {BAR, BEAT, NUDGE, offset, syncBend, nextOn, crossfade, CURVES, djFilter, tapper, clockMeter} from './dj.js';
 import {PRESETS, preset, readMidi, actionFor, out, learnRule, saveLearned, loadLearned} from './mixers.js';
@@ -40,6 +40,22 @@ let hooks = {devices: () => [], linkFor: () => null, access: () => null, outputF
 export function setDjHooks(h) { hooks = {...hooks, ...h}; }
 
 const now = () => performance.now();
+/* one-shot timers on a Worker's beat (bar-timed kills and tempo changes, a bend's end): a hidden tab slows
+   setTimeout to once a second, which would land them bars late. later -> an id (never 0); cancelLater(id) */
+const due = new Map();
+let dueSeq = 0, dueStop = null;
+function later(ms, f) {
+  const id = ++dueSeq;
+  due.set(id, {at: now() + ms, f});
+  dueStop ??= workerTimer(runDue, 5);
+  return id;
+}
+const cancelLater = id => { due.delete(id); };
+function runDue() {
+  const t = now();
+  for (const [id, x] of due) if (x.at <= t) { due.delete(id); x.f(); }
+  if (!due.size && dueStop) { dueStop(); dueStop = null; }
+}
 /* whole: Whole BPM (kept in this browser): every tempo set here snaps to a whole number (tap, typing, the mixer's +/-) */
 /* the tempo controls (dj-tempo.js), kept in this browser: pads (four tempos), onBar (Next bar: pads, ×½ / ×2 and a
    glide's start wait for the master's next bar), padGlide (a pad glides there instead of jumping), glideBars;
@@ -110,13 +126,13 @@ const stepDeck = (d, dir, size = 1) => setDeckBpm(d, stepBpm(d.bpm, dir, master.
 /* Next bar on and the master playing: f waits for the master's next bar (a newer change replaces it); else now.
    It fires a lookahead early: the clocks already scheduled reach to the bar, so the new tempo starts there. */
 function onBar(f, what) {
-  clearTimeout(master.pending); master.pending = 0;
+  cancelLater(master.pending); master.pending = 0;
   const t = now(), m = masterNow(t);
   if (!master.onBar || m.phase == null) { f(); return; }
   const ms = nextOn(m.phase, m.bpm, t) - t - LOOKAHEAD_MS;
   if (ms < 10) { f(); return; }
   say(`${what}: on the next bar.`);
-  master.pending = setTimeout(() => { master.pending = 0; f(); }, ms);
+  master.pending = later(ms, () => { master.pending = 0; f(); });
 }
 /* half / double time, the master's (decks synced to it follow) or a deck's; never outside LSDj's 40-295 */
 function halfDouble(d, factor) {
@@ -237,7 +253,7 @@ function deckClock(d) {
 async function assign(d, value) {
   d.clock?.stop(); d.clock?.close(); d.clock = null;
   if (d.kind === 'fm1' && d.levelSent !== 127) void fullVolume(d.key);   /* the FM-1 leaving the deck: full volume again */
-  d.key = ''; d.kind = ''; d.live = null; d.fx = null; d.rv = null; d.base = null; d.throwing = null; d.kill = 0; d.killWant = null; d.killDoneAt = null; d.killDirty = 0; d.ccFx = 0; clearTimeout(d.killTimer); d.killTimer = 0; d.levelPosted = null; d.filter = 0; setSynced(d, false); deckBend(d, 1); d.nudging = false;
+  d.key = ''; d.kind = ''; d.live = null; d.fx = null; d.rv = null; d.base = null; d.throwing = null; d.kill = 0; d.killWant = null; d.killDoneAt = null; d.killDirty = 0; d.ccFx = 0; cancelLater(d.killTimer); d.killTimer = 0; d.levelPosted = null; d.filter = 0; setSynced(d, false); deckBend(d, 1); d.nudging = false;
   d.savHead = null; d.sav = null; d.savMatch = null; d.savAt = 0; d.seenPlaying = false; d.idlePolls = 0;
   d.syncTried = null; d.clockOut = null; d.midiKnown = false; d.warn = {}; d.ownRow = null; setWarn(d, 'midi', '');
   d.level = null; d.levelSent = 127; d.scrOk = true; d.themeAt = 0; d.map = null; d.mapFrom = -1; d.mapFill = null;
@@ -294,9 +310,9 @@ function setSynced(d, on) {
 }
 /* one bend at a time: a new one (Sync again, a nudge) replaces the one under way, and its end can't cut the new one */
 function deckBend(d, factor, ms = 0) {
-  clearTimeout(d.bendTimer); d.bendTimer = 0;
+  cancelLater(d.bendTimer); d.bendTimer = 0;
   d.clock?.bend(factor);
-  if (ms) d.bendTimer = setTimeout(() => { d.bendTimer = 0; d.clock?.bend(1); }, ms);
+  if (ms) d.bendTimer = later(ms, () => { d.bendTimer = 0; d.clock?.bend(1); });
 }
 /* a synced deck: the master's tempo; its bar onto the master's (at once: any gap; later: past the slack) */
 function followMaster(d, atOnce = false) {
@@ -454,8 +470,8 @@ function kill(d, c) {
   d.killWant = killShown(d) ^ (1 << c);
   d.killDirty = (d.killDirty || 0) ^ (1 << c);   /* (pressed twice before the bar: back as it was, nothing sent for it) */
   const m = masterNow();
-  if (!d.killOnBar || m.phase == null) { clearTimeout(d.killTimer); d.killTimer = 0; return sendKills(d); }
-  if (!d.killTimer) d.killTimer = setTimeout(() => { d.killTimer = 0; sendKills(d); }, Math.max(0, nextOn(m.phase, m.bpm, now()) - now()));
+  if (!d.killOnBar || m.phase == null) { cancelLater(d.killTimer); d.killTimer = 0; return sendKills(d); }
+  if (!d.killTimer) d.killTimer = later(Math.max(0, nextOn(m.phase, m.bpm, now()) - now()), () => { d.killTimer = 0; sendKills(d); });
   paintKills(d);   /* (waiting for the bar: the pad blinks) */
 }
 /* after a poll: the page's kills win until they've settled on the FM-1, then the FM-1's own mask again */
@@ -1442,14 +1458,15 @@ function applyDjTheme() {
 }
 /* the DJ layout shown or hidden: the readouts and FM-1 polls run only while it shows */
 export function djShown(on) {
-  clearInterval(ticker); clearInterval(polling); cancelAnimationFrame(animating); ticker = polling = animating = 0;
+  if (ticker) ticker();
+  clearInterval(polling); cancelAnimationFrame(animating); ticker = polling = animating = 0;
   shown = on;
   applyDjTheme();   /* the page in the DJ colours only while the layout shows */
   decks.forEach(deckScreen);   /* the screens run only while the layout shows */
   if (!on) { decks.forEach(d => deckLevel(d, null)); return; }   /* the Effects layout: the FM-1s at full volume */
   applyVolumes();
   draw();
-  ticker = setInterval(tick, 50);
+  ticker = workerTimer(tick, 50);   /* (Sync keeps the bar in a hidden tab too) */
   animating = requestAnimationFrame(animate);
   polling = setInterval(() => void poll(), 400);
 }

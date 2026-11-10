@@ -49,11 +49,13 @@ export function parse(msg) {
 export class LinkError extends Error {}
 const LIVE_DRAIN_MS = 1000;   /* after a LIVE timed out: how long the next LIVE waits for the late reply */
 const owners = new WeakMap();   /* an input -> the Link listening on it */
+/* sets heard while playing (a kill, a knob, the crossfader): sent before reads already waiting, never mid-request */
+const URGENT = new Set([OP.FX_SET, OP.REVERB_SET, OP.REVERB_SENDS_SET, OP.MUTE_SET, OP.VOLUME_SET, OP.SEQ_SET, OP.PAD_SET]);
 
 export class Link {
   /* input / output: Web MIDI ports (or anything with onmidimessage / send). */
   constructor(input, output) {
-    this.input = input; this.output = output; this.waiting = null; this.queue = Promise.resolve();
+    this.input = input; this.output = output; this.waiting = null; this.jobs = []; this.running = false;
     this.onPixels = null;   // FM-1_985: rows the FM-1 sends by itself after SCREEN_SYNC (lsdj/screen.js); FM-1_990: and SCREEN_FRAME
     /* when the FM-1 last sent anything on this link (a reply, screen rows): one reply missed is not a lost FM-1
        while it is still talking (app.js: lost only after HEARD_MS of silence) */
@@ -130,9 +132,18 @@ export class Link {
         catch (e) { if (e.cause !== 'timeout' || tries > retries) throw e; this.retried = (this.retried || 0) + 1; }
       }
     };
-    const p = this.queue.then(run, run);
-    this.queue = p.catch(() => {});
-    return p;
+    return new Promise((resolve, reject) => {
+      const job = {run, resolve, reject, urgent: URGENT.has(op)};
+      const at = job.urgent ? this.jobs.findIndex(j => !j.urgent) : -1;
+      if (at < 0) this.jobs.push(job); else this.jobs.splice(at, 0, job);
+      this.pump();
+    });
+  }
+  pump() {
+    if (this.running || !this.jobs.length) return;
+    const job = this.jobs.shift();
+    this.running = true;
+    job.run().then(job.resolve, job.reject).finally(() => { this.running = false; this.pump(); });
   }
 
   async info() { return infoFrom((await this.req(OP.INFO, [], {retries: 2})).data); }
