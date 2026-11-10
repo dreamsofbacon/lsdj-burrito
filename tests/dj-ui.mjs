@@ -299,8 +299,8 @@ export async function runDjUiTests() {
 
     // 4c2. the deck labels: the FM-1's songs from its save's header (READs: LSDj keeps playing); a .sav sent from this
     // page names the deck, "(changed since)" once the FM-1's save no longer matches; INFO (a sum over the whole save
-    // on the FM-1) is not asked while the header stays the same
-    const labelOf = e => [e.querySelector('.dj-label-file').textContent, e.querySelector('.dj-label-song').textContent];
+    // on the FM-1) is not asked while the header stays the same. The label is the deck picker's tooltip (two lines).
+    const labelOf = e => { const [file = '', song = ''] = e.querySelector('.dj-deck-head select').title.split('\n'); return [file, song]; };
     await until(() => decksEl.every(e => labelOf(e)[1] === 'Song TECHNO .02 · 1 song · 95 % free'), `labels: ${decksEl.map(e => labelOf(e).join(' / '))}`, 7000);
     assert(labelOf(decksEl[0])[0] === 'Its own songs', `nothing sent to A from here: ${labelOf(decksEl[0])}`);
     const readsSent = B.reads, infosSent = B.infos;
@@ -511,7 +511,7 @@ export async function runDjUiTests() {
     assert(AB.sent.at(-2).join() === '159,51,100' && dA.abSpeed === 1 && speeds()[1].classList.contains('on'), `half speed: note 51, lit: ${AB.sent.at(-2)}`);
     choose(deckA.querySelector('select[aria-label="ArduinoBoy MIDI channel"]'), '3');
     assert(AB.sent.at(-2).join() === '146,51,100', `channel 3: the speed sent again there: ${AB.sent.at(-2)}`);
-    assert(!deckA.querySelector('.dj-kill') && !deckA.querySelector('.dj-view-box') && deckA.querySelector('.dj-label').hidden && !/Cue row/.test(deckA.textContent),
+    assert(!deckA.querySelector('.dj-kill') && !deckA.querySelector('.dj-view-box') && !deckA.querySelector('.dj-deck-head select').title && !/Cue row/.test(deckA.textContent),
       'no kills, screen, rows, label or Cue row on an ArduinoBoy deck');
     assert(dA.filterBy === 'mixer' && dA.throwBy === 'mixer', 'its filter and throws by the mixer');
     AB.sent.length = 0;
@@ -657,12 +657,12 @@ export async function runDjUiTests() {
     if (followBtn.getAttribute('aria-pressed') === 'true') followBtn.click();
     play(1);
 
-    // 12. the bezel round each FM-1 deck's screen; each deck's FX panel (lsdj/dj-fx.js): a drawer from its outer
+    // 12. each FM-1 deck's screen, unframed; each deck's FX panel (lsdj/dj-fx.js): a drawer from its outer
     //     edge, changes only its own FM-1, follows a knob turned on the FM-1, a Columns view, its own window and back
     choose(pickA, ''); choose(pickA, 'fm1:out-1');
     await until(() => djState().decks[0].fx, 'deck A read FM-1 A\'s effects again');
     const deckBoxA = [...document.querySelectorAll('.dj-deck')][0];
-    assert(deckBoxA.querySelector('.dj-view-box.bezel .dj-bezel-band') && deckBoxA.querySelector('.dj-bezel-led'), 'deck A: its screen in a bezel, with the band and the light');
+    assert(deckBoxA.querySelector('.dj-view-box') && !deckBoxA.querySelector('.bezel, .dj-label'), 'deck A: its screen unframed, no label panel');
     const fxA = document.querySelector('.dj-fx-a'), tabA = document.querySelector('.dj-fx-tab-a');
     assert(fxA && !fxA.classList.contains('open') && getComputedStyle(fxA).visibility === 'hidden', 'drawer A closed at first');
     tabA.click();
@@ -696,7 +696,7 @@ export async function runDjUiTests() {
     /* never two links on one FM-1 input (link.js says so in the Log: the older one would stop hearing) */
     { const {logEntries} = await import('../lsdj/conn-log.js'); const two = logEntries().filter(e => /Two links on one FM-1 input/.test(e.text));
       assert(!two.length, `two links on one input: ${two.map(e => e.text).join(' | ')}`); }
-    return 'PASS DJ layout: switch, decks on FM-1s, Start and clocks per deck, the next bar, its own tempo, Sync (a lock: lit, keeps the bar, follows the master, on a stopped deck, lets go when typed), stem kill, DJ filter, Perform › Clock off, 0.9.98 (crossfader to FM-1 volume, Hold), DJ colours (the page and panel; FM-1 decks keep theirs), each deck its FM-1 colours, its label (the .sav sent, the open song, changed since), Screen | Rows (screen, song row map, click to cue), Tap quickly (no redraw), Whole BPM, the tempo controls (− / + held, nudge buttons, ×½ / ×2, MASTER, the fader range, pads, a glide, Next bar), TX-6 button and crossfader, fader mirrored, full volume after, an ArduinoBoy deck (speed notes, its channel, Start and clocks, FM-1 controls hidden), the crate (a .sav onto deck A while B plays on, untouched; Grab B), an FM-1 pulled and back (the deck takes it back, playing, also on new port ids with its .sav label; the Log), stopped on the FM-1 (the deck stops too), never two links on one input, each deck sets its FM-1 up (MIDI settings, LSDj SYNC to KEYBD; the warning strip), the jog every frame, a switch while the decks poll, Follow put in the DJ layout, the screens bezels, each deck FX panel (a drawer, only its own FM-1, follows its knobs, Columns, its own window)';
+    return 'PASS DJ layout: switch, decks on FM-1s, Start and clocks per deck, the next bar, its own tempo, Sync (a lock: lit, keeps the bar, follows the master, on a stopped deck, lets go when typed), stem kill, DJ filter, Perform › Clock off, 0.9.98 (crossfader to FM-1 volume, Hold), DJ colours (the page and panel; FM-1 decks keep theirs), each deck its FM-1 colours, its label (the .sav sent, the open song, changed since), Screen | Rows (screen, song row map, click to cue), Tap quickly (no redraw), Whole BPM, the tempo controls (− / + held, nudge buttons, ×½ / ×2, MASTER, the fader range, pads, a glide, Next bar), TX-6 button and crossfader, fader mirrored, full volume after, an ArduinoBoy deck (speed notes, its channel, Start and clocks, FM-1 controls hidden), the crate (a .sav onto deck A while B plays on, untouched; Grab B), an FM-1 pulled and back (the deck takes it back, playing, also on new port ids with its .sav label; the Log), stopped on the FM-1 (the deck stops too), never two links on one input, each deck sets its FM-1 up (MIDI settings, LSDj SYNC to KEYBD; the warning strip), the jog every frame, a switch while the decks poll, Follow put in the DJ layout, the screens unframed (the label a tooltip), each deck FX panel (a drawer, only its own FM-1, follows its knobs, Columns, its own window)';
   } finally {
     if (descriptor) Object.defineProperty(navigator, 'requestMIDIAccess', descriptor); else delete navigator.requestMIDIAccess;
   }

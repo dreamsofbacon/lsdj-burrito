@@ -294,32 +294,11 @@ body.popped .dj-fx{min-height:100%;border-radius:0}
 #pan-dj .dj-top-panel .dj-view button.on{color:var(--accent-ink);background:var(--accent);box-shadow:0 0 10px color-mix(in srgb,var(--accent) 55%,transparent)}
 .dj-display{--ink:#ececea;--muted:#9c9b96;color:var(--ink);display:flex;flex-direction:column;gap:4px;min-width:0;min-height:0;padding:6px;border-radius:8px;
   background:var(--dj-inset);border:2px solid #000;box-shadow:inset 0 2px 10px #000b,0 1px 0 #ffffff12}
-.dj-display .dj-label{margin:0 2px}
 /* the screen and the rows share one box at the FM-1 screen's shape (160:144), as big as the area allows: no black bars, and no change in size between them */
 .dj-view-area{flex:none;height:clamp(200px,24vw,400px);min-height:0;display:grid;place-items:center;container-type:size}
-/* the track info (the .sav, the song) beside the screen, as a CDJ shows it beside its waveform: the display has no empty space */
-.dj-display:has(.dj-view-area){flex-direction:row;align-items:stretch;gap:8px}
-.dj-display:has(.dj-view-area) .dj-label{order:2;flex:0 0 34%;min-width:0;margin:0;padding:4px 2px;justify-content:flex-start;gap:6px}
-.dj-display:has(.dj-view-area) .dj-label-file,.dj-display:has(.dj-view-area) .dj-label-song{white-space:normal;overflow-wrap:anywhere}
-.dj-display:has(.dj-view-area) .dj-view-area{flex:1 1 0;min-width:0;height:auto;min-height:clamp(200px,22vw,380px)}
+/* an FM-1's display: only the screen (or rows) box shows, no panel round it */
+.dj-display:has(.dj-view-area){padding:0;background:none;border:0;box-shadow:none}
 .dj-display .dj-view-box{margin:0;max-width:none;width:min(100cqw,calc(100cqh * 160 / 144));aspect-ratio:160/144;container-type:size;border-color:#000;background:#000}
-/* the Game Boy-style bezel (lsdj/dj-ui.js drawDeck), in the deck's FM-1 colours: the box's padding is the frame
-   (12% top for the band, 7% sides and bottom, all of its width), so the screen inside keeps 160:144 exactly:
-   height = (0.12 + 0.07 + 0.86 * 144 / 160) of the width = 0.964. The lower right corner rounded as the handheld's. */
-.dj-display .dj-view-box.bezel{--bz:color-mix(in srgb,var(--card) 72%,var(--line));
-  width:min(100cqw,calc(100cqh / .964));aspect-ratio:1/.964;padding:12% 7% 7%;border:0;
-  border-radius:5% 5% 22% 5% / 5% 5% 23% 5%;background:linear-gradient(160deg,color-mix(in srgb,var(--bz) 85%,#fff),var(--bz) 40%,color-mix(in srgb,var(--bz) 80%,#000));
-  box-shadow:inset 0 1px 0 #ffffff26,inset 0 -2px 0 #0000004d,0 2px 6px #0008}
-.dj-view-box.bezel>.dj-screen,.dj-view-box.bezel>.dj-map,.dj-view-box.bezel>.dj-view-note{border-radius:2px;background:#000;box-shadow:inset 0 0 0 2px #0006,0 0 0 1px #0007}
-.dj-view-box.bezel>.dj-view-note{position:static;height:100%;color:#ececea}
-.dj-bezel-band{position:absolute;left:5%;right:5%;top:4.5%;display:flex;align-items:center;gap:2.5%;pointer-events:none}
-.dj-bezel-band i{flex:1;height:0;border-top:max(1px,.6cqw) solid var(--accent);border-bottom:max(1px,.6cqw) solid color-mix(in srgb,var(--accent) 45%,var(--ink));opacity:.85}
-.dj-bezel-band span{font:400 max(7px,3.6cqw)/1 var(--font-name);letter-spacing:.06em;color:color-mix(in srgb,var(--ink) 75%,var(--bz));white-space:nowrap}
-.dj-bezel-led{position:absolute;left:1.2%;top:40%;width:4.6%;display:flex;flex-direction:column;align-items:center;gap:6%;pointer-events:none}
-.dj-bezel-led b{display:block;width:70%;aspect-ratio:1;border-radius:50%;background:color-mix(in srgb,var(--accent) 25%,#000);box-shadow:inset 0 1px 1px #0008}
-.dj-bezel-led.on b{background:var(--accent);box-shadow:0 0 6px var(--accent),inset 0 -1px 1px #0006}
-.dj-bezel-led.one b{background:color-mix(in srgb,var(--accent) 70%,#fff);box-shadow:0 0 10px var(--accent)}
-.dj-bezel-led small{font:400 max(5px,1.7cqw)/1 var(--font-name);color:color-mix(in srgb,var(--ink) 65%,var(--bz));writing-mode:vertical-rl;transform:rotate(180deg)}
 .dj-disp-info{display:flex;flex-direction:column;gap:6px;padding:6px}
 .dj-disp-info p{margin:0}
 /* the pads: eight in a row, rubber with a light under each */
@@ -478,9 +457,6 @@ body.popped .dj-fx{min-height:100%;border-radius:0}
 #pan-dj.dj-themed{background:var(--bg);color:var(--ink);border-color:var(--line)}
 #pan-dj.dj-themed .dj-mixer{border-color:color-mix(in srgb,var(--accent) 45%,#000)}
 /* the deck label: the .sav sent to its FM-1, and the song open in LSDj (dj-ui.js drawLabel) */
-.dj-label{display:flex;flex-direction:column;gap:1px;margin:-2px 0 6px;min-width:0}
-.dj-label-file{font-size:1.15em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dj-label-song{color:var(--muted);font-size:.9em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #fx-muted{margin:6px 0 10px}
 /* the wiring (lsdj/fx-diagram.js) */
 .fm1-screen{max-width:480px;border:1px solid var(--line);border-radius:10px;background:var(--card2);padding:6px}
@@ -638,7 +614,7 @@ body:not(.connected) .pop-body{opacity:.5;pointer-events:none}
   body.perform.dj .dj-mixer{min-height:0;overflow:auto;scrollbar-width:none}   /* (it shrinks to fit: the strips give way; no scrollbar) */
   body.perform.dj .dj-strips{min-height:0}
   body.perform.dj .dj-mixer::-webkit-scrollbar,body.perform.dj #pan-dj::-webkit-scrollbar{display:none}
-  body.perform.dj .dj-top-panel{flex:1.6 1 0;grid-template-rows:minmax(0,1fr)}
+  body.perform.dj .dj-top-panel{flex:1 1 0;grid-template-rows:minmax(0,1fr)}
   body.perform.dj .dj-view-area{height:auto;flex:1 1 0;min-height:90px}
   body.perform.dj .dj-deck-mid{height:auto;flex:1 1 0;min-height:180px}
   body.perform.dj .dj-crate{flex:none}

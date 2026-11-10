@@ -540,19 +540,17 @@ async function deckSav(d, l) {
   d.savMatch = sent ? (await l.info()).saveCrc === sent.crc : null;
   if (d.key === key) drawLabel(d);
 }
+/* the deck's label, as the tooltip of its FM-1 picker (no room taken on the deck): the .sav sent to it from this
+   page (and whether its songs changed since), then the open song, how many, how full */
 function drawLabel(d) {
-  const u = d.ui;
-  if (!u?.label) return;
-  u.label.hidden = d.kind !== 'fm1';
-  if (u.label.hidden) return;
+  const pick = d.ui?.pick;
+  if (!pick) return;
+  if (d.kind !== 'fm1') { pick.title = ''; return; }
   const sent = savsSent()[d.key], s = d.sav, open = s?.active != null ? s.songs.find(x => x.slot === s.active) : null;
-  u.labelFile.textContent = sent ? sent.name + (d.savMatch === false ? ' (changed since)' : '') : 'Its own songs';
-  u.labelFile.title = !sent ? 'No .sav sent to this FM-1 from this page yet (Songs & kits › Send to the FM-1)'
-    : d.savMatch === false ? 'Sent from this page; its songs have changed since (saved or edited in LSDj, or another file)' : 'The .sav sent to this FM-1 from this page';
-  u.labelSong.textContent = !d.savHead ? 'Reading its songs…' : !s ? 'No LSDj songs on it yet' : [
-    open ? `Song ${open.name || '(no name)'} .${hex2(open.version)}` : 'Song not saved yet',
-    `${s.songs.length} song${s.songs.length === 1 ? '' : 's'}`, `${Math.round(100 * s.freeBlocks / BLOCK_COUNT)} % free`].join(' · ');
-  u.labelSong.title = s ? s.songs.map(x => `${hex2(x.slot)} ${x.name || '(no name)'}${x.slot === s.active ? ' (open)' : ''}`).join('\n') : '';
+  pick.title = [sent ? sent.name + (d.savMatch === false ? ' (changed since)' : '') : 'Its own songs',
+    !d.savHead ? 'Reading its songs…' : !s ? 'No LSDj songs on it yet' : [
+      open ? `Song ${open.name || '(no name)'} .${hex2(open.version)}` : 'Song not saved yet',
+      `${s.songs.length} song${s.songs.length === 1 ? '' : 's'}`, `${Math.round(100 * s.freeBlocks / BLOCK_COUNT)} % free`].join(' · ')].join('\n');
 }
 /* each FM-1 deck in its FM-1's colours (its THEME setting; CUSTOM: its own colours), as the page takes the theme of
    the FM-1 in use (page-theme.js). Read when the deck is chosen and every so often after (a theme changed on it). */
@@ -774,7 +772,7 @@ function deckChoices() {
   return [['', 'Empty'], ...fm1s, ...gear];
 }
 /* a deck, laid out as a CDJ (index.html .dj-deck):
-     the top: the display (the .sav and song as the track info; the FM-1's screen or its song rows), its source buttons
+     the top: the display (the FM-1's screen or its song rows, unframed; the .sav and song: the picker's tooltip), its source buttons
        (Screen, Rows) beside it;
      a row of eight pads under it (the channel kills, Echo and Reverb throws, Hold, BAR: kills on the next bar);
      the jog wheel in the middle (turned: a nudge; beat lights round its ring; its centre: the tempo, the pitch, the
@@ -786,12 +784,12 @@ function drawDeck(d) {
   const fm1 = d.kind === 'fm1', fw = firmwareNumber(hooks.devices().find(x => x.key === d.key)?.fw), has98 = fw >= 998;
   u.body.replaceChildren();
   u.box.classList.toggle('empty', !d.key);
-  u.info = null; u.hold = null; u.map = null; u.rowIn = null; u.pitch = null; u.jog = null; u.led = null; u.kills = null; u.beatShown = undefined;
+  u.info = null; u.hold = null; u.map = null; u.rowIn = null; u.pitch = null; u.jog = null; u.kills = null; u.beatShown = undefined;
   if (!d.key) { u.body.append(el('p', {className: 'hint dj-empty', textContent: 'Choose an FM-1 or another MIDI device for this deck.'})); return; }
   const running = !!d.clock?.running;
 
   /* the top: the display, and its source buttons */
-  const display = el('div', {className: 'dj-display'}, u.label);
+  const display = el('div', {className: 'dj-display'});
   const top = el('div', {className: 'dj-top-panel'});
   if (fm1) {
     /* Screen | Rows: the FM-1's screen, or the song row map (tap a row to cue it), in one fixed-size box
@@ -799,11 +797,7 @@ function drawDeck(d) {
     const view = deckView(d);
     const viewBtn = (v, text, title, disabled = false) => btn(text, () => setView(d, v),
       {className: view === v ? 'on' : '', disabled, title, ariaPressed: String(view === v)});
-    /* a Game Boy-style bezel in the FM-1's colours (index.html .dj-view-box.bezel): its padding is the frame, so the
-       screen keeps its exact shape inside; the band's two lines and the deck's name; a light lit while it plays */
-    const box = el('div', {className: `dj-view-box bezel ${view}`},
-      el('div', {className: 'dj-bezel-band', ariaHidden: 'true'}, el('i'), el('span', {textContent: `DECK ${NAMES[d.i]} · LSDJ`}), el('i')),
-      u.led = el('div', {className: `dj-bezel-led${running ? ' on' : ''}`, ariaHidden: 'true'}, el('b'), el('small', {textContent: 'PLAY'})));
+    const box = el('div', {className: `dj-view-box ${view}`});
     if (view === 'rows') { u.map = el('div', {className: 'dj-map mono', role: 'group', ariaLabel: `Deck ${NAMES[d.i]} song rows`}); box.append(u.map); }
     else box.append(d.scrOk ? u.screen
       : el('p', {className: 'hint dj-view-note', textContent: fw >= 983 ? 'This FM-1 did not send its screen. Choose the deck again to retry.' : `This FM-1's screen shows here with FM-1_983 or newer (it runs ${fw ? `FM-1_${fw}` : 'older firmware'}).`}));
@@ -1197,7 +1191,6 @@ function animate() {
     const p = deckPos(d, t), beat = p == null ? -1 : Math.floor(p / BEAT) % 4;
     if (beat !== u.beatShown) {
       u.beatShown = beat; [...u.phase.children].forEach((s, b) => s.classList.toggle('on', b === beat));
-      if (u.led) { u.led.classList.toggle('on', beat >= 0); u.led.classList.toggle('one', beat === 0); }   /* the bezel's light: playing; brighter on the one */
     }
     if (p != null) u.jog.style.setProperty('--turn', `${(p / BAR * 360).toFixed(1)}deg`);   /* once round a bar */
   }
@@ -1305,13 +1298,10 @@ export function mountDj(box) {
     pick.setAttribute('aria-label', `Deck ${NAMES[d.i]}`);
     const body = el('div', {className: 'dj-deck-body'});
     const screen = el('canvas', {width: 160, height: 144, className: 'dj-screen', role: 'img', ariaLabel: `Deck ${NAMES[d.i]}: the FM-1's screen`});
-    /* the label: the .sav and the song (drawLabel), kept across redraws of the body */
-    const labelFile = el('b', {className: 'dj-label-file'}), labelSong = el('span', {className: 'dj-label-song'});
-    const label = el('div', {className: 'dj-label', hidden: true}, labelFile, labelSong);
     /* the warning strip: what the page couldn't set up on this deck's FM-1 (setWarn), kept across redraws */
     const warn = el('p', {className: 'dj-warn', role: 'status', hidden: true});
     const box = el('section', {className: 'dj-deck', ariaLabel: `Deck ${NAMES[d.i]}`}, el('h4', {className: 'dj-deck-head'},
-      el('span', {className: 'dj-deck-id', title: `Deck ${NAMES[d.i]}`}, el('span', {className: 'sr-only', textContent: 'Deck '}), NAMES[d.i]), pick), warn, label, body);
+      el('span', {className: 'dj-deck-id', title: `Deck ${NAMES[d.i]}`}, el('span', {className: 'sr-only', textContent: 'Deck '}), NAMES[d.i]), pick), warn, body);
     /* the crate (crate-ui.js): a card dropped here loads onto this deck; meanwhile a cover with its progress */
     const loadText = el('span'), loadBar = el('progress', {value: 0, max: 1, hidden: true});
     const loadEl = el('div', {className: 'dj-loading', hidden: true, role: 'status'}, loadText, loadBar);
@@ -1319,7 +1309,7 @@ export function mountDj(box) {
     box.ondragover = e => { if ([...(e.dataTransfer?.types || [])].includes(CRATE_TYPE)) { e.preventDefault(); box.classList.add('drop'); } };
     box.ondragleave = () => box.classList.remove('drop');
     box.ondrop = e => { box.classList.remove('drop'); dropOnDeck(e, d.i); };
-    d.ui = {pick, body, screen, box, warn, label, labelFile, labelSong, loadEl, loadText, loadBar};
+    d.ui = {pick, body, screen, box, warn, loadEl, loadText, loadBar};
     return box;
   };
   const themePick = sel([['page', 'Page colours'], ...THEMES.map((n, i) => [String(i), n]).filter(([i]) => THEME_COLOURS[+i])], djTheme,
