@@ -100,7 +100,7 @@ export async function runDjUiTests() {
   const AB = {sent: []};
   AB.output = {id: 'ab-out', name: 'Arduinoboy', state: 'connected', send(m) { AB.sent.push([...m]); }};
   access.outputs = new Map([['a', A.output], ['b', B.output], ['t', T.output], ['ab', AB.output]]);
-  for (const k of ['lsdj-burrito-stage', 'dj-mixer', 'dj-mixer-in', 'dj-mixer-out', 'dj-mixer-map', 'dj-bpm', 'dj-learned', 'dj-view-0', 'dj-view-1', 'dj-whole', 'dj-theme', 'dj-ab-ch', 'dj-fx-view', 'dj-fx-open-0', 'dj-fx-open-1', 'dj-fx-page-0', 'dj-fx-page-1', 'dj-pads', 'dj-tempo-bar', 'dj-pad-glide', 'dj-glide-bars', 'dj-range-0', 'dj-range-1']) try { localStorage.removeItem(k); } catch {}
+  for (const k of ['lsdj-burrito-stage', 'dj-mixer', 'dj-mixer-in', 'dj-mixer-out', 'dj-mixer-map', 'dj-bpm', 'dj-learned', 'dj-view-0', 'dj-view-1', 'dj-whole', 'dj-theme', 'dj-ab-ch', 'dj-fx-view', 'dj-fx-open-0', 'dj-fx-open-1', 'dj-fx-page-0', 'dj-fx-page-1', 'dj-pads', 'dj-tempo-bar', 'dj-pad-glide', 'dj-glide-bars', 'dj-range-0', 'dj-range-1', 'dj-mixer-setup']) try { localStorage.removeItem(k); } catch {}
   try {
     Object.defineProperty(navigator, 'requestMIDIAccess', {configurable: true, value: async () => access});
     await $('connect-btn').onclick();

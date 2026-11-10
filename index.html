@@ -403,7 +403,7 @@ body.popped .dj-fx{min-height:100%;border-radius:0}
 .dj-from-deck b{font:700 1.05em var(--font-data)}
 .dj-mopts{display:flex;flex-wrap:wrap;justify-content:center;gap:2px 12px;margin:2px 0 6px}
 .dj-strips{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px 0;flex:1;min-height:230px}
-.dj-strip{display:flex;flex-direction:column;align-items:center;gap:5px;padding:8px 4px;border-radius:10px;background:color-mix(in srgb,var(--card) 70%,#000);box-shadow:inset 0 1px 4px #0008}
+.dj-strip{display:flex;flex-direction:column;align-items:center;gap:5px;min-height:0;overflow:hidden;padding:8px 4px;border-radius:10px;background:color-mix(in srgb,var(--card) 70%,#000);box-shadow:inset 0 1px 4px #0008}
 .dj-strip-id{display:grid;place-items:center;width:26px;height:26px;border-radius:50%;background:var(--accent);color:var(--accent-ink);box-shadow:0 0 10px color-mix(in srgb,var(--accent) 50%,transparent)}
 .dj-lphp{display:flex;justify-content:space-between;width:70px}
 .dj-meter{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;min-height:0}
@@ -418,6 +418,10 @@ body.popped .dj-fx{min-height:100%;border-radius:0}
 .dj-xfader::-moz-range-track{height:8px;border-radius:4px;background:#000}
 .dj-xfader::-moz-range-thumb{width:20px;height:30px;border-radius:3px;border:1px solid #000;background:linear-gradient(90deg,#777,#2b2b2b 40%,#eee 45% 55%,#2b2b2b 60%,#555)}
 .dj-setup{border-top:1px solid #0008;margin-top:6px;padding-top:4px;font-size:.9em}
+.dj-setup>summary{display:flex;align-items:baseline;gap:8px;cursor:pointer;padding:4px 0;list-style-position:inside}
+.dj-setup>summary .dj-setup-h{font-size:.8em;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.dj-setup>summary .dj-small{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dj-setup[open]>summary{margin-bottom:4px}
 .dj-setup>select{width:100%}
 .dj-learned{margin:4px 0;padding-left:18px;max-height:8em;overflow:auto}
 .dj-status{min-height:1.2em}
@@ -611,9 +615,11 @@ body:not(.connected) .pop-body{opacity:.5;pointer-events:none}
   body.perform.dj #dj-root{flex:1;min-height:0;display:flex;flex-direction:column}
   body.perform.dj .dj-grid{flex:1;min-height:0;grid-template-rows:minmax(0,1fr)}
   body.perform.dj .dj-deck{min-height:0;overflow:hidden}
-  body.perform.dj .dj-mixer{min-height:0;overflow:auto;scrollbar-width:none}   /* (it shrinks to fit: the strips give way; no scrollbar) */
-  body.perform.dj .dj-strips{min-height:0}
-  body.perform.dj .dj-mixer::-webkit-scrollbar,body.perform.dj #pan-dj::-webkit-scrollbar{display:none}
+  body.perform.dj .dj-mixer{min-height:0;overflow:auto;scrollbar-width:thin}   /* (the strips give way down to their least, then it scrolls: nothing overlaps) */
+  body.perform.dj .dj-strips{min-height:220px}   /* (the knob, its labels and a meter that still reads) */
+  body.perform.dj #pan-dj::-webkit-scrollbar{display:none}
+  body.perform.dj .dj-mixer::-webkit-scrollbar{width:6px}
+  body.perform.dj .dj-mixer::-webkit-scrollbar-thumb{background:#fff3;border-radius:3px}
   body.perform.dj .dj-top-panel{flex:1 1 0;grid-template-rows:minmax(0,1fr)}
   body.perform.dj .dj-view-area{height:auto;flex:1 1 0;min-height:90px}
   body.perform.dj .dj-deck-mid{height:auto;flex:1 1 0;min-height:180px}

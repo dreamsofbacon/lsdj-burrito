@@ -1102,8 +1102,10 @@ function drawMixer() {
     el('div', {className: 'dj-strips'}, ...strips),
     el('div', {className: 'dj-xrow'}, el('b', {textContent: 'A'}), xf, el('b', {textContent: 'B'})),
     note,
-    el('div', {className: 'dj-setup'},
-      el('h4', {textContent: 'Mixer'}),
+    /* the mixer's setup, folded away once set (kept in this browser; open while MIDI learn waits for a control): it
+       never takes the live controls' room */
+    el('details', {className: 'dj-setup', open: setupOpen(p), ontoggle: e => { if (e.target.open !== setupOpen(p)) store.set('dj-mixer-setup', e.target.open ? '1' : '0'); }},
+      el('summary', {}, el('span', {className: 'dj-setup-h', textContent: 'Mixer'}), el('span', {className: 'dj-small', textContent: p.name})),
       sel(PRESETS.map(x => [x.id, x.name + (x.verified ? '' : ' (unverified)')]), mixer.id, v => { mixer.id = v; mixer.faders = {}; store.set('dj-mixer', v); setXfader(mixer.xfader); draw(); }, 'Mixer'),
       p.id === 'none' ? null : el('div', {className: 'dj-row'}, el('label', {}, 'From ', portSel(ports.ins, mixer.inId, setMixerIn, 'Mixer MIDI in')),
         el('label', {}, 'To ', portSel(ports.outs, mixer.outId, v => { mixer.outId = v; store.set('dj-mixer-out', v); }, 'Mixer MIDI out'))),
@@ -1113,6 +1115,13 @@ function drawMixer() {
         v => { mixer.curve = v; store.set('dj-curve', v); setXfader(mixer.xfader); }, 'Crossfader curve')),
       p.id === 'learn' ? learnBox() : null)].filter(Boolean));
   mixerNumbers();
+}
+/* the mixer's setup open: as last left; at first open with no MIDI mixer chosen (to find), folded once one is; and
+   always while MIDI learn waits */
+function setupOpen(p) {
+  if (mixer.learning) return true;
+  const v = store.get('dj-mixer-setup', '');
+  return v ? v === '1' : p.id === 'none';
 }
 /* a tempo pad: tap, its tempo; hold (or right-click), keep the master's tempo now in it */
 function padBtn(n, off) {
