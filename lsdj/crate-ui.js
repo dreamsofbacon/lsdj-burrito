@@ -8,6 +8,7 @@ import {KEY, fileKind, loadItems, saveItems, addItem, removeItem, renameItem, pa
 import {libraryFiles, addToLibrary, removeFromLibrary} from './kit-library.js';
 import {listKits, crc32} from './lsdj-rom.js';
 import {withOpenSong, savBody} from './lsdj-sav.js';
+import {openCartMaker} from './cart-maker.js';
 import {loadTemplate, prepareLsdjFirmware} from './lsdj-firmware.js';
 import {installOn, checkPackage} from './install.js';
 import {installing, setInstallTarget} from './install-ui.js';
@@ -357,7 +358,8 @@ export async function mountCrate(box) {
   setOpen = openCrate;
   root.replaceChildren(
     el('div', {className: 'crate-top'}, toggle, countEl, views, search, sorter,
-      btn('Open files…', () => pick.click(), {title: 'An LSDj save (.sav) or LSDj ROM (.gb): kept in this browser only'}), pick, grabsEl),
+      btn('Open files…', () => pick.click(), {title: 'An LSDj save (.sav) or LSDj ROM (.gb): kept in this browser only'}), pick,
+      btn('New cart…', () => void openCartMaker({addToCrate}), {className: 'crate-new', title: 'Make carts from songs, projects and your LSDj files: each holds only the kits its songs play'}), grabsEl),
     el('div', {className: 'crate-body'}, listEl, statusEl));
   openCrate(store.get('dj-crate-open', '0') === '1');
   await refreshFiles();

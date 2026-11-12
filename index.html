@@ -269,6 +269,40 @@ body.popped .dj-fx{padding:14px 18px;overflow:auto;scrollbar-width:thin}
 /* the crate (lsdj/crate-ui.js): a strip of cards under the console; a deck takes a dropped card, and shows a cover while it loads */
 .dj-crate{margin:8px 0 0;padding:8px 10px;border:1px solid var(--line);border-radius:12px;background:var(--card2)}
 .crate-top{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+/* the cart maker (lsdj/cart-maker.js): a panel over the DJ layout, songs on the left, the carts on the right */
+.cart-maker{position:fixed;inset:3vh 3vw;z-index:60;display:flex;flex-direction:column;gap:6px;padding:12px 14px;border-radius:14px;color:var(--ink);
+  background:var(--card);border:1px solid var(--line);box-shadow:0 20px 60px #000c}
+.cart-maker[hidden]{display:none}
+.cart-maker.drop{outline:3px dashed var(--accent);outline-offset:-6px}
+.cart-maker.busy .cm-grid{opacity:.6;pointer-events:none}
+.cm-head{display:flex;align-items:baseline;gap:12px}
+.cm-head h3{margin:0}.cm-head p{margin:0;flex:1}
+.cm-close{flex:none;padding:4px 10px}
+.cm-add{flex-wrap:wrap;align-items:center}
+.cm-status{margin:0;min-height:1.2em}
+.cm-grid{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1.7fr) minmax(260px,1fr);gap:12px}
+.cm-songs,.cm-side{min-height:0;overflow:auto;scrollbar-width:thin}
+.cm-songbar{position:sticky;top:0;z-index:1;flex-wrap:wrap;align-items:center;padding:4px 0;background:var(--card)}
+.cm-search{min-width:12em;flex:1}
+.cm-table{width:100%;font-size:.88em}
+.cm-table td{vertical-align:top;padding:4px 6px}
+.cm-table tr.off{opacity:.45}
+.cm-from{font-size:.82em;max-width:16em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cm-chip{white-space:nowrap;font-weight:600}
+.cm-kits div{white-space:nowrap}
+.cm-kitpick,.cm-made{max-width:14em;font-size:.9em}
+.cm-empty{padding:30px 10px;text-align:center;border:2px dashed var(--line);border-radius:12px}
+.cm-side h4{margin:0 0 6px}
+.cm-field{display:flex;align-items:center;gap:6px;margin:6px 0}
+.cm-field select,.cm-field input{flex:1;min-width:0}
+.cm-plans{display:flex;flex-direction:column;gap:2px;margin:6px 0}
+.cm-cart{margin:8px 0;padding:8px 10px;border-radius:10px;border:1px solid var(--line);background:color-mix(in srgb,var(--card) 85%,#000)}
+.cm-cart.over{border-color:var(--warn)}
+.cm-cart p{margin:4px 0}
+.cm-cartsongs{font-size:.85em}
+.cm-meter{height:6px;margin:6px 0;border-radius:3px;background:#0006;overflow:hidden}
+.cm-meter i{display:block;height:100%;background:var(--accent)}
+@media (max-width:800px){.cm-grid{grid-template-columns:1fr}.cart-maker{inset:0;border-radius:0}}
 .crate-toggle{font-weight:700;padding:6px 12px}
 .crate-body{display:none;margin-top:6px}
 .dj-crate.open .crate-body{display:block}

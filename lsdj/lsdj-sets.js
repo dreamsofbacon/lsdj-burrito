@@ -144,6 +144,18 @@ export function resolveSongs(songs, roms, kitFiles = [], {madeWith = {}, kitPick
   });
 }
 
+/* An .lsdprj's own kits (lsdj-sav.js readLsdprj) -> {map: kit number in the song -> index in kits, rule}. Which kit
+   is which number isn't written in the file (unverified, from the files seen): as many kits as the song plays ->
+   in the order of their numbers ('played'); more kits, every number the song plays among them -> by number
+   ('number'); else the first ones in order, to be checked ('guess'). */
+export function projectKits(song, kits) {
+  const played = [...kitUsage(song).kits.keys()].sort((a, b) => a - b);
+  if (!kits.length || !played.length) return {map: new Map(), rule: 'none'};
+  if (kits.length === played.length) return {map: new Map(played.map((n, i) => [n, i])), rule: 'played'};
+  if (played.every(n => n < kits.length)) return {map: new Map(played.map(n => [n, n])), rule: 'number'};
+  return {map: new Map(played.slice(0, kits.length).map((n, i) => [n, i])), rule: 'guess'};
+}
+
 /* ---- planning ---- */
 export const blocksOf = song => compressSong(song).length;
 /* ctx: {base (the base LSDj), capacity} -> {baseNeeded, slotCount, rotate} */

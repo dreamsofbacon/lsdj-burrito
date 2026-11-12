@@ -169,6 +169,26 @@ export function readLsdsng(bytes) {
   if (!(bytes instanceof Uint8Array) || bytes.length < 9 + 3) throw new SavError('This is not an .lsdsng song file.');
   return {name: nameText(bytes.subarray(0, 8)), nameBytes: bytes.slice(0, 8), version: bytes[8], song: decompress(bytes, 9, null).song};
 }
+/* .lsdprj, a song with its kits -> {name, nameBytes, version, song, kits: [16 KiB kit banks]}. The .lsdsng layout (an
+   8-byte name, a version byte, 512-byte song blocks), then the song's kits as whole 16 KiB banks to the end of the
+   file (seen in 27 projects: 0 to 32 kits, never anything after them). The kits start at the first block from which
+   every 16 KiB to the end is a kit bank (60 40), not at an offset worked out from the size (32 song blocks are 16 KiB
+   too). */
+const PRJ_KIT = 0x4000, isKitAt = (b, o) => b[o] === 0x60 && b[o + 1] === 0x40;
+export function readLsdprj(bytes) {
+  if (!(bytes instanceof Uint8Array) || bytes.length < 9 + BLOCK_SIZE || (bytes.length - 9) % BLOCK_SIZE)
+    throw new SavError('This is not an .lsdprj project file.');
+  let at = bytes.length;
+  for (let o = 9 + BLOCK_SIZE; o + PRJ_KIT <= bytes.length; o += BLOCK_SIZE) {
+    if ((bytes.length - o) % PRJ_KIT) continue;
+    let all = true;
+    for (let k = o; k < bytes.length; k += PRJ_KIT) if (!isKitAt(bytes, k)) { all = false; break; }
+    if (all) { at = o; break; }
+  }
+  const s = readLsdsng(bytes.subarray(0, at)), kits = [];
+  for (let k = at; k < bytes.length; k += PRJ_KIT) kits.push(bytes.slice(k, k + PRJ_KIT));
+  return {...s, kits};
+}
 /* {nameBytes or name, version, song} -> .lsdsng bytes. */
 export function writeLsdsng({name, nameBytes: nb, version = 0, song}) {
   const blocks = compressSong(song, 1);
