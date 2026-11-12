@@ -107,9 +107,14 @@ export function compressSong(song, first = 1) {
   return blocks;
 }
 
-/* A .sav -> {working, active, songs: [{slot, name, version, blocks}], freeBlocks}. Songs are decompressed
-   on demand (songBytes). Throws SavError for something that is not an LSDj save. */
+/* A save as some emulators and flash carts write it: the 128 KiB and a 16-byte footer after it (a clock: its first
+   4 bytes read as a date). The footer is not LSDj's: the save is the first 128 KiB. Anything else as it came. */
+export const SAV_FOOTER = 16;
+export const savBody = bytes => bytes instanceof Uint8Array && bytes.length === SAV_SIZE + SAV_FOOTER ? bytes.subarray(0, SAV_SIZE) : bytes;
+/* A .sav (or one with that footer) -> {bytes (the 128 KiB), working, active, songs: [{slot, name, version, blocks}],
+   freeBlocks}. Songs are decompressed on demand (songBytes). Throws SavError for something that is not an LSDj save. */
 export function parseSav(bytes) {
+  bytes = savBody(bytes);
   if (!(bytes instanceof Uint8Array) || bytes.length !== SAV_SIZE) throw new SavError(`An LSDj save is 128 KiB (${SAV_SIZE} bytes).`);
   if (bytes[INIT] !== 0x6a || bytes[INIT + 1] !== 0x6b) throw new SavError('This is not an LSDj save (LSDj has not set it up).');
   const table = bytes.subarray(TABLE, TABLE + BLOCK_COUNT);

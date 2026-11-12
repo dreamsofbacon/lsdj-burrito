@@ -61,7 +61,8 @@ export async function findProfile(rom) {
 }
 
 export function validateRom(rom) {
-  if (!(rom instanceof Uint8Array) || rom.length < 0x150 || !title(rom).startsWith('LSDj'))
+  /* (LSDj 3.1.5 to 4.1.0 call themselves "LSDJ": an older LSDj, untested on the FM-1, still LSDj) */
+  if (!(rom instanceof Uint8Array) || rom.length < 0x150 || !/^LSDj/i.test(title(rom)))
     throw Error('This is not an LSDj ROM.');
   const banks = rom.length / BANK;
   if (!Number.isInteger(banks) || banks < 2 || banks > SLOT_MAX_BANKS || (banks & (banks - 1)))
@@ -104,7 +105,7 @@ export async function identifyRom(rom, versions) {
   const profile = await findProfile(rom);
   return {title: name, sha256, programSha256, cursorProfile: profile?.profile ?? 0, tested: !!known, sameProgram: !!sameProgram,
     globalChecksumValid: global === (rom[0x14e] << 8 | rom[0x14f]),
-    version: known?.version ?? name.replace(/^LSDj-?v?/, '')};
+    version: known?.version ?? (/^LSDj-?v?\d/i.test(name) ? name.replace(/^LSDj-?v?/i, '') : `${name} (before 4.3)`)};
 }
 
 export function listKits(rom) {

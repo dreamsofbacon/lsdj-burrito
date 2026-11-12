@@ -7,7 +7,7 @@ import {KEY, fileKind, loadItems, saveItems, addItem, removeItem, renameItem, pa
   CART_COLORS, recolorItem, moveItem, viewItems} from './crate.js';
 import {libraryFiles, addToLibrary, removeFromLibrary} from './kit-library.js';
 import {listKits, crc32} from './lsdj-rom.js';
-import {withOpenSong} from './lsdj-sav.js';
+import {withOpenSong, savBody} from './lsdj-sav.js';
 import {loadTemplate, prepareLsdjFirmware} from './lsdj-firmware.js';
 import {installOn, checkPackage} from './install.js';
 import {installing, setInstallTarget} from './install-ui.js';
@@ -47,7 +47,7 @@ async function openFiles(list) {
   for (const f of list) {
     const bytes = new Uint8Array(await f.arrayBuffer()), kind = fileKind(bytes), name = f.name.replace(/\.(sav|gbc?)$/i, '');
     if (!kind) { say(`${f.name} is neither an LSDj save nor an LSDj ROM.`, 'warn'); continue; }
-    await addToCrate({name, [kind]: bytes});
+    await addToCrate({name, [kind]: kind === 'sav' ? savBody(bytes).slice() : bytes});   /* (a save's footer left out) */
   }
 }
 

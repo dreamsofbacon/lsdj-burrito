@@ -22,6 +22,21 @@ assert.equal(fileKind(rom), 'rom');
 assert.equal(fileKind(new Uint8Array(SAV_SIZE)), null, 'a save LSDj never set up');
 assert.equal(fileKind(new Uint8Array(100)), null);
 assert.equal(fileKind('x'), null);
+{ /* a save with an emulator's / flash cart's 16-byte clock footer: still a save, read as its first 128 KiB */
+  const withFooter = new Uint8Array(SAV_SIZE + 16); withFooter.set(sav); withFooter.set([0x5e, 0x1a, 0x3b, 0x67, 0, 0, 0, 0, 0, 0, 255, 255, 255, 255, 255, 255], SAV_SIZE);
+  assert.equal(fileKind(withFooter), 'sav');
+  const p = parseSav(withFooter);
+  assert.equal(p.bytes.length, SAV_SIZE); assert.deepEqual(p.songs.map(x => x.name), ['BEATS']);
+  assert.equal(fileKind(new Uint8Array(SAV_SIZE + 17)), null, 'other sizes: not a save');
+}
+{ /* LSDj 3.1.5 to 4.1.0 name themselves "LSDJ": still an LSDj ROM */
+  const old = rom.slice(); old.fill(0, 0x134, 0x144); old.set(new TextEncoder().encode('LSDJ'), 0x134);
+  let s = 0; for (let i = 0x134; i < 0x14d; i++) s = (s - old[i] - 1) & 255; old[0x14d] = s;
+  assert.equal(fileKind(old), 'rom');
+  const not = rom.slice(); not.set(new TextEncoder().encode('GBMOD      '), 0x134);
+  let t = 0; for (let i = 0x134; i < 0x14d; i++) t = (t - not[i] - 1) & 255; not[0x14d] = t;
+  assert.equal(fileKind(not), null, 'another program: not LSDj');
+}
 
 const R = 'a'.repeat(64), S = 'b'.repeat(64), S2 = 'c'.repeat(64);
 let items = addItem([], {name: 'My LSDj', rom: R});
@@ -88,4 +103,4 @@ assert.equal(describe({sav: S2}, id => lib[id]).missing, true);
   assert.deepEqual(songBytes(p, 0), song(3));
   assert.throws(() => withOpenSong(two, 7), /No song in slot 7/);
 }
-console.log('crate: PASS (file kinds, items, pairing, saved list, card text, colours, your order, search and sort, a chosen song opened)');
+console.log('crate: PASS (file kinds (a save with a 16-byte footer, LSDJ 3.x-4.1), items, pairing, saved list, card text, colours, your order, search and sort, a chosen song opened)');

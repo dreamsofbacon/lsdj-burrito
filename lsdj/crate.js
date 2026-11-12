@@ -3,7 +3,7 @@
 // kits), or both: the ROM is installed first, then the .sav sent. The list is kept in this browser (localStorage
 // 'dj-crate'); the files themselves in its file library (kit-library.js: ROMs as 'rom', shared with Sets, and saves
 // as 'sav'), each once. Never uploaded, never in the offline copy.
-import {parseSav, SAV_SIZE} from './lsdj-sav.js';
+import {parseSav, savBody, SAV_SIZE} from './lsdj-sav.js';
 import {validateRom, listKits, crc32} from './lsdj-rom.js';
 import {lsdjVersion, versionText} from './lsdj-sets.js';
 
@@ -12,7 +12,7 @@ export const KEY = 'dj-crate';
 /* a file's kind from its bytes: 'sav' | 'rom' | null */
 export function fileKind(bytes) {
   if (!(bytes instanceof Uint8Array)) return null;
-  if (bytes.length === SAV_SIZE) { try { parseSav(bytes); return 'sav'; } catch { return null; } }
+  if (savBody(bytes).length === SAV_SIZE) { try { parseSav(bytes); return 'sav'; } catch { return null; } }   /* (with a 16-byte footer too) */
   try { validateRom(bytes); return 'rom'; } catch { return null; }
 }
 
