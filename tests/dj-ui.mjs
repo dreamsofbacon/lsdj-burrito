@@ -6,7 +6,7 @@
 //   the DJ filter sets all four channels' filters; Perform › Clock goes off; the TX-6 preset: a track button
 //   starts / stops its deck, the crossfader sets its two channel volumes (CC 7).
 import {OP, crc32} from '../lsdj/link.js';
-import {djState, rememberSav} from '../lsdj/dj-ui.js';
+import {djState, rememberSav, readSongAgain} from '../lsdj/dj-ui.js';
 import {addToCrate} from '../lsdj/crate-ui.js';
 import {unpackFx, unpackSettings, packSettings, PRESETS, unpackMidi} from '../lsdj/fx-model.js';
 import {pageColours} from '../lsdj/page-theme.js';
@@ -352,6 +352,18 @@ export async function runDjUiTests() {
       const back = fxOfBytes(A.fxSets.at(-1));
       assert(JSON.stringify(back.echo) === JSON.stringify(was.echo) && back.ch.every((c, i) => c.send === was.ch[i].send),
         `let go: the echo as it was: ${JSON.stringify(back.echo)} vs ${JSON.stringify(was.echo)}`);
+    }
+    // 4b''. the song's key on the deck (song-key.js): FM-1 A's working song becomes a C major tune (phrase 00 on
+    //       chain 00 on song row 00, pulse); after songs are sent the deck reads it again and shows C · 8B
+    {
+      const N = pc => 13 + pc, tune = [N(0), 0, N(4), 0, N(7), 0, N(12), 0, N(5), 0, N(9), 0, N(7), N(11), N(14), N(0)];
+      A.save.fill(0, 0, 0x8000); A.save.fill(0xff, 0x1290, 0x1690); A.save.fill(0xff, 0x2080, 0x2880); A.save.fill(0, 0x2880, 0x3080); A.save.fill(0xff, 0x7000, 0x7ff0);
+      tune.forEach((n, k) => { A.save[k] = n; }); A.save[0x7000] = 0; A.save[0x2080] = 0; A.save[0x1290] = 0; A.save[0x3080] = 0;
+      const keyA = () => [...document.querySelectorAll('.dj-deck')][0].querySelector('.dj-key');
+      const reads = A.reads;
+      readSongAgain(djState().decks[0].key);   /* (as after Songs › Send) */
+      await until(() => /^C · 8B/.test(keyA()?.textContent ?? ''), `deck A: the key C · 8B: "${keyA()?.textContent}"`, 40000);
+      assert(A.reads - reads >= 100 && !keyA().hidden && /C major/.test(keyA().title), `read in parts (${A.reads - reads} READs), its title says C major`);
     }
     assert(!document.querySelector('.dj-map, .dj-maprow') && !B.mapReads.length, 'Screen first: no row map, SONG_ROWS not read');
 
@@ -849,7 +861,7 @@ export async function runDjUiTests() {
     /* never two links on one FM-1 input (link.js says so in the Log: the older one would stop hearing) */
     { const {logEntries} = await import('../lsdj/conn-log.js'); const two = logEntries().filter(e => /Two links on one FM-1 input/.test(e.text));
       assert(!two.length, `two links on one input: ${two.map(e => e.text).join(' | ')}`); }
-    return 'PASS DJ layout: switch, decks on FM-1s, Start and clocks per deck, the next bar, its own tempo, Sync (a lock: lit, keeps the bar, follows the master, on a stopped deck, lets go when typed), stem kill, DJ filter, the echo throw (a tempo echo on a fresh FM-1, all back on let go), Loop (LSDj live mode), On bar, Perform › Clock off, 0.9.98 (crossfader to FM-1 volume, Hold), DJ colours (the page and panel; FM-1 decks keep theirs), each deck its FM-1 colours, its label (the .sav sent, the open song, changed since), Screen | Rows (screen, song row map, click to cue), Tap quickly (no redraw), Whole BPM, the tempo controls (− / + held, nudge buttons, ×½ / ×2, MASTER, the fader range, pads, a glide, Next bar), TX-6 button and crossfader, fader mirrored, full volume after, an ArduinoBoy deck (speed notes, its channel, Start and clocks, FM-1 controls hidden), the crate (asked on the card, never confirm(); held to load; a .sav onto deck A while B plays on, untouched; ON A and the deck chip; Songs straight into a chosen song; search; Grab B; remove), an FM-1 pulled and back (the deck takes it back, playing, also on new port ids with its .sav label; the Log), stopped on the FM-1 (the deck stops too), never two links on one input, each deck sets its FM-1 up (MIDI settings, LSDj SYNC to KEYBD; the warning strip), the jog every frame, a switch while the decks poll, Follow put in the DJ layout, the screens unframed (the label a tooltip), each deck FX panel (a drawer, only its own FM-1, follows its knobs, Columns, its own window), OP4 / OP5 on the FM-1 (Play, Stop, its lights told each poll, let go on Effects; older firmware not asked again)';
+    return 'PASS DJ layout: switch, decks on FM-1s, Start and clocks per deck, the next bar, its own tempo, Sync (a lock: lit, keeps the bar, follows the master, on a stopped deck, lets go when typed), stem kill, DJ filter, the echo throw (a tempo echo on a fresh FM-1, all back on let go), Loop (LSDj live mode), On bar, the key of the song (read in parts, C · 8B), Perform › Clock off, 0.9.98 (crossfader to FM-1 volume, Hold), DJ colours (the page and panel; FM-1 decks keep theirs), each deck its FM-1 colours, its label (the .sav sent, the open song, changed since), Screen | Rows (screen, song row map, click to cue), Tap quickly (no redraw), Whole BPM, the tempo controls (− / + held, nudge buttons, ×½ / ×2, MASTER, the fader range, pads, a glide, Next bar), TX-6 button and crossfader, fader mirrored, full volume after, an ArduinoBoy deck (speed notes, its channel, Start and clocks, FM-1 controls hidden), the crate (asked on the card, never confirm(); held to load; a .sav onto deck A while B plays on, untouched; ON A and the deck chip; Songs straight into a chosen song; search; Grab B; remove), an FM-1 pulled and back (the deck takes it back, playing, also on new port ids with its .sav label; the Log), stopped on the FM-1 (the deck stops too), never two links on one input, each deck sets its FM-1 up (MIDI settings, LSDj SYNC to KEYBD; the warning strip), the jog every frame, a switch while the decks poll, Follow put in the DJ layout, the screens unframed (the label a tooltip), each deck FX panel (a drawer, only its own FM-1, follows its knobs, Columns, its own window), OP4 / OP5 on the FM-1 (Play, Stop, its lights told each poll, let go on Effects; older firmware not asked again)';
   } finally {
     if (descriptor) Object.defineProperty(navigator, 'requestMIDIAccess', descriptor); else delete navigator.requestMIDIAccess;
   }

@@ -28,6 +28,7 @@ import {popOut, bringBack, isOut} from './popout.js';
 import {pageColours} from './page-theme.js';
 import {mountCrate, setCrateHooks, dropOnDeck, crateRedraw, CRATE_TYPE} from './crate-ui.js';
 import {savHeader, HEADER, HEADER_SIZE, BLOCK_COUNT} from './lsdj-sav.js';
+import {PARTS as KEY_PARTS, songKeys} from './song-key.js';
 import {logEvent, logText, clearLog} from './conn-log.js';
 
 const el = (tag, props = {}, ...kids) => { const e = Object.assign(document.createElement(tag), props); e.append(...kids.filter(k => k != null)); return e; };
@@ -266,6 +267,7 @@ async function assign(d, value) {
   if (d.kind === 'fm1' && d.levelSent !== 127) void fullVolume(d.key);   /* the FM-1 leaving the deck: full volume again */
   d.key = ''; d.kind = ''; d.live = null; d.fx = null; d.rv = null; d.base = null; d.throwing = null; d.kill = 0; d.killWant = null; d.killDoneAt = null; d.killDirty = 0; d.ccFx = 0; cancelLater(d.killTimer); d.killTimer = 0; d.levelPosted = null; d.filter = 0; setSynced(d, false); deckBend(d, 1); d.nudging = false;
   d.savHead = null; d.sav = null; d.savMatch = null; d.savAt = 0; d.seenPlaying = false; d.idlePolls = 0;
+  d.song = null; d.songRead = null; d.songAt = null; d.songKeys = null;   /* (songAt null: never read) */
   d.syncTried = null; d.clockOut = null; d.midiKnown = false; d.warn = {}; d.ownRow = null; setWarn(d, 'midi', '');
   d.level = null; d.levelSent = 127; d.scrOk = true; d.themeAt = 0; d.map = null; d.mapFrom = -1; d.mapFill = null;
   paintDeck(d, null);
@@ -630,6 +632,45 @@ const savsSent = () => { try { return JSON.parse(store.get(SAVS, '{}')) || {}; }
 export function rememberSav(key, name, crc) {
   const m = savsSent(); m[key] = {name, crc}; store.set(SAVS, JSON.stringify(m));
   decks.forEach(d => { if (d.key === key) { d.savHead = null; d.savAt = 0; drawLabel(d); } });   /* read again next poll */
+  readSongAgain(key);
+}
+/* ---------- the key of the song on a deck's FM-1 (song-key.js) ----------
+   LSDj's working song is read from the FM-1's save (READ, 128 bytes each: the parts the key needs, about 14 KiB),
+   a few reads a poll (4 while it plays; the crossfader's VOLUME_SETs go past them), again every SONG_MS
+   and after songs are sent. Then the song's key, and the key of the rows playing now, each poll. */
+/* the song on that FM-1 changed (songs sent, a crate card loaded): its key read again from the next poll */
+export function readSongAgain(key) { decks.forEach(d => { if (d.key === key) { d.songAt = null; d.songRead = null; } }); }
+const SONG_MS = 60000, SONG_READS = [8, 4];   /* (the crossfader posts VOLUME_SET past the queue: link.js post) */
+const songChunks = KEY_PARTS.flatMap(([a, b]) => Array.from({length: Math.ceil((b - a) / 128)}, (_, k) => a + k * 128));
+async function deckSong(d, l) {
+  if (!d.songRead && (d.songAt == null || now() - d.songAt > SONG_MS)) d.songRead = {next: 0, bytes: d.song?.slice() ?? new Uint8Array(0x8000)};
+  const r = d.songRead, key = d.key;
+  if (r) {
+    for (let n = SONG_READS[playingNow(d) ? 1 : 0]; n > 0 && r.next < songChunks.length; n--, r.next++) {
+      const at = songChunks[r.next], part = await l.saveRead(at);
+      if (d.key !== key || d.songRead !== r) return;
+      r.bytes.set(Array.prototype.slice.call(part, 0, Math.min(128, 0x8000 - at)), at);   /* (an array or bytes) */
+    }
+    if (r.next >= songChunks.length) { d.song = r.bytes; d.songRead = null; d.songAt = now(); }
+  }
+  if (!d.song) return drawKey(d);
+  const rows = d.live?.songRows, playing = d.live?.playing || 0;
+  d.songKeys = songKeys(d.song, rows && playing ? [0, 1, 2].map(c => (playing >> c) & 1 ? rows[c] : null) : null);
+  drawKey(d);
+}
+/* the deck's key chip: the song's key and Camelot number (dimmed when unsure), and what plays now when it differs */
+function drawKey(d) {
+  const c = d.ui?.keyChip;
+  if (!c) return;
+  const k = d.songKeys?.whole, n = d.songKeys?.now;
+  const reading = d.songRead && !d.song;
+  const text = k ? `${k.name} · ${k.camelot}` + (n && n.name !== k.name ? ` › ${n.name}` : '') : reading ? 'Key…' : d.song ? 'Key ?' : '';
+  setText(c, text);
+  c.hidden = !text;
+  c.classList.toggle('unsure', !!k && k.sure < 0.45);
+  c.title = k ? `The song's key, from its notes: ${k.long} (Camelot ${k.camelot})${k.sure < 0.45 ? ', not sure' : ''}.` +
+    (n ? ` Playing now: ${n.long} (${n.camelot}).` : '') + ' Drums (kits, noise) left out.'
+    : reading ? 'Reading the song from the FM-1 to find its key.' : 'Too few notes to tell the key.';
 }
 async function deckSav(d, l) {
   const key = d.key;
@@ -766,6 +807,7 @@ async function pollDeck(d) {
     if (d.live.level != null && d.levelSent !== (d.level ?? 127)) void sendLevel(d);   /* power cycled, or another page */
     if (now() - (d.themeAt || 0) > (playingNow(d) ? THEME_PLAYING_MS : THEME_MS)) await deckTheme(d, l);
     if (now() - (d.savAt || 0) > SAV_MS) await deckSav(d, l).catch(() => {});   /* (an import under way: next time) */
+    await deckSong(d, l).catch(e => { d.songErr = String(e?.message ?? e); });   /* (kept for the tests; tried again next poll) */
     if (deckView(d) === 'rows') { await readMap(d, l); drawMap(d); }   /* (read only while the rows show) */
   } catch { d.live = null; }
 }
@@ -1441,8 +1483,9 @@ export function mountDj(box) {
     const screen = el('canvas', {width: 160, height: 144, className: 'dj-screen', role: 'img', ariaLabel: `Deck ${NAMES[d.i]}: the FM-1's screen`});
     /* the warning strip: what the page couldn't set up on this deck's FM-1 (setWarn), kept across redraws */
     const warn = el('p', {className: 'dj-warn', role: 'status', hidden: true});
+    const keyChip = el('span', {className: 'dj-key', hidden: true, role: 'status'});   /* the song's key (deckSong) */
     const box = el('section', {className: 'dj-deck', ariaLabel: `Deck ${NAMES[d.i]}`}, el('h4', {className: 'dj-deck-head'},
-      el('span', {className: 'dj-deck-id', title: `Deck ${NAMES[d.i]}`}, el('span', {className: 'sr-only', textContent: 'Deck '}), NAMES[d.i]), pick, chip), warn, body);
+      el('span', {className: 'dj-deck-id', title: `Deck ${NAMES[d.i]}`}, el('span', {className: 'sr-only', textContent: 'Deck '}), NAMES[d.i]), pick, chip, keyChip), warn, body);
     /* the crate (crate-ui.js): a card dropped here loads onto this deck; meanwhile a cover with its progress */
     const loadText = el('span'), loadBar = el('progress', {value: 0, max: 1, hidden: true});
     const loadEl = el('div', {className: 'dj-loading', hidden: true, role: 'status'}, loadText, loadBar);
@@ -1450,7 +1493,7 @@ export function mountDj(box) {
     box.ondragover = e => { if ([...(e.dataTransfer?.types || [])].includes(CRATE_TYPE)) { e.preventDefault(); box.classList.add('drop'); } };
     box.ondragleave = () => box.classList.remove('drop');
     box.ondrop = e => { box.classList.remove('drop'); dropOnDeck(e, d.i); };
-    d.ui = {pick, body, screen, box, warn, loadEl, loadText, loadBar, chip};
+    d.ui = {pick, body, screen, box, warn, loadEl, loadText, loadBar, chip, keyChip};
     return box;
   };
   const themePick = sel([['page', 'Page colours'], ...THEMES.map((n, i) => [String(i), n]).filter(([i]) => THEME_COLOURS[+i])], djTheme,
