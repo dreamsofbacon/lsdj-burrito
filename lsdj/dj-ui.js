@@ -261,7 +261,8 @@ function deckClock(d) {
   return d.clock;
 }
 async function assign(d, value) {
-  d.clock?.stop(); d.clock?.close(); d.clock = null;
+  d.clock?.stop(); d.clock?.close(); d.clock = null; d.startAt = 0; d.djNo = false;
+  if (d.kind === 'fm1') djLetGo(d.key);   /* its OP4 / OP5 are its own again */
   if (d.kind === 'fm1' && d.levelSent !== 127) void fullVolume(d.key);   /* the FM-1 leaving the deck: full volume again */
   d.key = ''; d.kind = ''; d.live = null; d.fx = null; d.rv = null; d.base = null; d.throwing = null; d.kill = 0; d.killWant = null; d.killDoneAt = null; d.killDirty = 0; d.ccFx = 0; cancelLater(d.killTimer); d.killTimer = 0; d.levelPosted = null; d.filter = 0; setSynced(d, false); deckBend(d, 1); d.nudging = false;
   d.savHead = null; d.sav = null; d.savMatch = null; d.savAt = 0; d.seenPlaying = false; d.idlePolls = 0;
@@ -295,13 +296,36 @@ function deckPlay(d) {
   if (!d.key) return;
   const c = deckClock(d);
   d.seenPlaying = false; d.idlePolls = 0;
-  if (c.running) { c.stop(); drawPlay(d); return; }
+  if (c.running) { c.stop(); d.startAt = 0; drawPlay(d); void djKeys(d); return; }
   if (d.synced) followMaster(d);   /* (the master's tempo; starting on its bar puts the bars together) */
   c.setTempo(d.bpm);
   const m = masterNow();
-  if (m.phase == null && master.source === 'page') { const at = now() + 60; masterClock().start(at); c.start(at); }
-  else c.start(nextOn(m.phase, m.bpm, now()));   /* on the master's next bar */
+  let at;
+  if (m.phase == null && master.source === 'page') { at = now() + 60; masterClock().start(at); c.start(at); }
+  else c.start(at = nextOn(m.phase, m.bpm, now()));   /* on the master's next bar */
+  d.startAt = at;
   drawPlay(d);
+  void djKeys(d);   /* its FM-1's OP4 blinks until the bar, then plays */
+  clearTimeout(d.djTimer); d.djTimer = setTimeout(() => void djKeys(d), Math.max(0, at - now()) + 10);
+}
+/* 0.9.98-dev.4: the deck on its FM-1's own keys, OP4 Play and OP5 Stop, lit as the deck (firmware/lsdj_djkeys.h).
+   Each poll tells the FM-1 the deck's state (DJ_DECK); it lets go of the keys 3 s after the last one, and at once
+   when the layout hides, the deck takes another FM-1, or the page closes. A firmware without it: not asked again. */
+const keysState = d => !d.clock?.running ? 'stopped' : now() < (d.startAt || 0) ? 'waiting' : 'playing';
+async function djKeys(d, l = hooks.linkFor(d.key)) {
+  if (!shown || d.kind !== 'fm1' || !l || d.djNo) return;
+  const key = d.key;
+  l.onDjKey = k => { if (d.kind === 'fm1' && d.key === key && shown) djPress(d, k); };
+  try { if (!await l.djDeck(keysState(d))) d.djNo = true; } catch { /* lost: the next poll sends it again */ }
+}
+function djPress(d, k) {
+  if (k === 'play' && !d.clock?.running) { deckPlay(d); say(`Deck ${NAMES[d.i]}: Play on the FM-1.`); }
+  else if (k === 'stop' && d.clock?.running) { deckPlay(d); say(`Deck ${NAMES[d.i]}: Stop on the FM-1.`); }
+}
+function djLetGo(key) {
+  const l = hooks.linkFor(key);
+  if (!l) return;
+  l.onDjKey = null; l.djDetach();
 }
 /* Sync: a lock, lit while on (as DJ software has). On: the deck takes the master's tempo at once and keeps
    following it (a tap, a new master tempo, an outside clock), and while both play its bar is kept on the master's:
@@ -724,6 +748,7 @@ async function pollDeck(d) {
     d.live = await l.live(); d.live.askedAt = asked;   /* (when it was asked: killSettle trusts only a fresh one) */
     fm1Stopped(d); ownAnchor(d); adoptLiveFx(d); killSettle(d);
     await lsdjSync(d, l);
+    await djKeys(d, l);
     if (d.live.level != null && !d.levelBusy) d.levelSent = d.live.level;
     if (d.live.level != null && d.levelSent !== (d.level ?? 127)) void sendLevel(d);   /* power cycled, or another page */
     if (now() - (d.themeAt || 0) > (playingNow(d) ? THEME_PLAYING_MS : THEME_MS)) await deckTheme(d, l);
@@ -1386,6 +1411,8 @@ const HELP = 'Each deck follows this page\'s clock at its own tempo. On each FM-
 /* Perform's DJ panel (index.html #dj-root): built once; the decks and mixer drawn again when things change */
 export function mountDj(box) {
   root = box;
+  /* the page closing: the decks' FM-1s get OP4 / OP5 back at once (not after 3 s) */
+  addEventListener('pagehide', () => { for (const d of decks) if (d.kind === 'fm1') djLetGo(d.key); });
   statusEl = el('p', {className: 'hint dj-status', role: 'status'});
   const deckBox = d => {
     const chip = el('span', {className: 'dj-cart-chip', hidden: true});   /* the cartridge it holds (drawLabel) */
@@ -1473,7 +1500,10 @@ export function djShown(on) {
   shown = on;
   applyDjTheme();   /* the page in the DJ colours only while the layout shows */
   decks.forEach(deckScreen);   /* the screens run only while the layout shows */
-  if (!on) { decks.forEach(d => deckLevel(d, null)); return; }   /* the Effects layout: the FM-1s at full volume */
+  if (!on) {   /* the Effects layout: the FM-1s at full volume, their OP4 / OP5 their own */
+    decks.forEach(d => { deckLevel(d, null); if (d.kind === 'fm1') djLetGo(d.key); });
+    return;
+  }
   applyVolumes();
   draw();
   {   /* (a hidden tab's interval comes once a second: the Worker keeps Sync on the bar meanwhile) */

@@ -11,7 +11,8 @@ export const OP = {INFO: 0x01, READ: 0x02, BEGIN: 0x03, CHUNK: 0x04, COMMIT: 0x0
   STORE: 0x16, MIDI_GET: 0x17, MIDI_SET: 0x18, FEAT_GET: 0x19, FEAT_SET: 0x1A, LIVE: 0x20,
   CART_INFO: 0x22, CART_READ: 0x23, MUTE_SET: 0x24, SCREEN_INFO: 0x25, SCREEN_ROW: 0x26,
   SCREEN_SYNC: 0x27, SCREEN_PIXELS: 0x28, SCREEN_FRAME: 0x29, REVERB_GET: 0x2A, REVERB_SET: 0x2B, PAD_SET: 0x2C,
-  REVERB_SENDS_GET: 0x2D, REVERB_SENDS_SET: 0x2E, VOLUME_SET: 0x2F, SEQ_SET: 0x30, SONG_ROWS: 0x31, SYNC_SET: 0x32};
+  REVERB_SENDS_GET: 0x2D, REVERB_SENDS_SET: 0x2E, VOLUME_SET: 0x2F, SEQ_SET: 0x30, SONG_ROWS: 0x31, SYNC_SET: 0x32,
+  DJ_DECK: 0x33, DJ_KEY: 0x34};
 export const STATUS = ['ok', 'bad request', 'wrong state', 'checksum mismatch', 'flash error'];
 export const CHUNK = 128;
 export const SAVE_SIZE = 131072;
@@ -84,6 +85,10 @@ export class Link {
       if (m[0] === 0xF0 && m[1] === 0x7D && m[2] === 0x47 && m[3] === 0x53) this.heard = Date.now();
       if (m.length > 7 && (m[4] === OP.SCREEN_PIXELS || m[4] === OP.SCREEN_FRAME) && m[0] === 0xF0 && m[1] === 0x7D && m[2] === 0x47 && m[3] === 0x53) {
         this.onPixels?.(m); return;
+      }
+      /* 0.9.98-dev.4: OP4 / OP5 pressed on the FM-1 while the DJ layout has it on a deck (sent never asked) */
+      if (m.length === 9 && m[4] === OP.DJ_KEY && m[0] === 0xF0 && m[1] === 0x7D && m[2] === 0x47 && m[3] === 0x53) {
+        this.onDjKey?.(m[6] === 0 ? 'play' : 'stop'); return;
       }
       const r = parse(Array.from(m));
       if (r && r.op === OP.LIVE && r.tag === undefined && this.liveLate && this.waiting?.op !== OP.LIVE) { this.liveLate = 0; return; }   /* the late one */
@@ -291,6 +296,16 @@ export class Link {
     const s = (await this.req(OP.SYNC_SET, [v], {retries: 2, allow: [0, 1, 2]})).status;
     return s === 0 ? 'ok' : s === 2 ? 'playing' : 'no';
   }
+  /* 0.9.98-dev.4: this FM-1's deck for its OP4 (Play) / OP5 (Stop) keys and their lights: 'stopped', 'waiting' (for the
+     bar), 'playing', or 'detach'. Sent every poll; the FM-1 lets go 3 s after the last one. false before (status 1).
+     The keys come back through onDjKey('play' | 'stop'). */
+  async djDeck(state) {
+    const v = {detach: 0, stopped: 1, waiting: 2, playing: 3}[state];
+    if (v == null) throw Error(`DJ deck ${state}?`);
+    return !(await this.req(OP.DJ_DECK, [v], {timeout: 400, retries: 0, allow: [0, 1]})).status;
+  }
+  /* the same, not waited for (the page closing: no time for a reply) */
+  djDetach() { return this.post(OP.DJ_DECK, [0]); }
   /* 16 song rows from row (each: 4 chains, null empty), or null */
   async songRows(row) {
     const r = await this.req(OP.SONG_ROWS, [row & 255], {retries: 2, allow: [0, 1], accept: r => r.status || r.data[0] === (row & 255)});
