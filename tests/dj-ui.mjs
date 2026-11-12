@@ -215,14 +215,14 @@ export async function runDjUiTests() {
     await until(() => killedA() === '1111', `the pads follow the FM-1 (WAV muted there): ${killedA()}`, 4000);
     padsA()[2].click();   /* (WAV off again, as before this check) */
     await until(() => A.mutes.at(-1) === 11 && killedA() === '1101', `back to PU1 PU2 NOI: ${A.mutes.at(-1)} ${killedA()}`, 4000);
-    const barA = [...[...document.querySelectorAll('.dj-deck')][0].querySelectorAll('.dj-pad')].find(p => p.textContent === 'Bar');
+    const barA = [...[...document.querySelectorAll('.dj-deck')][0].querySelectorAll('.dj-pad')].find(p => p.textContent === 'On bar');
     if (!barA.classList.contains('on')) barA.click();
     const before4k = A.mutes.length;
     padsA()[2].click(); padsA()[0].click();
     assert(A.mutes.length === before4k && padsA()[2].classList.contains('pending') && padsA()[0].classList.contains('pending'), `on the bar: nothing sent yet, both pads blinking: ${A.mutes.slice(before4k)}`);
     await until(() => A.mutes.at(-1) === 14, `both bar kills land on the bar: ${A.mutes.slice(before4k)}`, 5000);
     assert(A.mutes.length === before4k + 2 && !padsA().some(p => p.classList.contains('pending')), `the two on the bar, no pad blinking: ${A.mutes.slice(before4k)}`);
-    barA.click();   /* (Bar off again) */
+    barA.click();   /* (On bar off again) */
     padsA()[1].click(); padsA()[2].click();
     await until(() => A.mutes.at(-1) === 8, `back to NOI only: ${A.mutes.at(-1)}`);
     /* 4m. hard mutes on a slow link (Colin: "when I click one, sometimes other channels mute as well"; the cause is
@@ -328,11 +328,31 @@ export async function runDjUiTests() {
     xf0.value = '500'; xf0.dispatchEvent(new Event('input'));
     await until(() => B.level === want(0.5), `back to the middle again: ${B.levels.slice(-3)}`);
     const deckBEl = [...document.querySelectorAll('.dj-deck')][1];
-    const hold = [...deckBEl.querySelectorAll('button')].find(b => b.textContent === 'Hold');
-    assert(hold && !hold.disabled, 'B: Hold on 0.9.98');
-    assert([...document.querySelectorAll('.dj-deck')][0].querySelector('button[title="Needs 0.9.98 on the FM-1"]')?.disabled, 'A (0.9.97): Hold off, with a note');
+    const hold = [...deckBEl.querySelectorAll('button')].find(b => b.textContent === 'Loop');
+    assert(hold && !hold.disabled, 'B: Loop (live mode) on 0.9.98');
+    assert([...document.querySelectorAll('.dj-deck')][0].querySelector('button[title="Needs 0.9.98 on the FM-1"]')?.disabled, 'A (0.9.97): Loop off, with a note');
     hold.click();
-    await until(() => B.seqs.at(-1) === 1, `Hold: SEQ_SET live: ${B.seqs}`);
+    await until(() => B.seqs.at(-1) === 1, `Loop: SEQ_SET live: ${B.seqs}`);
+    await until(() => [...deckBEl.querySelectorAll('button')].some(b => b.textContent === 'Loop' && b.classList.contains('on')), 'Loop lit while looping', 3000);
+    // 4b'. the echo throw on a fresh FM-1 echo (time and feedback 0: not heard as an echo): while held a tempo echo
+    //      (synced 1/8., feedback 76) with the sends up; let go, all of it as it was
+    {
+      const echoA = [...[...document.querySelectorAll('.dj-deck')][0].querySelectorAll('.dj-pad')].find(p => p.textContent === 'Echo');
+      const fxOfBytes = b => { const w = []; for (let i = 0; i + 3 < b.length; i += 4) w.push((b[i] | b[i + 1] << 8 | b[i + 2] << 16 | b[i + 3] << 24) >>> 0); return unpackFx(w); };
+      const before = A.fxSets.length, was = fxOfBytes(A.fxBytes);
+      assert(!was.echo.time && !was.echo.feedback, `A's echo at its start: ${JSON.stringify(was.echo)}`);
+      echoA.dispatchEvent(new PointerEvent('pointerdown', {pointerId: 1, bubbles: true}));
+      await until(() => A.fxSets.length > before, 'Echo held: sent', 3000);
+      const held = fxOfBytes(A.fxSets.at(-1));
+      assert(held.ch.every(c => c.send === 127) && held.echo.sync === 1 && held.echo.time === 80 && held.echo.feedback === 76 && held.echo.mix > 0,
+        `held: sends up and a tempo echo: ${JSON.stringify(held.echo)} sends ${held.ch.map(c => c.send)}`);
+      const n = A.fxSets.length;
+      echoA.dispatchEvent(new PointerEvent('pointerup', {pointerId: 1, bubbles: true}));
+      await until(() => A.fxSets.length > n, 'Echo let go: sent', 3000);
+      const back = fxOfBytes(A.fxSets.at(-1));
+      assert(JSON.stringify(back.echo) === JSON.stringify(was.echo) && back.ch.every((c, i) => c.send === was.ch[i].send),
+        `let go: the echo as it was: ${JSON.stringify(back.echo)} vs ${JSON.stringify(was.echo)}`);
+    }
     assert(!document.querySelector('.dj-map, .dj-maprow') && !B.mapReads.length, 'Screen first: no row map, SONG_ROWS not read');
 
     // 4c. each deck: its own FM-1's screen, asked on that FM-1's link (these fakes have none: the deck says so),
@@ -829,7 +849,7 @@ export async function runDjUiTests() {
     /* never two links on one FM-1 input (link.js says so in the Log: the older one would stop hearing) */
     { const {logEntries} = await import('../lsdj/conn-log.js'); const two = logEntries().filter(e => /Two links on one FM-1 input/.test(e.text));
       assert(!two.length, `two links on one input: ${two.map(e => e.text).join(' | ')}`); }
-    return 'PASS DJ layout: switch, decks on FM-1s, Start and clocks per deck, the next bar, its own tempo, Sync (a lock: lit, keeps the bar, follows the master, on a stopped deck, lets go when typed), stem kill, DJ filter, Perform › Clock off, 0.9.98 (crossfader to FM-1 volume, Hold), DJ colours (the page and panel; FM-1 decks keep theirs), each deck its FM-1 colours, its label (the .sav sent, the open song, changed since), Screen | Rows (screen, song row map, click to cue), Tap quickly (no redraw), Whole BPM, the tempo controls (− / + held, nudge buttons, ×½ / ×2, MASTER, the fader range, pads, a glide, Next bar), TX-6 button and crossfader, fader mirrored, full volume after, an ArduinoBoy deck (speed notes, its channel, Start and clocks, FM-1 controls hidden), the crate (asked on the card, never confirm(); held to load; a .sav onto deck A while B plays on, untouched; ON A and the deck chip; Songs straight into a chosen song; search; Grab B; remove), an FM-1 pulled and back (the deck takes it back, playing, also on new port ids with its .sav label; the Log), stopped on the FM-1 (the deck stops too), never two links on one input, each deck sets its FM-1 up (MIDI settings, LSDj SYNC to KEYBD; the warning strip), the jog every frame, a switch while the decks poll, Follow put in the DJ layout, the screens unframed (the label a tooltip), each deck FX panel (a drawer, only its own FM-1, follows its knobs, Columns, its own window), OP4 / OP5 on the FM-1 (Play, Stop, its lights told each poll, let go on Effects; older firmware not asked again)';
+    return 'PASS DJ layout: switch, decks on FM-1s, Start and clocks per deck, the next bar, its own tempo, Sync (a lock: lit, keeps the bar, follows the master, on a stopped deck, lets go when typed), stem kill, DJ filter, the echo throw (a tempo echo on a fresh FM-1, all back on let go), Loop (LSDj live mode), On bar, Perform › Clock off, 0.9.98 (crossfader to FM-1 volume, Hold), DJ colours (the page and panel; FM-1 decks keep theirs), each deck its FM-1 colours, its label (the .sav sent, the open song, changed since), Screen | Rows (screen, song row map, click to cue), Tap quickly (no redraw), Whole BPM, the tempo controls (− / + held, nudge buttons, ×½ / ×2, MASTER, the fader range, pads, a glide, Next bar), TX-6 button and crossfader, fader mirrored, full volume after, an ArduinoBoy deck (speed notes, its channel, Start and clocks, FM-1 controls hidden), the crate (asked on the card, never confirm(); held to load; a .sav onto deck A while B plays on, untouched; ON A and the deck chip; Songs straight into a chosen song; search; Grab B; remove), an FM-1 pulled and back (the deck takes it back, playing, also on new port ids with its .sav label; the Log), stopped on the FM-1 (the deck stops too), never two links on one input, each deck sets its FM-1 up (MIDI settings, LSDj SYNC to KEYBD; the warning strip), the jog every frame, a switch while the decks poll, Follow put in the DJ layout, the screens unframed (the label a tooltip), each deck FX panel (a drawer, only its own FM-1, follows its knobs, Columns, its own window), OP4 / OP5 on the FM-1 (Play, Stop, its lights told each poll, let go on Effects; older firmware not asked again)';
   } finally {
     if (descriptor) Object.defineProperty(navigator, 'requestMIDIAccess', descriptor); else delete navigator.requestMIDIAccess;
   }

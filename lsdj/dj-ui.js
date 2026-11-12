@@ -447,19 +447,31 @@ function deckFilter(d, v) {
   if (d.ui?.filt && +d.ui.filt.value !== v) d.ui.filt.value = v;
   showKnob(d);   /* (only the knob: it's being turned) */
 }
-/* a throw: the deck's sends all the way up while held (the effect's mix up if it was silent), then back */
+/* a throw: the deck's sends all the way up while held (the effect's mix up if it was silent), then back, all of it
+   as it was. An echo left at its start (time and feedback 0: one repeat 3 ms later, not heard as an echo) throws a
+   tempo echo instead, 1/8. with 60% feedback; a reverb at size 0 one of about 2 s. The FM-1's own echo or reverb,
+   once set, is the one thrown. */
+const THROW_ECHO = {sync: 1, time: 80, feedback: 76};   /* time 80: the 8th of 12 synced notes, 1/8. (lsdj_fx.h) */
+const THROW_RV_SIZE = 105;                              /* about 2 s (reverbSeconds) */
 function deckThrow(d, what, on) {
   if (d.throwBy === 'mixer') { const ch = mixer.map[d.i]; if (ch) mixerSend('fx', ch, on ? 1 : 0); return; }
   if (!d.fx || !d.base) return;
+  if (!on && d.throwing !== what) return;   /* (a let-go with no press: nothing to put back) */
   d.throwing = on ? what : null; d.fxTouched = now();
   queueMicrotask(() => d.fxPanel?.refresh());
   if (what === 'echo') {
+    const e = d.base.echo, unset = !e.time && !e.feedback;
     d.fx.ch.forEach((c, n) => { c.send = on ? 127 : d.base.ch[n].send; });
-    d.fx.echo.mix = on && !d.base.echo.mix ? 64 : d.base.echo.mix;
+    Object.assign(d.fx.echo, e, on ? {mix: e.mix || 80, ...(unset ? THROW_ECHO : {})} : {});
   } else if (d.rv?.rvSend && d.base.rv) {
-    d.rv.rvSend = on ? [127, 127, 127, 127] : d.base.rv.rvSend.slice();
-    d.rv.rvMix = on && !d.base.rv.rvMix ? 64 : d.base.rv.rvMix;
+    const r = d.base.rv;
+    d.rv.rvSend = on ? [127, 127, 127, 127] : r.rvSend.slice();
+    d.rv.rvMix = on && !r.rvMix ? 80 : r.rvMix;
+    d.rv.rvSize = on && !r.rvSize ? THROW_RV_SIZE : r.rvSize;
   } else return say('Reverb throws need 0.9.97 on that FM-1.');
+  /* sends are not heard with All FX off, nor on a channel whose effects are off (the FM-1's own switches) */
+  if (on && d.fx.bypass) say(`Deck ${NAMES[d.i]}: All FX is off on that FM-1 (its MASTER page), so the throw can't be heard.`);
+  else if (on && (d.fx.fxOff & 15) === 15) say(`Deck ${NAMES[d.i]}: the effects are off on every channel of that FM-1, so the throw can't be heard.`);
   pushFx(d);
 }
 /* Stem kills. d.killWant: the mask the pads ask for, toggled by each press: on top of the last press (sent or
@@ -594,7 +606,8 @@ function applyVolumes() {
   const g = crossfade(mixer.xfader, mixer.curve);
   decks.forEach((d, i) => deckLevel(d, mixer.id === 'none' ? g[i] : null));
 }
-/* 0.9.98: LSDj's live mode (Hold: each channel loops its chain until another is cued), or song mode */
+/* 0.9.98: LSDj's live mode (Loop chains: each channel repeats its chain until another is cued), or song mode */
+const HOLD_OFF = 'Loop', HOLD_ON = 'Loop';   /* (lit while on: the pads fit 6 letters) */
 async function deckHold(d) {
   const l = hooks.linkFor(d.key);
   if (!l) return;
@@ -602,7 +615,7 @@ async function deckHold(d) {
   try {
     if (!(await l.seqSet(on))) return say(`Deck ${NAMES[d.i]}: this FM-1 can't switch LSDj's live mode (it needs LSDj 9.3.9).`);
     if (d.live) d.live.live = on;
-    say(`Deck ${NAMES[d.i]}: ${on ? 'held: LSDj live mode, each channel loops its chain' : 'song mode again'}.`);
+    say(`Deck ${NAMES[d.i]}: ${on ? 'looping: each channel repeats the chain it plays (LSDj live mode) until you cue another' : 'the song plays on again (song mode)'}.`);
   } catch (e) { say(`Deck ${NAMES[d.i]}: ${e.message}`); }
   drawDeck(d);
 }
@@ -941,10 +954,11 @@ function drawDeck(d) {
       holdBtn('Echo', () => deckThrow(d, 'echo', true), () => deckThrow(d, 'echo', false), {className: 'dj-pad dj-throw', title: 'Echo throw: the sends up while held'}),
       holdBtn('Reverb', () => deckThrow(d, 'reverb', true), () => deckThrow(d, 'reverb', false),
         {className: 'dj-pad dj-throw', title: 'Reverb throw: the sends up while held', disabled: d.throwBy === 'fm1' && fw < 997}),
-      u.hold = btn(held ? 'Held' : 'Hold', () => void deckHold(d), {disabled: !has98, className: `dj-pad${held ? ' on' : ''}`,
-        title: has98 ? 'LSDj live mode: each channel loops its chain until you cue another. Again: song mode.' : 'Needs 0.9.98 on the FM-1'}),
-      btn('Bar', () => { d.killOnBar = !d.killOnBar; store.set('dj-killbar', d.killOnBar ? '1' : '0'); drawDeck(d); },
-        {className: `dj-pad${d.killOnBar ? ' on' : ''}`, ariaPressed: String(!!d.killOnBar), title: 'Kills on the next bar (lit), or at once'}));
+      u.hold = btn(held ? HOLD_ON : HOLD_OFF, () => void deckHold(d), {disabled: !has98, className: `dj-pad${held ? ' on' : ''}`, ariaPressed: String(held),
+        title: has98 ? 'LSDj live mode (lit): each channel repeats the chain it plays instead of moving on, until you cue another. Again: the song plays on.' : 'Needs 0.9.98 on the FM-1'}),
+      btn('On bar', () => { d.killOnBar = !d.killOnBar; store.set('dj-killbar', d.killOnBar ? '1' : '0'); drawDeck(d);
+          say(`Kills: ${d.killOnBar ? 'on the next bar' : 'at once'}.`); },
+        {className: `dj-pad${d.killOnBar ? ' on' : ''}`, ariaPressed: String(!!d.killOnBar), title: 'The four kill pads act on the next bar (lit), or at once. Makes no sound itself.'}));
   } else {
     pads.append(
       holdBtn('Echo', () => deckThrow(d, 'echo', true), () => deckThrow(d, 'echo', false), {className: 'dj-pad dj-throw', title: 'Echo throw (the mixer\'s FX send) while held'}),
@@ -1291,7 +1305,7 @@ function tick() {
       : own != null ? `own clock · row ${hex2(own)}` : d.clock?.running ? 'no master' : 'stopped');
     if (u.info) setText(u.info, !d.live ? '' : [`On the FM-1: ${d.live.bpm} BPM · playing ${CHANNELS.filter((n, c) => (d.live.playing >> c) & 1).join(' ') || 'nothing'}`,
       d.live.level != null && d.live.level < 127 ? `volume ${Math.round(d.live.level / 1.27)} % from this page` : ''].filter(Boolean).join(' · '));
-    if (u.hold && d.live?.live != null) { setText(u.hold, d.live.live ? 'Held' : 'Hold'); u.hold.classList.toggle('on', d.live.live); }
+    if (u.hold && d.live?.live != null) { setText(u.hold, d.live.live ? HOLD_ON : HOLD_OFF); u.hold.classList.toggle('on', d.live.live); u.hold.setAttribute('aria-pressed', String(d.live.live)); }
   });
 }
 /* (20 times a second: a write only when the text changed, so the page isn't laid out again for nothing) */
