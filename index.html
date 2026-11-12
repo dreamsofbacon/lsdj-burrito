@@ -260,7 +260,7 @@ body.popped .dj-fxw .fx-pages.all{grid-template-columns:repeat(auto-fill,minmax(
 body.popped .dj-fx-head b{font-size:18px}
 body.popped .dj-fx{padding:14px 18px;overflow:auto;scrollbar-width:thin}
 @media (max-width:900px){body.popped .dj-fxw{grid-template-columns:minmax(0,1fr)}body.popped .dj-fxw-wire{position:static}}
-.dj-deck,.dj-mixer{--dj-inset:color-mix(in srgb,var(--bg) 35%,#000);margin:0;min-width:0;padding:8px 10px 10px;border-radius:14px;color:var(--ink);
+.dj-deck,.dj-mixer,.dj-master{--dj-inset:color-mix(in srgb,var(--bg) 35%,#000);margin:0;min-width:0;padding:8px 10px 10px;border-radius:14px;color:var(--ink);
   border:1px solid color-mix(in srgb,var(--line) 40%,#000);display:flex;flex-direction:column;
   background:linear-gradient(180deg,color-mix(in srgb,var(--card) 90%,#fff) 0,var(--card) 14%,color-mix(in srgb,var(--card) 75%,#000) 100%);
   box-shadow:inset 0 1px 0 #ffffff1f,inset 0 -2px 0 #0000004d,0 2px 6px #0006}
@@ -355,8 +355,8 @@ body.popped .dj-fx{padding:14px 18px;overflow:auto;scrollbar-width:thin}
   border-radius:inherit;background:color-mix(in srgb,var(--bg) 82%,transparent);font-weight:700;text-align:center}
 .dj-loading[hidden]{display:none}
 .dj-loading progress{width:70%}
-.dj-deck h4,.dj-mixer h4{margin:0 0 6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.dj-mixer h4{font-size:.72em;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:4px 0}
+.dj-deck h4,.dj-mixer h4,.dj-master h4{margin:0 0 6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.dj-mixer h4,.dj-master h4{font-size:.72em;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:4px 0}
 .dj-deck-head{flex-wrap:nowrap}
 /* the warning strip under a deck's name (dj-ui.js setWarn): what the page couldn't set up on its FM-1, one line each */
 .dj-warn{margin:0 0 6px;padding:5px 8px;border-radius:6px;border:1px solid #000;font-size:.78em;line-height:1.3;color:#fff;
@@ -448,7 +448,7 @@ body.popped .dj-fx{padding:14px 18px;overflow:auto;scrollbar-width:thin}
 .dj-pitch::-moz-range-track{width:8px;border-radius:4px;background:#000}
 .dj-pitch::-moz-range-thumb{width:32px;height:16px;border-radius:3px;border:1px solid #000;background:linear-gradient(180deg,#777,#2b2b2b 42%,var(--accent) 47% 53%,#2b2b2b 58%,#555)}
 .dj-bpm-in{width:5.5em}
-.dj-right .dj-bpm-in,.dj-mixer .dj-bpm-in{--ink:#ececea;width:4.6em;padding:3px;text-align:center;background:var(--dj-inset);color:var(--ink);border:1px solid #000;border-radius:5px}
+.dj-right .dj-bpm-in,.dj-master .dj-bpm-in{--ink:#ececea;width:4.6em;padding:3px;text-align:center;background:var(--dj-inset);color:var(--ink);border:1px solid #000;border-radius:5px}
 .dj-util{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:center}
 .dj-util .dj-info{flex:1 1 100%;height:1.3em;line-height:1.3em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}   /* one line, there from the start: the deck never changes height when it fills in */
 /* the filter knob (dj-ui.js showKnob sets --deg, --from and --sweep; the range input under it holds the value) */
@@ -460,7 +460,7 @@ body.popped .dj-fx{padding:14px 18px;overflow:auto;scrollbar-width:thin}
 .dj-knob:focus-within{outline:2px solid var(--accent);outline-offset:3px}
 .dj-knob .dj-filter{position:absolute;inset:auto;width:1px;height:1px;opacity:0;pointer-events:none}
 /* the mixer: the master on top, a channel strip per deck, the crossfader, the setup at the foot */
-.dj-mixer select,.dj-mixer button:not(.on){background:color-mix(in srgb,var(--card) 80%,#000);color:var(--ink);border-color:#000}
+.dj-mixer select,.dj-mixer button:not(.on),.dj-master select,.dj-master button:not(.on){background:color-mix(in srgb,var(--card) 80%,#000);color:var(--ink);border-color:#000}
 .dj-bpm.big{display:block;font-size:2.4em;text-align:center;padding:6px 0;background:var(--dj-inset);border:2px solid #000;border-radius:8px;box-shadow:inset 0 2px 10px #000b}
 .dj-master-row{justify-content:center}
 .dj-master-row .dj-pad{flex:0 0 auto;padding:7px 12px}
@@ -481,14 +481,32 @@ body.popped .dj-fx{padding:14px 18px;overflow:auto;scrollbar-width:thin}
 .dj-mg-4{grid-template-columns:repeat(4,minmax(0,1fr))}
 .dj-mg-2{grid-template-columns:repeat(2,minmax(0,1fr))}
 .dj-mgrid.dj-glide{grid-template-columns:minmax(0,1.1fr) minmax(0,1.4fr) minmax(0,1fr)}
-.dj-mixer .dj-mgrid .dj-bpm-in,.dj-mgrid select{width:100%;min-width:0;box-sizing:border-box}
-.dj-mixer .dj-mgrid select{padding:3px 2px 3px 5px;font-size:.82em;text-overflow:ellipsis}
+.dj-master .dj-mgrid .dj-bpm-in,.dj-mgrid select{width:100%;min-width:0;box-sizing:border-box}
+.dj-master .dj-mgrid select{padding:3px 2px 3px 5px;font-size:.82em;text-overflow:ellipsis}
 .dj-mgrid .dj-pad{min-width:0;padding:7px 2px}
 .dj-mgrid .dj-pad.dj-from-deck{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;padding:3px 2px;line-height:1.05}
 .dj-from-deck small{font-size:.7em;letter-spacing:.04em;opacity:.75}
 .dj-from-deck b{font:700 1.05em var(--font-data)}
 .dj-mopts{display:flex;flex-wrap:wrap;justify-content:center;gap:2px 12px;margin:2px 0 6px}
-.dj-strips{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px 0;flex:1;min-height:230px}
+/* the master: one bar across the top of the decks, its groups side by side; a narrow window wraps them onto a
+   second line (nothing is cut off), a wide one gives each group more room */
+.dj-master{flex-direction:row;flex-wrap:wrap;align-items:center;gap:6px 10px;margin:0 0 8px;padding:6px 10px}
+.dj-master .dj-mb-id{display:flex;align-items:center;gap:8px;flex:0 0 auto}
+.dj-master .dj-mb-id h4{margin:0;writing-mode:vertical-rl;transform:rotate(180deg)}
+.dj-master .dj-bpm.big{font-size:1.9em;padding:2px 12px;min-width:4.4ch}
+.dj-master .dj-mgrid,.dj-master .dj-tpads{margin:0;flex:1 1 150px;min-width:0}
+.dj-master .dj-mg-tempo{flex-basis:200px}
+.dj-master .dj-mg-2{flex-basis:190px}
+.dj-master .dj-mopts{flex:0 1 auto;flex-direction:column;align-items:flex-start;gap:0;margin:0}
+.dj-master .dj-mgrid .dj-pad,.dj-master .dj-tpad{padding-block:6px}
+/* the mixer's setup (⚙): the line at the foot of the column; open, it comes up over the strips as a drawer (never
+   taking their room, so the meters and the crossfader stay whole) */
+.dj-mixer{position:relative}
+.dj-mixer .dj-setup{margin-top:auto}
+.dj-setup[open] .dj-setup-body{position:absolute;left:6px;right:6px;bottom:44px;z-index:6;max-height:calc(100% - 56px);overflow:auto;
+  padding:8px 10px;border-radius:10px;background:var(--card);border:1px solid #000;box-shadow:0 -8px 24px #000a;display:flex;flex-direction:column;gap:6px}
+.dj-setup-body>select{width:100%}
+.dj-strips{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px 0;flex:1;min-height:200px}
 .dj-strip{display:flex;flex-direction:column;align-items:center;gap:5px;min-height:0;overflow:hidden;padding:8px 4px;border-radius:10px;background:color-mix(in srgb,var(--card) 70%,#000);box-shadow:inset 0 1px 4px #0008}
 .dj-strip-id{display:grid;place-items:center;width:26px;height:26px;border-radius:50%;background:var(--accent);color:var(--accent-ink);box-shadow:0 0 10px color-mix(in srgb,var(--accent) 50%,transparent)}
 .dj-lphp{display:flex;justify-content:space-between;width:70px}
@@ -508,7 +526,6 @@ body.popped .dj-fx{padding:14px 18px;overflow:auto;scrollbar-width:thin}
 .dj-setup>summary .dj-setup-h{font-size:.8em;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
 .dj-setup>summary .dj-small{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dj-setup[open]>summary{margin-bottom:4px}
-.dj-setup>select{width:100%}
 .dj-learned{margin:4px 0;padding-left:18px;max-height:8em;overflow:auto}
 .dj-status{min-height:1.2em}
 /* a deck: Screen | Rows (its FM-1's screen, or the song row map), and its FM-1's theme colours (dj-ui.js paintDeck) */
@@ -545,7 +562,7 @@ body.popped .dj-fx{padding:14px 18px;overflow:auto;scrollbar-width:thin}
 .dj-deck.themed{border-color:color-mix(in srgb,var(--accent) 55%,#000)}
 /* the DJ layout's own colours (DJ colours: dj-ui.js applyDjTheme sets the theme's vars on the panel and the page) */
 #pan-dj.dj-themed{background:var(--bg);color:var(--ink);border-color:var(--line)}
-#pan-dj.dj-themed .dj-mixer{border-color:color-mix(in srgb,var(--accent) 45%,#000)}
+#pan-dj.dj-themed .dj-mixer,#pan-dj.dj-themed .dj-master{border-color:color-mix(in srgb,var(--accent) 45%,#000)}
 /* the deck label: the .sav sent to its FM-1, and the song open in LSDj (dj-ui.js drawLabel) */
 #fx-muted{margin:6px 0 10px}
 /* the wiring (lsdj/fx-diagram.js) */
@@ -702,7 +719,8 @@ body:not(.connected) .pop-body{opacity:.5;pointer-events:none}
   body.perform.dj .dj-grid{flex:1;min-height:0;grid-template-rows:minmax(0,1fr)}
   body.perform.dj .dj-deck{min-height:0;overflow:hidden}
   body.perform.dj .dj-mixer{min-height:0;overflow:auto;scrollbar-width:thin}   /* (the strips give way down to their least, then it scrolls: nothing overlaps) */
-  body.perform.dj .dj-strips{min-height:220px}   /* (the knob, its labels and a meter that still reads) */
+  body.perform.dj .dj-strips{min-height:190px}
+  body.perform.dj .dj-master{flex:none}   /* (the knob, its labels and a meter that still reads) */
   body.perform.dj #pan-dj::-webkit-scrollbar{display:none}
   body.perform.dj .dj-mixer::-webkit-scrollbar{width:6px}
   body.perform.dj .dj-mixer::-webkit-scrollbar-thumb{background:#fff3;border-radius:3px}

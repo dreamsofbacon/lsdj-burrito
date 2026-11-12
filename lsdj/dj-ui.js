@@ -1115,7 +1115,7 @@ function drawMap(d) {
    and its setup (the mixer, its ports and channels, the curve) at the foot */
 function drawMixer() {
   if (!root) return;
-  const m = root.querySelector('.dj-mixer'), p = preset(mixer.id), ports = mixerPorts();
+  const m = root.querySelector('.dj-mixer'), ms = root.querySelector('.dj-master'), p = preset(mixer.id), ports = mixerPorts();
   const portSel = (list, v, f, label) => sel([['', 'None'], ...list.map(x => [x.id, x.name])], v, f, label);
   const xf = el('input', {type: 'range', min: 0, max: 1000, value: Math.round(mixer.xfader * 1000), className: 'dj-xfader', oninput: () => setXfader(+xf.value / 1000)});
   xf.setAttribute('aria-label', 'Crossfader');
@@ -1162,11 +1162,11 @@ function drawMixer() {
     el('small', {textContent: `LSDJ ${NAMES[d.i]}`}), el('b', {textContent: lsdjBpmText(d)})));
   mixer.ui = {bpmIn, big, xf, meters: meterParts, note, strips, pads, glideBtn, glideTo, fromDeck};
   const running = master.source === 'page' ? !!master.clock?.running : !!master.ext?.running;
-  m.replaceChildren(...[
-    el('h4', {textContent: 'Master'}),
-    big,
-    /* the master's controls in even grids, each row the panel's full width (index.html .dj-mgrid): the tempo and Tap;
-       ×½ / ×2 and the decks' LSDj tempos; the pads; a glide; Play all and the clock; the options in one small line */
+  /* the master: one bar across the top of the decks (index.html .dj-master), its groups side by side and wrapping
+     when the window is narrow: its tempo; the tempo and Tap; ×½ / ×2 and the decks' LSDj tempos; the pads; a glide;
+     Play all and the clock; the options. (It was the top of the middle column, which left the mixer too little room.) */
+  ms.replaceChildren(
+    el('div', {className: 'dj-mb-id'}, el('h4', {textContent: 'Master'}), big),
     el('div', {className: 'dj-mgrid dj-mg-tempo'},
       stepBtn('−', -1, (dir, size) => stepMaster(dir, size), {className: 'dj-pad dj-tbtn', disabled: off, ariaLabel: 'Master tempo down', title: 'Tempo down (hold: faster)'}),
       bpmIn,
@@ -1185,14 +1185,19 @@ function drawMixer() {
       el('label', {className: 'dj-small', title: 'Every tempo set here snaps to a whole number: Tap, typing, − / +, the decks, the mixer\'s tempo control'}, whole, ' Whole BPM'),
       check(master.onBar, v => { master.onBar = v; store.set('dj-tempo-bar', v ? '1' : '0'); }, ' Next bar',
         'Pads, ×½ / ×2, LSDj tempos and a glide\'s start wait for the master\'s next bar (while it plays)'),
-      check(master.padGlide, v => { master.padGlide = v; store.set('dj-pad-glide', v ? '1' : '0'); }, ' Pads glide', 'A pad glides to its tempo (over the bars chosen) instead of jumping')),
+      check(master.padGlide, v => { master.padGlide = v; store.set('dj-pad-glide', v ? '1' : '0'); }, ' Pads glide', 'A pad glides to its tempo (over the bars chosen) instead of jumping')));
+  /* the mixer: a channel strip per deck, the crossfader, and its setup (⚙: opens over the strips, never pushing them
+     out of the column) */
+  m.replaceChildren(...[
+    el('h4', {textContent: 'Mixer'}),
     el('div', {className: 'dj-strips'}, ...strips),
     el('div', {className: 'dj-xrow'}, el('b', {textContent: 'A'}), xf, el('b', {textContent: 'B'})),
     note,
     /* the mixer's setup, folded away once set (kept in this browser; open while MIDI learn waits for a control): it
        never takes the live controls' room */
     el('details', {className: 'dj-setup', open: setupOpen(p), ontoggle: e => { if (e.target.open !== setupOpen(p)) store.set('dj-mixer-setup', e.target.open ? '1' : '0'); }},
-      el('summary', {}, el('span', {className: 'dj-setup-h', textContent: 'Mixer'}), el('span', {className: 'dj-small', textContent: p.name})),
+      el('summary', {title: 'The MIDI mixer: which one, its ports and channels, the crossfader curve'}, el('span', {className: 'dj-setup-h', textContent: '⚙ Setup'}), el('span', {className: 'dj-small', textContent: p.name})),
+      el('div', {className: 'dj-setup-body'},
       sel(PRESETS.map(x => [x.id, x.name + (x.verified ? '' : ' (unverified)')]), mixer.id, v => { mixer.id = v; mixer.faders = {}; store.set('dj-mixer', v); setXfader(mixer.xfader); draw(); }, 'Mixer'),
       p.id === 'none' ? null : el('div', {className: 'dj-row'}, el('label', {}, 'From ', portSel(ports.ins, mixer.inId, setMixerIn, 'Mixer MIDI in')),
         el('label', {}, 'To ', portSel(ports.outs, mixer.outId, v => { mixer.outId = v; store.set('dj-mixer-out', v); }, 'Mixer MIDI out'))),
@@ -1200,15 +1205,15 @@ function drawMixer() {
       p.note ? el('p', {className: 'dj-small', textContent: p.note}) : null,
       el('label', {className: 'dj-small'}, 'Crossfader ', sel(CURVES.map(c => [c, {smooth: 'Smooth fade', linear: 'Linear', cut: 'Cut (scratch)'}[c]]), mixer.curve,
         v => { mixer.curve = v; store.set('dj-curve', v); setXfader(mixer.xfader); }, 'Crossfader curve')),
-      p.id === 'learn' ? learnBox() : null)].filter(Boolean));
+      p.id === 'learn' ? learnBox() : null))].filter(Boolean));
   mixerNumbers();
 }
-/* the mixer's setup open: as last left; at first open with no MIDI mixer chosen (to find), folded once one is; and
+/* the mixer's setup (the ⚙ drawer) open: as last left, closed at first; and
    always while MIDI learn waits */
 function setupOpen(p) {
   if (mixer.learning) return true;
   const v = store.get('dj-mixer-setup', '');
-  return v ? v === '1' : p.id === 'none';
+  return v === '1';   /* (closed at first: open, it lies over the strips and the crossfader) */
 }
 /* a tempo pad: tap, its tempo; hold (or right-click), keep the master's tempo now in it */
 function padBtn(n, off) {
@@ -1471,7 +1476,8 @@ export function mountDj(box) {
     el('div', {className: 'dj-top'}, statusEl, logBox(), el('details', {className: 'dj-help'}, el('summary', {textContent: 'How to set up'}), el('p', {textContent: HELP})),
       el('label', {className: 'hint', title: 'Each deck\'s effects: drawers that open from the outer edges, or columns always open'}, 'FX ', fxViews),
       el('label', {className: 'hint', title: 'The DJ layout\'s own colours: its background and the master and mixer. FM-1 decks keep their FM-1\'s theme.'}, 'DJ colours ', themePick)),
-    el('div', {className: `dj-grid${fxView === 'columns' ? ' fx-columns' : ''}`}, fxBox(decks[0]), deckA, el('section', {className: 'dj-mixer', ariaLabel: 'Master and mixer'}), deckB, fxBox(decks[1]),
+    el('section', {className: 'dj-master', ariaLabel: 'Master tempo'}),
+    el('div', {className: `dj-grid${fxView === 'columns' ? ' fx-columns' : ''}`}, fxBox(decks[0]), deckA, el('section', {className: 'dj-mixer', ariaLabel: 'Mixer'}), deckB, fxBox(decks[1]),
       decks[0].ui.fxTab, decks[1].ui.fxTab),
     crateBox = el('section', {className: 'dj-crate', ariaLabel: 'Crate'}),
   );

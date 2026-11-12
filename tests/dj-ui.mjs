@@ -170,7 +170,7 @@ export async function runDjUiTests() {
     deckB.clock.bend(1.6); await sleep(400); deckB.clock.bend(1);   /* pushed off, as a drift would */
     assert(Math.abs(barGap()) > 2, `B pushed off the bar: ${barGap()}`);
     await until(() => Math.abs(barGap()) < 0.75, `locked: back on the master's bar by itself: ${barGap()}`, 5000);
-    const masterIn = document.querySelector('.dj-mixer .dj-bpm-in');
+    const masterIn = document.querySelector('.dj-master .dj-bpm-in');
     masterIn.value = '124'; masterIn.dispatchEvent(new Event('change'));
     await until(() => deckB.bpm === 124 && deckB.clock.bpm === 124, `the master to 124: B follows: ${deckB.bpm}`, 1000);
     masterIn.value = '120'; masterIn.dispatchEvent(new Event('change'));
@@ -410,14 +410,14 @@ export async function runDjUiTests() {
 
     // 4e. Tap pressed quickly: the tempo follows, and the layout is not redrawn (each tap redrew both decks, their
     // rows and the mixer, and froze Colin's page); then Whole BPM: every tempo snaps to a whole number
-    const tapBtn = () => [...document.querySelectorAll('.dj-mixer button')].find(b => b.textContent === 'TAP');
+    const tapBtn = () => [...document.querySelectorAll('.dj-master button')].find(b => b.textContent === 'TAP');
     const kept = [tapBtn(), ...document.querySelectorAll('.dj-deck-body > *')];
     for (let i = 0; i < 16; i++) { tapBtn().click(); await sleep(i % 2 ? 230 : 270); }
-    const tapped = djState().master.bpm, big = () => document.querySelector('.dj-mixer .dj-bpm.big').textContent;
+    const tapped = djState().master.bpm, big = () => document.querySelector('.dj-master .dj-bpm.big').textContent;
     assert(tapped > 225 && tapped < 255, `16 taps 250 ms apart: about 240 BPM: ${tapped}`);
     assert(kept.every(e => e.isConnected), 'taps: nothing redrawn but the numbers');
     await until(() => big() === tapped.toFixed(1), `the master readout follows: ${big()} vs ${tapped}`, 1000);
-    const wholeBox = [...document.querySelectorAll('.dj-mixer label')].find(l => /Whole BPM/.test(l.textContent)).querySelector('input');
+    const wholeBox = [...document.querySelectorAll('.dj-master label')].find(l => /Whole BPM/.test(l.textContent)).querySelector('input');
     wholeBox.click();
     assert(djState().master.whole && Number.isInteger(djState().master.bpm) && djState().decks.every(d => Number.isInteger(d.bpm)), `Whole BPM: master and decks whole: ${djState().master.bpm}, ${djState().decks.map(d => d.bpm)}`);
     await until(() => !big().includes('.'), `the readout without a point: ${big()}`, 1000);
@@ -427,7 +427,7 @@ export async function runDjUiTests() {
     assert(djState().decks[1].bpm === 128 && bpmInB.value === '128', `typed 127.6: 128: ${djState().decks[1].bpm} (${bpmInB.value})`);
     for (let i = 0; i < 4; i++) { tapBtn().click(); await sleep(310); }
     assert(Number.isInteger(djState().master.bpm), `Whole BPM: a tapped tempo is whole: ${djState().master.bpm}`);
-    [...document.querySelectorAll('.dj-mixer label')].find(l => /Whole BPM/.test(l.textContent)).querySelector('input').click();
+    [...document.querySelectorAll('.dj-master label')].find(l => /Whole BPM/.test(l.textContent)).querySelector('input').click();
     assert(!djState().master.whole, 'Whole BPM off again');
     for (const i of document.querySelectorAll('.dj-bpm-in')) { i.value = '120'; i.dispatchEvent(new Event('change')); }   /* back to 120 for the rest */
 
@@ -437,7 +437,7 @@ export async function runDjUiTests() {
       const by = (root, label) => root.querySelector(`button[aria-label="${label}"]`);
       const press = b => b.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter'}));
       const lift = b => b.dispatchEvent(new KeyboardEvent('keyup', {key: 'Enter'}));
-      const mx = document.querySelector('.dj-mixer'), M = djState().master, dB = djState().decks[1];
+      const mx = document.querySelector('.dj-master'), M = djState().master, dB = djState().decks[1];
       assert(M.bpm === 120 && dB.bpm === 120, `start at 120: ${M.bpm}, ${dB.bpm}`);
       const up = by(mx, 'Master tempo up');
       press(up); lift(up);
@@ -739,11 +739,11 @@ export async function runDjUiTests() {
     B.slow = null;
     /* the master clock's own FM-1: never changed, even with CLOCK OUT off; the strip says to turn CLOCK OUT on */
     B.midiWord = (0x4D000000 | 1 | 8 | 1 << 11 | 1 << 17) >>> 0;
-    choose(document.querySelector('.dj-mixer select[aria-label="Master clock"]'), 'in-2');
+    choose(document.querySelector('.dj-master select[aria-label="Master clock"]'), 'in-2');
     choose(pickB, ''); choose(pickB, 'fm1:out-2');
     await until(() => !warnB().hidden && /master clock, but its CLOCK OUT is off/.test(warnB().textContent), `the master's FM-1, CLOCK OUT off: the strip: ${warnB().textContent}`, 4000);
     assert(B.syncSets.length === 1 && B.sync === 1, `the master clock's FM-1: SYNC left LSDJ: ${B.syncSets}`);
-    choose(document.querySelector('.dj-mixer select[aria-label="Master clock"]'), 'page');
+    choose(document.querySelector('.dj-master select[aria-label="Master clock"]'), 'page');
     /* 0.9.98-dev.1 (no SYNC_SET) with SYNC = MIDI: nothing set, the strip says how */
     B.dev2 = false; B.sync = 3; B.midiWord = (0x4D000000 | 1 | 8 | 1 << 11 | 1 << 17) >>> 0;
     choose(pickB, ''); choose(pickB, 'fm1:out-2');
