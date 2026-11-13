@@ -13,7 +13,7 @@ import {withOpenSong, savBody} from './lsdj-sav.js';
 import {openCartMaker} from './cart-maker.js';
 import {logEvent} from './conn-log.js';
 import {loadTemplate, prepareLsdjFirmware} from './lsdj-firmware.js';
-import {installOn, checkPackage} from './install.js';
+import {installOn, checkPackage, REPLUG} from './install.js';
 import {installing, setInstallTarget} from './install-ui.js';
 
 const el = (tag, props = {}, ...kids) => { const e = Object.assign(document.createElement(tag), props); e.append(...kids.filter(k => k != null)); return e; };
@@ -159,8 +159,8 @@ export async function loadOnto(id, i, slot = null) {
     try { wake = await navigator.wakeLock?.request('screen'); } catch { wake = null; }
     setInstallTarget(d.key);
     const names = {found: 'Found its FM-1', stage: 'Preparing the update (nothing changed yet)', loader: 'Restarting into update mode',
-      write: 'Writing the firmware: keep the cable in', restart: 'Written. Restarting', done: 'Installed'};
-    const r = await installOn(app.access(), checkPackage(pkg.bytes), {target, avoid, onStep: s => show(`${names[s]}…`), onProgress: (n, t) => show(names.write + '…', n, t)});
+      write: 'Writing the firmware: keep the cable in', restart: 'Written. Restarting', done: 'Installed', replug: REPLUG.update, 'replug-back': REPLUG.back};
+    const r = await installOn(app.access(), checkPackage(pkg.bytes), {target, avoid, onStep: s => show(s.startsWith('replug') ? names[s] : `${names[s]}…`), onProgress: (n, t) => show(names.write + '…', n, t)});
     setInstallTarget(null);
     /* the restarted FM-1: the one found now that wasn't there before */
     await wait(1500);

@@ -24,7 +24,8 @@ const later = (f, ms = 1) => setTimeout(f, ms);
 
 /* one pretend FM-1: mode 'app' | 'ota'; every message sent to any of its ports is kept in .got */
 function fm1(name, text) {
-  const dev = {name, text, mode: text.startsWith('ota') ? 'ota' : 'app', got: [], ports: null, upgraded: false};
+  const dev = {name, text, mode: text.startsWith('ota') ? 'ota' : 'app', got: [], ports: null, upgraded: false,
+    back: {ota: 300, app: 300}};   /* ms until it is on USB again after a restart (Infinity: until replugged) */
   dev.plug = () => {
     const input = {id: `in${nextId}`, name: dev.name, state: 'connected', listeners: new Set(), onmidimessage: null,
       open: async () => {}, addEventListener(t, f) { this.listeners.add(f); }, removeEventListener(t, f) { this.listeners.delete(f); }};
@@ -48,8 +49,8 @@ function fm1(name, text) {
       return;
     }
     if (isSuccess(m)) {   /* the update loader's "success": restart, on new ports */
-      if (dev.mode === 'app') { dev.unplug(); dev.text = 'ota-FM-1_1'; dev.mode = 'ota'; later(dev.plug, 300); }
-      else { dev.unplug(); dev.text = PRODUCT; dev.mode = 'app'; dev.upgraded = true; later(dev.plug, 300); }
+      if (dev.mode === 'app') { dev.unplug(); dev.text = 'ota-FM-1_1'; dev.mode = 'ota'; if (dev.back.ota < Infinity) later(dev.plug, dev.back.ota); }
+      else { dev.unplug(); dev.text = PRODUCT; dev.mode = 'app'; dev.upgraded = true; if (dev.back.app < Infinity) later(dev.plug, dev.back.app); }
     }
   };
   dev.plug();
@@ -133,5 +134,30 @@ const avoidOf = (...ds) => ds.flatMap(d => [d.ports.input.id, d.ports.output.id]
   const r = await installOn(access, pkg, {target: ids(a), avoid: avoidOf(b), onStep: s => { if (s === 'write') b.unplug(); }});
   assert.deepEqual(r, {id: PRODUCT, confirmed: false});
   assert.deepEqual(b.got, []);
+}
+/* slow to come back on USB after each restart (Windows missed it; the cable replugged): the page says so once
+   per restart (replug, replug-back) and carries on */
+{
+  reset();
+  const a = fm1('FM-1', 'FM-1_996');
+  a.back = {ota: 2600, app: 3100};
+  const steps = [];
+  const id = await install(access, pkg, {onStep: s => steps.push(s), hintMs: 400, waitMs: 8000});
+  assert.equal(id, PRODUCT);
+  assert.deepEqual(steps, ['found', 'stage', 'loader', 'replug', 'write', 'restart', 'replug-back', 'done']);
+}
+/* back in time: no hint */
+{
+  reset();
+  const a = fm1('FM-1', 'FM-1_996'), steps = [];
+  await install(access, pkg, {onStep: s => steps.push(s), hintMs: 1000, waitMs: 8000});
+  assert.ok(!steps.some(s => s.startsWith('replug')), steps.join());
+}
+/* never back in update mode: stopped, and the message says to replug and press Install again */
+{
+  reset();
+  const a = fm1('FM-1', 'FM-1_996');
+  a.back = {ota: Infinity, app: 300};
+  await assert.rejects(install(access, pkg, {hintMs: 200, waitMs: 800}), e => e.resumable && /UPDATE MODE: WAITING FOR THE INSTALLER, unplug its USB cable, plug it back in/.test(e.message));
 }
 console.log('install-target: PASS (the targeted install: only the chosen FM-1 hears anything; the normal install unchanged)');

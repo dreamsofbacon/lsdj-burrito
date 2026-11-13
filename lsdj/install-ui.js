@@ -3,7 +3,7 @@
 // the file is checked whole before anything is sent; the install only starts
 // with this tab in front, keeps the screen awake, warns if the tab is hidden
 // or closed meanwhile. Recovery after an interrupted write is not guaranteed.
-import {checkPackage, install, InstallError} from './install.js';
+import {checkPackage, install, InstallError, REPLUG} from './install.js';
 
 const $ = (id) => document.getElementById(id);
 const say = (text, cls = 'hint') => { const el = $('fw-status'); el.textContent = text; el.className = cls; };
@@ -113,10 +113,11 @@ $('fw-install').onclick = async () => {
     try { access = await navigator.requestMIDIAccess({sysex: true}); }
     catch (_) { throw new InstallError('MIDI access was blocked. Allow it (with SysEx) for this page, then press Install again. Nothing was installed.'); }
     const names = {found: 'Found the FM-1', stage: 'Preparing the update (nothing is changed yet)', loader: 'The FM-1 is restarting into update mode',
-                   write: 'Writing the firmware: keep the cable in', restart: 'Written. The FM-1 is restarting', done: 'Done'};
+                   write: 'Writing the firmware: keep the cable in', restart: 'Written. The FM-1 is restarting', done: 'Done',
+                   replug: REPLUG.update, 'replug-back': REPLUG.back};
     const id = await install(access, pkg, {
       log,
-      onStep: (s, d) => { log(names[s] + (d ? `: ${d}` : '')); if (s !== 'done') say(names[s] + '…', s === 'write' ? 'warn' : 'hint'); },
+      onStep: (s, d) => { log(names[s] + (d ? `: ${d}` : '')); if (s !== 'done') say(names[s] + (s.startsWith('replug') ? '' : '…'), s === 'write' || s.startsWith('replug') ? 'warn' : 'hint'); },
       onProgress: (b, t) => { bar.max = t; bar.value = b; }
     });
     bar.value = bar.max;

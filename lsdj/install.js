@@ -12,6 +12,17 @@ import {Updater, UPGRADE, STAGE_DONE, WRITE_DONE, isFm1} from '../vendor/fm1ota.
 import {Package, logicalImage} from '../vendor/fm1pkg.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+/* After a restart Windows sometimes misses the FM-1 joining USB (seen 2026-11-12/13: it waited on UPDATE MODE:
+   WAITING FOR THE INSTALLER until its cable was replugged). Wait up to WAIT_MS; after HINT_MS with no answer,
+   onStep(hint) once, so the page can say "unplug it and plug it back in", and keep waiting. */
+export const HINT_MS = 10000, WAIT_MS = 120000;
+export const REPLUG = {
+  update: 'No answer yet. If the FM-1 says UPDATE MODE: WAITING FOR THE INSTALLER, unplug its USB cable and plug it back in (keep this tab open): the install carries on.',
+  back: 'No answer yet. If the FM-1 shows LSDj, unplug its USB cable and plug it back in (keep this tab open).'};
+async function waitWithHint(up, filter, onHint, {hintMs = HINT_MS, waitMs = WAIT_MS} = {}) {
+  const t = setTimeout(onHint, hintMs);
+  try { return await up.waitForAny(filter, waitMs); } finally { clearTimeout(t); }
+}
 export class InstallError extends Error {
   constructor(msg, {resumable = false} = {}) { super(msg); this.resumable = resumable; }
 }
@@ -73,9 +84,9 @@ export async function installOn(access, pkg, {target, avoid = [], Transport = Up
 }
 
 /* Install (or finish an interrupted install of) pkg. onStep(phase, detail): 'found', 'stage', 'loader',
-   'write', 'restart', 'done'; onProgress(bytes, total) during the write. Resolves the identity the FM-1
+   'write', 'restart', 'done', and 'replug' / 'replug-back' when the FM-1 is slow to answer after a restart; onProgress(bytes, total) during the write. Resolves the identity the FM-1
    reports afterwards. */
-export async function install(access, pkg, {log = () => {}, onStep = () => {}, onProgress = () => {}, Transport = Updater} = {}) {
+export async function install(access, pkg, {log = () => {}, onStep = () => {}, onProgress = () => {}, Transport = Updater, hintMs, waitMs} = {}) {
   const up = new Transport(access, log);
   let dev = await up.findAny(isFm1);
   if (!dev) throw new InstallError('No FM-1 found. Connect it with a USB data cable, close M-UPGRADE and other MIDI apps, and try again. Nothing was installed.');
@@ -90,8 +101,8 @@ export async function install(access, pkg, {log = () => {}, onStep = () => {}, o
       if (!s1.finished) throw new InstallError('The FM-1 stopped preparing the update. Nothing was installed: it is still running its firmware.');
       onStep('loader');
       await sleep(1500);
-      dev = await up.waitForAny((id) => id.model === 'ota-FM-1', 30000);
-      if (!dev) throw new InstallError('The FM-1 did not come back in update mode. Keep it powered and check USB. Retry the same file only if update mode responds; recovery is not guaranteed.', {resumable: true});
+      dev = await waitWithHint(up, (id) => id.model === 'ota-FM-1', () => onStep('replug'), {hintMs, waitMs});
+      if (!dev) throw new InstallError('The FM-1 did not come back in update mode. Keep it powered. If its screen says UPDATE MODE: WAITING FOR THE INSTALLER, unplug its USB cable, plug it back in and press Install again with the same file; recovery is not guaranteed.', {resumable: true});
     } else log('The FM-1 is in update mode (an install that was cut off): finishing it.');
     // step 2: the loader reads everything and writes it
     onStep('write');
@@ -105,8 +116,8 @@ export async function install(access, pkg, {log = () => {}, onStep = () => {}, o
     // step 3: the new firmware must say who it is
     onStep('restart');
     await sleep(2000);
-    const back = await up.waitForAny((id) => id.model === 'FM-1', 40000);
-    if (!back) throw new InstallError('The write finished, but the FM-1 did not report back. Check its screen and USB connection. Installation is unconfirmed; recovery is not guaranteed.', {resumable: true});
+    const back = await waitWithHint(up, (id) => id.model === 'FM-1', () => onStep('replug-back'), {hintMs, waitMs});
+    if (!back) throw new InstallError('The write finished, but the FM-1 did not report back. Check its screen; unplug its USB cable and plug it back in. Installation is unconfirmed; recovery is not guaranteed.', {resumable: true});
     back.link.close();
     if (back.id.text !== pkg.product) throw new InstallError(`The FM-1 now reports ${back.id.text}, not ${pkg.product}. Press Install again.`, {resumable: true});
     onStep('done', back.id.text);
