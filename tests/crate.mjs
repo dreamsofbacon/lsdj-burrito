@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 import assert from 'node:assert/strict';
-import {fileKind, loadItems, saveItems, addItem, removeItem, renameItem, pairItems, unusedSaves, describe, recolorItem, moveItem, viewItems} from '../lsdj/crate.js';
+import {fileKind, loadItems, saveItems, addItem, removeItem, renameItem, pairItems, unusedSaves, describe, recolorItem, setImage, unusedImages, moveItem, viewItems, formatOfTitle} from '../lsdj/crate.js';
 import {SAV_SIZE, SONG_SIZE, BLOCK_COUNT, buildSav, parseSav, songBytes, withOpenSong} from '../lsdj/lsdj-sav.js';
 import {BANK, crc32} from '../lsdj/lsdj-rom.js';
 
@@ -68,7 +68,7 @@ const lib = {[R]: rom, [S]: sav};
 {
   const t = describe({rom: R, sav: S}, id => lib[id]);
   assert.deepEqual([t.kinds, t.songs, t.open, t.version, t.missing, t.kits], [['LSDj', '.sav'], ['BEATS'], 0, '9.3.9', false, []]);
-  assert.deepEqual(t.songList, [{slot: 0, name: 'BEATS', blocks: 1}]);
+  assert.deepEqual(t.songList, [{slot: 0, name: 'BEATS', blocks: 1, format: t.songList[0].format}]);
   assert.equal(t.free, BLOCK_COUNT - 1);
   assert.equal(t.crc, crc32(sav), 'the save\'s checksum, as the FM-1 reports it (the deck badge)');
 }
@@ -83,6 +83,21 @@ assert.equal(describe({sav: S2}, id => lib[id]).missing, true);
   assert.equal(list[1].color, 'teal');
   assert.equal(recolorItem(list, list[1].id, 'plaid')[1].color, 'grey', 'only known colours');
   assert.equal(loadItems(saveItems(list))[1].color, 'teal', 'kept');
+  /* any colour (#rrggbb, kept lower case) and a picture (a library id) */
+  assert.equal(recolorItem(list, list[0].id, '#1A2b3C')[0].color, '#1a2b3c');
+  assert.equal(recolorItem(list, list[0].id, '#12345')[0].color, 'grey', 'not a colour');
+  const pic = 'd'.repeat(64), pic2 = 'e'.repeat(64);
+  let withPic = setImage(recolorItem(list, list[0].id, '#1a2b3c'), list[0].id, pic);
+  assert.equal(withPic[0].img, pic);
+  assert.equal(setImage(withPic, list[0].id, 'nope')[0].img, null, 'only a library id');
+  const back = loadItems(saveItems(withPic));
+  assert.ok(back[0].color === '#1a2b3c' && back[0].img === pic && back[1].img === null, 'kept');
+  assert.deepEqual(unusedImages(setImage(withPic, list[0].id, pic2), withPic), [pic], 'a replaced picture is unused');
+  assert.deepEqual(unusedImages(removeItem(withPic, list[0].id), withPic), [pic], 'the picture of a removed card is unused');
+  assert.deepEqual(unusedImages(withPic, withPic), [], 'still used');
+  assert.deepEqual(unusedImages(setImage(withPic, list[1].id, pic), setImage(withPic, list[1].id, pic)).length, 0);
+  const made = addItem([], {name: 'M', rom: 'a'.repeat(64), color: '#ABCDEF', img: pic});
+  assert.ok(made[0].color === '#abcdef' && made[0].img === pic, 'added with a colour and a picture');
   assert.deepEqual(moveItem(list, list[2].id, 0).map(i => i.name), ['Breakdown', 'Opener', 'closer']);
   assert.deepEqual(moveItem(list, list[0].id, 9).map(i => i.name), ['closer', 'Breakdown', 'Opener']);
   assert.deepEqual(viewItems(list, {sort: 'name'}).map(i => i.name), ['Breakdown', 'closer', 'Opener']);
@@ -92,6 +107,23 @@ assert.equal(describe({sav: S2}, id => lib[id]).missing, true);
   assert.deepEqual(viewItems(list).map(i => i.name), ['Opener', 'closer', 'Breakdown'], 'your order');
 }
 
+/* song formats: a song saved by a newer LSDj than the card's own (its format: the song's last byte; the LSDj's: the
+   number its code writes there) is named; an FM-1's LSDj by its title */
+{
+  const song = f => { const x = new Uint8Array(SONG_SIZE).map((_, k) => (k * 7 + 1) & 0x7f); x[SONG_SIZE - 1] = f; return x; };
+  const old = rom.slice(); old.set([0x3e, 4, 0xf5, 0x33, 0x21, 0xff, 0xbf, 0xe5, 0x3e, 0x03, 0xf5, 0x33, 0xcd], 0x7000);   /* an LSDj writing format 4 */
+  const both = buildSav(sav, song(22), [{slot: 0, name: 'NEW', song: song(22)}, {slot: 1, name: 'OLD', song: song(3)}], 0);
+  const t = describe({rom: 'o', sav: 's'}, id => ({o: old, s: both})[id]);
+  assert.equal(t.format, 4);
+  assert.deepEqual(t.songList.map(x => [x.name, x.format]), [['NEW', 22], ['OLD', 3]]);
+  assert.equal(t.needs, 22, 'the newest song format in it');
+  assert.deepEqual(t.tooNew, ['NEW'], 'the song its LSDj cannot open');
+  assert.deepEqual(describe({rom: R, sav: 's'}, id => ({[R]: rom, s: both})[id]).tooNew, [], 'an LSDj of unknown format: nothing said');
+  assert.equal(formatOfTitle('LSDj-v9.3.9\u0000\u0000'), 22);
+  const titled = old.slice(); [...'LSDj-v7.1.0'].forEach((c, i) => titled[0x134 + i] = c.charCodeAt(0));
+  assert.equal(formatOfTitle('LSDj-v7.1.0', [titled]), 4, 'from an LSDj file of that title');
+  assert.equal(formatOfTitle('LSDj-v1.0.0', [titled]), null);
+}
 /* straight into a chosen song: that song in the working area, opened; the saved songs untouched */
 {
   const song = n => new Uint8Array(SONG_SIZE).map((_, k) => (k * n + n) & 0x7f);
@@ -103,4 +135,4 @@ assert.equal(describe({sav: S2}, id => lib[id]).missing, true);
   assert.deepEqual(songBytes(p, 0), song(3));
   assert.throws(() => withOpenSong(two, 7), /No song in slot 7/);
 }
-console.log('crate: PASS (file kinds (a save with a 16-byte footer, LSDJ 3.x-4.1), items, pairing, saved list, card text, colours, your order, search and sort, a chosen song opened)');
+console.log('crate: PASS (file kinds (a save with a 16-byte footer, LSDJ 3.x-4.1), items, pairing, saved list, card text, colours, your order, search and sort, song formats against an LSDj, a chosen song opened)');

@@ -4,7 +4,9 @@
 // that FM-1 alone (install.js installOn: nothing is sent to the other FM-1s, the other decks' gear or the mixer),
 // then a paired .sav follows. lsdj/crate.js holds the list; the files stay in this browser (kit-library.js).
 import {KEY, fileKind, loadItems, saveItems, addItem, removeItem, renameItem, pairItems, unusedSaves, describe,
-  CART_COLORS, recolorItem, moveItem, viewItems} from './crate.js';
+  recolorItem, setImage, unusedImages, moveItem, viewItems, formatOfTitle} from './crate.js';
+import {labelEditor, paintLabel, shrinkImage, imageUrl, isHex} from './cart-label.js';
+import {opens} from './lsdj-sets.js';
 import {libraryFiles, addToLibrary, removeFromLibrary} from './kit-library.js';
 import {listKits, crc32} from './lsdj-rom.js';
 import {withOpenSong, savBody} from './lsdj-sav.js';
@@ -36,12 +38,29 @@ const say = (text, cls = 'hint') => { if (statusEl) { statusEl.textContent = tex
 async function refreshFiles() { files = new Map((await libraryFiles()).map(f => [f.id, f])); }
 const bytesOf = id => files.get(id)?.bytes || null;
 
-/* a ROM and/or a save (bytes) -> a crate item; used by Songs & kits and Sets too */
-export async function addToCrate({name, rom = null, sav = null}) {
+/* a ROM and/or a save (bytes) -> a crate item; used by Songs & kits, Sets and New cart… too. color: a preset or
+   #rrggbb; img: a picture's bytes (cart-label.js shrinkImage) */
+export async function addToCrate({name, rom = null, sav = null, color = 'grey', img = null}) {
   const r = rom ? await addToLibrary('rom', `${name}.gb`, rom) : null;
   const s = sav ? await addToLibrary('sav', `${name}.sav`, sav) : null;
-  items = addItem(items, {name, rom: r?.id || null, sav: s?.id || null});
+  const p = img ? await addToLibrary('img', `${name}.jpg`, img) : null;
+  items = addItem(items, {name, rom: r?.id || null, sav: s?.id || null, color, img: p?.id || null});
   save(); await refreshFiles(); setOpen(true); draw();
+}
+/* files no item uses any more, out of the library (saves and pictures: ROMs are shared with Sets) */
+async function tidy(before) {
+  for (const id of [...unusedSaves(items, before), ...unusedImages(items, before)]) await removeFromLibrary(id);
+  await refreshFiles();
+}
+/* a card's label: its colour, its picture (Picture…: made small here, kept in this browser) */
+const labelOpen = new Set();
+async function setPicture(item, file) {
+  try {
+    const bytes = await shrinkImage(file), p = await addToLibrary('img', `${item.name}.jpg`, bytes);
+    const before = items; items = setImage(items, item.id, p.id); save(); await tidy(before);
+    say(`${item.name}: picture set.`, 'ok');
+  } catch (e) { say(`${item.name}: ${e.message}`, 'bad'); }
+  drawList();
 }
 
 async function openFiles(list) {
@@ -165,7 +184,20 @@ export function dropOnDeck(e, i) {
   root?.querySelector(`.crate-cart[data-id="${id}"]`)?.scrollIntoView({block: 'nearest', inline: 'nearest'});
   return true;
 }
-function askLoad(id, i, slot = null) { asking = {id, i, slot}; setOpen(true); drawList(); }
+function askLoad(id, i, slot = null) {
+  asking = {id, i, slot}; setOpen(true); drawList();
+  /* songs alone: the LSDj its FM-1 runs (its title, then that LSDj's song format), to say when it can't open them */
+  const item = items.find(x => x.id === id), d = fm1Decks().find(x => x.i === i);
+  if (!item || item.rom || !d) return;
+  const ask = asking;
+  void Promise.resolve(app.info?.(d.key)).then(info => {
+    if (asking !== ask || !info?.title) return;
+    const roms = [...files.values()].filter(f => f.kind === 'rom').map(f => f.bytes);
+    ask.fm1 = {title: info.title.replace(/[\u0000 ]+$/, ''), format: formatOfTitle(info.title, roms)}; drawList();
+  }, () => {});
+}
+/* the songs (all, or the one chosen) its FM-1's LSDj can't open: saved by a newer LSDj */
+const tooNewFor = (t, fm1, slot) => fm1?.format == null ? [] : t.songList.filter(x => (slot == null || x.slot === slot) && !opens(fm1.format, x.format)).map(x => x.name);
 
 /* the deck holding a card's .sav now: the .sav this page last sent to its FM-1 (dj-ui.js held(i): its checksum, while
    the FM-1 still reports it) is this card's */
@@ -202,8 +234,7 @@ function askBox(item, t) {
       btn('Remove', async () => {
         asking = null;
         const before = items; items = removeItem(items, item.id); save();
-        for (const s of unusedSaves(items, before)) await removeFromLibrary(s);
-        await refreshFiles(); drawList();
+        await tidy(before); drawList();
       }, {className: 'danger'}),
       btn('Cancel', () => { asking = null; drawList(); })));
   const d = (dj.decks?.() || [])[asking.i];
@@ -214,6 +245,8 @@ function askBox(item, t) {
     el('p', {textContent: what}),
     el('p', {className: 'hint', textContent: `Deck ${d?.name} stops; the other keeps playing.` + (item.rom ? ' Experimental firmware: keep the cable in.' : '') +
       (heldBy(item, t).includes(d?.name) ? '' : ' Grab its songs first to keep them.')}),
+    (() => { const n = item.rom ? t.tooNew : tooNewFor(t, asking.fm1, asking.slot), lsdj = item.rom ? `This card's LSDj (${t.version})` : `Deck ${d?.name}'s FM-1 runs ${asking.fm1?.title}, which`;
+      return n.length ? el('p', {className: 'warn crate-needs', textContent: `${lsdj} can't open ${n.join(', ')}: saved by a newer LSDj. Load an LSDj that can (a cart made with it, or its .gb) first.`}) : null; })(),
     el('div', {className: 'crate-ask-acts'},
       btn(`Load ${d?.name}`, () => void loadOnto(item.id, asking.i, asking.slot), {className: 'primary'}),
       btn('Cancel', () => { asking = null; drawList(); })));
@@ -224,7 +257,7 @@ function askBox(item, t) {
 function songRow(item, t, s, withCard = false) {
   const on = heldBy(item, t, s.slot);
   return el('li', {className: `crate-song${on.length ? ' on-deck' : ''}`},
-    withCard ? el('span', {className: 'crate-song-card', title: item.name}, el('i', {className: 'crate-dot'}), item.name) : null,
+    withCard ? el('span', {className: 'crate-song-card', title: item.name}, el('i', {className: 'crate-dot', style: isHex(item.color) ? `background:${item.color}` : ''}), item.name) : null,
     el('span', {className: 'crate-song-name', textContent: s.name}),
     el('small', {textContent: `${s.blocks} blk${t.open === s.slot ? ' · open' : ''}`}),
     ...on.map(n => el('span', {className: 'crate-on', textContent: `ON ${n}`})),
@@ -246,9 +279,15 @@ function card(item, reorder) {
   name.setAttribute('aria-label', 'Name');
   const meta = [t.version ? `LSDj ${t.version}` : null, item.sav ? (t.missing ? 'file missing' : `${t.songs.length} song${t.songs.length === 1 ? '' : 's'}`) : 'no songs'].filter(Boolean).join(' · ');
   const canPair = pairFrom && pairFrom !== item.id && (() => { const o = items.find(x => x.id === pairFrom); return o && !!o.rom !== !!item.rom && !!o.sav !== !!item.sav; })();
-  const colour = btn('', () => {
-    items = recolorItem(items, item.id, CART_COLORS[(CART_COLORS.indexOf(item.color) + 1) % CART_COLORS.length]); save(); drawList();
-  }, {className: 'crate-colour', title: `Label colour: ${item.color} (click for the next)`, ariaLabel: `${item.name}: label colour ${item.color}`});
+  const editing = labelOpen.has(item.id);
+  const colour = btn('', () => { if (editing) labelOpen.delete(item.id); else labelOpen.add(item.id); drawList(); },
+    {className: 'crate-colour' + (editing ? ' on' : ''), title: 'Label: colour and picture', ariaLabel: `${item.name}: label colour and picture`});
+  colour.setAttribute('aria-expanded', String(editing));
+  const picUrl = item.img ? imageUrl(item.img, bytesOf(item.img)) : null;
+  const editor = editing ? labelEditor({color: item.color, hasImage: !!item.img, name: item.name,
+    onColor: c => { items = recolorItem(items, item.id, c); save(); drawList(); },
+    onImage: f => void setPicture(item, f),
+    onNoImage: async () => { const before = items; items = setImage(items, item.id, null); save(); await tidy(before); drawList(); }}) : null;
   const songs = t.missing ? null : el('details', {className: 'crate-songs', open: openSongs.has(item.id),
     ontoggle: e => { if (e.currentTarget.open) openSongs.add(item.id); else openSongs.delete(item.id); }},
     el('summary', {textContent: item.sav ? `Songs (${t.songs.length})` : 'Kits'}),
@@ -269,21 +308,24 @@ function card(item, reorder) {
       items = moveItem(items, from, items.findIndex(x => x.id === item.id)); save(); drawList();
     }},
     el('div', {className: 'crate-shell', ariaHidden: 'true'}, el('i'), el('i'), el('i')),
-    el('div', {className: 'crate-label'},
+    el('div', {className: 'crate-label' + (picUrl ? ' with-art' : '')},
+      picUrl ? el('img', {className: 'crate-art', src: picUrl, alt: '', draggable: false}) : null,
       el('div', {className: 'crate-label-top'}, colour,
         ...t.kinds.map(k => el('span', {className: 'crate-kind', textContent: k})),
         ...on.map(n => el('span', {className: 'crate-on', textContent: `ON ${n}`, title: `Deck ${n}'s FM-1 has these songs now`}))),
       name,
-      el('p', {className: 'crate-meta', textContent: meta, title: t.songs.join(', ')})),
+      el('p', {className: 'crate-meta', textContent: meta, title: t.songs.join(', ')}),
+      t.tooNew.length ? el('p', {className: 'crate-needs', textContent: `LSDj ${t.version} can't open ${t.tooNew.join(', ')} (saved by a newer LSDj)`}) : null,
+      editor),
     songs,
     el('div', {className: 'crate-acts'},
       ...decks.map(d => loadBtn(item, d, t)),
-      canPair ? btn('Pair here', () => { items = pairItems(items, pairFrom, item.id); pairFrom = null; save(); drawList(); }, {className: 'on'})
+      canPair ? btn('Pair here', async () => { const before = items; items = pairItems(items, pairFrom, item.id); pairFrom = null; save(); await tidy(before); drawList(); }, {className: 'on'})
         : !(item.rom && item.sav) ? btn(pairFrom === item.id ? 'Cancel' : 'Pair', () => { pairFrom = pairFrom === item.id ? null : item.id; drawList(); },
           {title: item.rom ? 'Pair this LSDj with a .sav: then press Pair here on the .sav' : 'Pair this .sav with an LSDj: then press Pair here on the LSDj'}) : null,
       btn('✕', () => { asking = {id: item.id, remove: true}; drawList(); }, {title: 'Take it out of the crate', ariaLabel: `Remove ${item.name}`})),
     asking?.id === item.id && view === 'cards' ? askBox(item, t) : null);
-  c.dataset.id = item.id; c.dataset.color = item.color;
+  c.dataset.id = item.id; paintLabel(c, item.color);
   return c;
 }
 const openSongs = new Set();

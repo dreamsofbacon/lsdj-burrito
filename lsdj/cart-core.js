@@ -6,7 +6,7 @@
 // so the DJ decks never wait for it, and in node (tests/cart.mjs). The user's files are never changed.
 import {parseSav, songBytes, readLsdsng, readLsdprj, savBody, SAV_SIZE, SavError} from './lsdj-sav.js';
 import {kitSlots, parseKit, isKitBank, BANK} from './lsdj-kit.js';
-import {validateRom} from './lsdj-rom.js';
+import {validateRom, findProfile} from './lsdj-rom.js';
 import * as S from './lsdj-sets.js';
 
 const hex = n => n.toString(16).toUpperCase().padStart(2, '0');
@@ -15,9 +15,14 @@ const sha = async b => [...new Uint8Array(await crypto.subtle.digest('SHA-256', 
 /* songs: [{id, group, from, name, nameBytes, version, song}]; roms / kitFiles as resolveSongs takes them (library: from
    this browser's LSDj files; files: dropped here); picks: the kit picks a project's own kits make; template: the first
    .sav's bytes (its LSDj settings go into the carts) */
-export const newState = () => ({songs: [], libRoms: [], fileRoms: [], kitFiles: [], picks: {}, rules: {}, template: null, built: new Set(), seq: 0});
+export const newState = () => ({songs: [], libRoms: [], fileRoms: [], kitFiles: [], picks: {}, rules: {}, template: null, built: new Set(), seq: 0, full: new Map()});
+/* which LSDj files the FM-1 knows fully (the verified LSDj 9.3.9 program, lsdj-rom.js profile 1: SYNC, play state and
+   rows for the DJ layout, MIDI sync, cues); other versions run, without those. Checked once a file (by id). */
+export async function checkRoms(st) {
+  for (const r of [...st.libRoms, ...st.fileRoms]) if (!st.full.has(r.id)) st.full.set(r.id, (await findProfile(r.rom).catch(() => null))?.profile === 1);
+}
 const roms = st => { const m = new Map(); for (const r of [...st.libRoms, ...st.fileRoms]) if (!st.built.has(r.id)) m.set(r.id, r); return [...m.values()]; };
-const romEntry = (id, name, rom) => ({id, name, rom, slots: kitSlots(rom), version: S.lsdjVersion(rom)});
+const romEntry = (id, name, rom) => ({id, name, rom, slots: kitSlots(rom), version: S.lsdjVersion(rom), format: S.lsdjFormat(rom)});
 
 /* this browser's LSDj and .kit files ([{id, kind, name, bytes}]); built: the ids of carts made here (not sources) */
 export function setLibrary(st, files, built = []) {
@@ -62,6 +67,7 @@ export async function addFiles(st, files) {
       } else out.skipped.push({name, why: 'not a song, project, save, LSDj or kit'});
     } catch (e) { out.skipped.push({name, why: e.message}); }
   }
+  await checkRoms(st);
   return out;
 }
 
@@ -73,8 +79,10 @@ export function view(st, req, capacity) {
   const resolved = S.resolveSongs(st.songs, list, st.kitFiles, choices);
   const byId = new Map(st.songs.map(x => [x.id, x]));
   for (const r of resolved) { const s = byId.get(r.id); r.blocks = s.blocks ??= S.blocksOf(r.song); }
-  const newest = [...list].sort((a, b) => S.compareVersions(b.version ?? [0], a.version ?? [0]))[0];
-  const baseId = list.some(r => r.id === req.baseId) ? req.baseId : newest?.id ?? null;
+  /* the LSDj to build with: the one chosen, else one the FM-1 knows fully (LSDj 9.3.9), else the newest */
+  const byVersion = [...list].sort((a, b) => S.compareVersions(b.version ?? [0], a.version ?? [0]));
+  const best = byVersion.find(r => st.full.get(r.id)) ?? byVersion[0];
+  const baseId = list.some(r => r.id === req.baseId) ? req.baseId : best?.id ?? null;
   const songs = resolved.map(r => {
     const rule = st.rules[r.id] ?? null;
     const silent = n => choices.kitPick[`${r.id}:${n}`] === 'none';   /* (left silent on purpose: not missing) */
@@ -82,27 +90,48 @@ export function view(st, req, capacity) {
     return {id: r.id, name: r.name, from: byId.get(r.id).from, blocks: r.blocks, made: r.rom?.id ?? null, madeAuto: r.auto, rule, status,
       kits: r.kits.map(k => ({number: k.number, name: k.name, source: k.source?.label ?? null, missing: !k.bank && !silent(k.number), silent: silent(k.number), samples: k.samples.size}))};
   });
-  const out = {songs, roms: list.map(r => ({id: r.id, name: r.name, version: S.versionText(r.version), kits: r.slots.filter(s => !s.empty).length,
+  /* each song's LSDj: the one chosen when it opens the song's format; else one that does (LSDj 9.3.9 first, then the
+     oldest new enough); none: the one chosen, the song marked (it won't open right) */
+  const base = list.find(r => r.id === baseId);
+  const openers = [...list].filter(r => r.format != null).sort((a, b) => (st.full.get(b.id) ? 1 : 0) - (st.full.get(a.id) ? 1 : 0) || a.format - b.format);
+  const homeOf = new Map(resolved.map(r => {
+    const f = S.songFormat(r.song);
+    if (!base || S.opens(base.format, f)) return [r.id, base];
+    return [r.id, openers.find(o => S.opens(o.format, f)) ?? base];
+  }));
+  for (const x of songs) {
+    const r = resolved.find(y => y.id === x.id), f = S.songFormat(r.song), home = homeOf.get(x.id);
+    x.format = f; x.on = home?.id ?? null;
+    x.needs = base && !S.opens(base.format, f) ? (home && S.opens(home.format, f) ? 'moved' : 'none') : null;
+  }
+  const out = {songs, roms: list.map(r => ({id: r.id, name: r.name, version: S.versionText(r.version), full: !!st.full.get(r.id), format: r.format, kits: r.slots.filter(s => !s.empty).length,
       slots: r.slots.filter(s => !s.empty).map(s => ({number: s.number, name: s.kit.name}))})),
     kitFiles: st.kitFiles.filter(k => !k.project).map(k => ({id: k.id, name: k.name})), baseId, plans: [], capacity};
   const ticked = req.ticked ? new Set(req.ticked) : null, picked = resolved.filter(r => !ticked || ticked.has(r.id));
-  const base = list.find(r => r.id === baseId);
   if (!base || !picked.length) return out;
-  const ctx = S.setContext(base.rom, capacity);
-  const plans = req.plan === 'most' ? [S.planMost(picked, ctx)] : S.planSplit(picked, ctx);
-  st.last = {plans, ctx};
+  /* the carts: planned per LSDj (the one chosen first), each built with it */
+  const groups = new Map();
+  for (const r of picked) { const h = homeOf.get(r.id) ?? base; if (!groups.has(h.id)) groups.set(h.id, {rom: h, songs: []}); groups.get(h.id).songs.push(r); }
+  const order = [...groups.values()].sort((a, b) => (b.rom === base) - (a.rom === base));
+  const plans = [];
+  for (const g of order) {
+    const ctx = S.setContext(g.rom.rom, capacity);
+    for (const p of req.plan === 'most' ? [S.planMost(g.songs, ctx)] : S.planSplit(g.songs, ctx)) plans.push({...p, ctx, lsdj: g.rom});
+  }
+  st.last = {plans};
   out.plans = plans.map(p => ({songs: p.entries.map(e => e.name), kits: p.kits.size, kib: Math.ceil(p.bytes / 1024), blocks: p.blocks,
-    over: !!p.over, lost: (p.lost ?? []).map(l => `${l.song}: kit ${hex(l.kit)}`), leftOut: (p.leftOut ?? []).map(e => e.name)}));
+    over: !!p.over, lost: (p.lost ?? []).map(l => `${l.song}: kit ${hex(l.kit)}`), leftOut: (p.leftOut ?? []).map(e => e.name),
+    lsdj: {id: p.lsdj.id, name: p.lsdj.name, version: S.versionText(p.lsdj.version), full: !!st.full.get(p.lsdj.id), chosen: p.lsdj === base}}));
   return out;
 }
 
 /* the carts of the last view: [{rom, sav, report, songs, kits, kib, fits, warnings}] */
 export function build(st, titles = []) {
-  const {plans, ctx} = st.last ?? {};
+  const {plans} = st.last ?? {};
   if (!plans?.length) throw new SavError('Nothing to build: tick some songs and choose an LSDj to build with.');
   return plans.map((p, i) => {
-    const b = S.buildSet(p, ctx, st.template), title = titles[i] ?? `Cart ${i + 1}`;
-    return {title, rom: b.rom, sav: b.sav, report: S.setReport(b, title, ctx), songs: b.songs.map(s => s.name), kits: b.kits.length,
+    const b = S.buildSet(p, p.ctx, st.template), title = titles[i] ?? `Cart ${i + 1}`;
+    return {title, rom: b.rom, sav: b.sav, report: S.setReport(b, title, p.ctx), lsdj: S.versionText(p.lsdj.version), songs: b.songs.map(s => s.name), kits: b.kits.length,
       kib: Math.ceil(b.plan.needed / 1024), fits: b.plan.fits, warnings: b.warnings};
   });
 }

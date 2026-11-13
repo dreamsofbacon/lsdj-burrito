@@ -622,6 +622,23 @@ export async function runDjUiTests() {
     await until(() => card() && /HOUSE/.test(card().textContent) && /2 songs/.test(card().textContent), `the card: its songs: ${crate.textContent}`);
     const cardBtn = (text, c = card()) => [...c.querySelectorAll('button')].find(b => b.textContent === text);
     assert(cardBtn('Load A') && cardBtn('Load B'), 'Load A and Load B on the card');
+    /* its label: the dot opens the editor; a swatch, any colour (light: dark text), a picture (kept in this browser), No picture */
+    card().querySelector('.crate-colour').click();
+    await until(() => card().querySelector('.cart-label-edit'), 'the label editor');
+    card().querySelector('.cart-swatch[data-color=purple]').click();
+    await until(() => card().dataset.color === 'purple', 'purple');
+    { const cc = card().querySelector('.cart-custom'); cc.value = '#ffee00'; cc.dispatchEvent(new Event('change')); }
+    await until(() => card().style.getPropertyValue('--lab') === '#ffee00' && card().style.getPropertyValue('--lab-ink') === '#2a2925', 'any colour; a light one gets dark text');
+    { const cv = Object.assign(document.createElement('canvas'), {width: 64, height: 64}); cv.getContext('2d').fillRect(0, 0, 64, 64);
+      const pt = new DataTransfer(); pt.items.add(new File([await new Promise(r => cv.toBlob(r, 'image/png'))], 'art.png', {type: 'image/png'}));
+      const fi = card().querySelector('.cart-label-edit input[type=file]'); fi.files = pt.files; fi.dispatchEvent(new Event('change')); }
+    await until(() => card().querySelector('.crate-art'), 'the picture on the label');
+    { const kept = JSON.parse(localStorage.getItem('dj-crate')).find(i => i.name === 'Friday');
+      assert(kept.color === '#ffee00' && /^[0-9a-f]{64}$/.test(kept.img), `kept: ${JSON.stringify(kept)}`); }
+    [...card().querySelectorAll('.cart-pic-acts button')].find(b => b.textContent === 'No picture').click();
+    await until(() => !card().querySelector('.crate-art'), 'No picture');
+    card().querySelector('.crate-colour').click();
+    await until(() => !card().querySelector('.cart-label-edit'), 'the editor closed');
     const realConfirm = window.confirm, bSend = B.output.send;
     let confirmed = 0;
     window.confirm = () => { confirmed++; return true; };

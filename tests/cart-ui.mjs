@@ -49,17 +49,36 @@ export async function runCartUiTests() {
   await until(() => /3 of 4 songs ticked/.test(p.textContent), 'three ticked');
   const name = p.querySelector('.cm-name'); name.value = 'Friday'; name.dispatchEvent(new Event('input'));
   await until(() => [...p.querySelectorAll('.cm-side button')].some(b => b.textContent === 'Make the cart'), 'one cart planned');
+  /* its own name, a colour (a swatch, then any colour) and a picture */
+  assert(p.querySelector('.cm-cartname').placeholder === 'Friday', `the Name box's name as its default: ${p.querySelector('.cm-cartname').placeholder}`);
+  const own = p.querySelector('.cm-cartname'); own.value = 'Friday Night'; own.dispatchEvent(new Event('input'));
+  p.querySelector('.cm-cart .cart-swatch[data-color=teal]').click();
+  await until(() => p.querySelector('.cm-cart .cm-label')?.dataset.color === 'teal', 'teal');
+  assert(p.querySelector('.cm-cartname').value === 'Friday Night', 'its name kept through a redraw');
+  const anyColour = p.querySelector('.cm-cart .cart-custom'); anyColour.value = '#123456'; anyColour.dispatchEvent(new Event('change'));
+  await until(() => p.querySelector('.cm-cart .cm-label')?.style.getPropertyValue('--lab') === '#123456', 'any colour');
+  const cv = Object.assign(document.createElement('canvas'), {width: 600, height: 300});
+  const g = cv.getContext('2d'); g.fillStyle = '#e04'; g.fillRect(0, 0, 600, 300);
+  const png = await new Promise(r => cv.toBlob(r, 'image/png')), pt = new DataTransfer();
+  pt.items.add(new File([png], 'art.png', {type: 'image/png'}));
+  const fileIn = p.querySelector('.cm-cart .cart-label-edit input[type=file]'); fileIn.files = pt.files; fileIn.dispatchEvent(new Event('change'));
+  await until(() => p.querySelector('.cm-cart .cm-label img'), 'the picture shown');
+  assert([...p.querySelectorAll('.cm-cart .cart-pic-acts button')].some(b => b.textContent === 'No picture'), 'No picture offered');
   [...p.querySelectorAll('.cm-side button')].find(b => b.textContent === 'Make the cart').click();
   await until(() => [...p.querySelectorAll('.cm-side button')].some(b => b.textContent === 'Add to the crate'), 'made', 15000);
   [...p.querySelectorAll('.cm-side button')].find(b => b.textContent === 'Add to the crate').click();
   await until(() => added.length === 1 && /In the crate/.test(p.textContent), 'added to the crate', 8000);
   const c = added[0];
-  assert(c.name === 'Friday', `its name: ${c.name}`);
+  assert(c.name === 'Friday Night', `its own name: ${c.name}`);
+  assert(c.color === '#123456', `its colour: ${c.color}`);
+  assert(c.img instanceof Uint8Array && c.img[0] === 0xFF && c.img[1] === 0xD8 && c.img.length <= 96 * 1024, `its picture, small (JPEG): ${c.img?.length}`);
+  { const bmp = await createImageBitmap(new Blob([c.img], {type: 'image/jpeg'}));
+    assert(bmp.width === 240 && bmp.height === 120, `made small, its shape kept: ${bmp.width}x${bmp.height}`); }
   assert(kitSlots(c.rom).filter(s => !s.empty).map(s => s.kit.name).sort().join() === 'ALPHA,XTRA', 'its LSDj: only the kits played');
   assert(parseSav(c.sav).songs.map(s => s.name).sort().join() === 'ALPHASNG,LOST,PROJ', 'its songs');
   assert(cartMakerState().open, 'the panel stays open');
   p.querySelector('.cm-close').click();
   assert(p.hidden, 'closed');
   await clearLibrary();
-  return 'PASS cart maker: picked files (a save with a footer, .lsdprj with its own kit, .lsdsng, an LSDj, others skipped), each song\'s kits and status, a kit left silent, a song unticked, a named cart made in the worker and added with only the kits played';
+  return 'PASS cart maker: picked files (a save with a footer, .lsdprj with its own kit, .lsdsng, an LSDj, others skipped), each song\'s kits and status, a kit left silent, a song unticked, a named cart (its own name, any colour, a picture made small) made in the worker and added with only the kits played';
 }

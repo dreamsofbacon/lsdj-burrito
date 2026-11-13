@@ -8,7 +8,7 @@
 <!-- every module the page imports at start, fetched at once instead of one import level at a time (tests/preload.mjs) -->
 <link rel="modulepreload" href="lsdj/lsdj-rom.js"><link rel="modulepreload" href="lsdj/lsdj-firmware.js"><link rel="modulepreload" href="lsdj/kits-ui.js"><link rel="modulepreload" href="lsdj/songs-ui.js"><link rel="modulepreload" href="lsdj/lsdj-kit.js"><link rel="modulepreload" href="lsdj/lsdj-usage.js"><link rel="modulepreload" href="lsdj/gamepad.js"><link rel="modulepreload" href="lsdj/link.js"><link rel="modulepreload" href="lsdj/save-file.js"><link rel="modulepreload" href="lsdj/page-theme.js"><link rel="modulepreload" href="lsdj/crate-ui.js"><link rel="modulepreload" href="lsdj/conn-log.js"><link rel="modulepreload" href="lsdj/fx-model.js"><link rel="modulepreload" href="lsdj/fx-diagram.js">
 <link rel="modulepreload" href="lsdj/zip.js"><link rel="modulepreload" href="lsdj/midiclock.js"><link rel="modulepreload" href="lsdj/dj-ui.js"><link rel="modulepreload" href="lsdj/screen.js"><link rel="modulepreload" href="lsdj/popout.js"><link rel="modulepreload" href="lsdj/install.js"><link rel="modulepreload" href="emulator/core.js"><link rel="modulepreload" href="emulator/panel.js"><link rel="modulepreload" href="emulator/face.js"><link rel="modulepreload" href="emulator/save-flash.js"><link rel="modulepreload" href="vendor/fm1pkg.js"><link rel="modulepreload" href="lsdj/lsdj-sav.js"><link rel="modulepreload" href="lsdj/sets-ui.js"><link rel="modulepreload" href="lsdj/crate.js">
-<link rel="modulepreload" href="lsdj/kit-library.js"><link rel="modulepreload" href="lsdj/dj.js"><link rel="modulepreload" href="lsdj/mixers.js"><link rel="modulepreload" href="lsdj/dj-tempo.js"><link rel="modulepreload" href="lsdj/dj-fx.js"><link rel="modulepreload" href="lsdj/song-key.js"><link rel="modulepreload" href="vendor/fm1ota.js"><link rel="modulepreload" href="lsdj/lsdj-sets.js"><link rel="modulepreload" href="lsdj/cart-maker.js">
+<link rel="modulepreload" href="lsdj/kit-library.js"><link rel="modulepreload" href="lsdj/dj.js"><link rel="modulepreload" href="lsdj/mixers.js"><link rel="modulepreload" href="lsdj/dj-tempo.js"><link rel="modulepreload" href="lsdj/dj-fx.js"><link rel="modulepreload" href="lsdj/song-key.js"><link rel="modulepreload" href="vendor/fm1ota.js"><link rel="modulepreload" href="lsdj/lsdj-sets.js"><link rel="modulepreload" href="lsdj/cart-maker.js"><link rel="modulepreload" href="lsdj/cart-label.js">
 <script>/* the dev page (dreamsofbacon.github.io/lsdj-burrito-dev/, the site's dev branch): a banner, DEV in the
    title and its own app name; the same code is harmless on the live page */
 if (location.pathname.startsWith('/lsdj-burrito-dev/')) { document.documentElement.classList.add('devpage');
@@ -335,10 +335,37 @@ body.popped .dj-fx{padding:14px 18px;overflow:auto;scrollbar-width:thin}
   background:transparent;color:inherit;font:400 14px/1.2 var(--font-name);letter-spacing:.03em}
 .crate-label .crate-name:focus{outline:2px solid color-mix(in srgb,var(--lab-ink) 70%,transparent);outline-offset:2px}
 .crate-meta{margin:0;font:500 11px/1.3 var(--font-data);opacity:.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* songs an LSDj can't open (saved by a newer one): on the label, in the load question, in New cart… */
+.crate-label .crate-needs{margin:0;padding:2px 5px;border-radius:4px;background:#000a;color:#ffd27a;font:600 10px/1.3 var(--font-data)}
+.crate-ask .crate-needs{margin:4px 0 0}
+.cm-needs{margin-top:3px;font-size:11px}.cm-cartlsdj{margin:4px 0 0;font-size:11px}
 .crate-kind{padding:1px 5px;border-radius:4px;background:#0003;font:600 10px/1.4 var(--font-data);letter-spacing:.04em}
 .crate-on{padding:1px 6px;border-radius:4px;background:var(--accent);color:var(--accent-ink);font:700 10px/1.4 var(--font-data);letter-spacing:.06em}
 .crate-colour{width:16px;height:16px;padding:0;border-radius:50%;border:2px solid color-mix(in srgb,var(--lab-ink) 70%,transparent);background:var(--lab);
   box-shadow:0 0 0 1px #0004}
+/* a cart's label (lsdj/cart-label.js): its picture across the top of the label; the dot opens the editor: the colour
+   swatches, any colour, Picture… (the crate, and each cart in New cart…) */
+.crate-colour.on{box-shadow:0 0 0 2px var(--accent)}
+.crate-label.with-art{padding-top:0;overflow:hidden}
+.crate-art{display:block;width:calc(100% + 18px);margin:0 -9px 2px;height:84px;object-fit:cover;border-radius:6px 6px 0 0}
+.cart-label-edit{display:flex;flex-direction:column;gap:6px;margin-top:4px;padding:6px;border-radius:6px;background:#0003;color:#fff}
+.cart-swatches{display:flex;flex-wrap:wrap;gap:5px;align-items:center}
+.cart-swatch,.cart-custom{width:22px;height:22px;min-height:0;padding:0;border-radius:50%;border:2px solid #fff8;cursor:pointer;background:#8a8880}
+.cart-swatch.on,.cart-custom.on{border-color:#fff;box-shadow:0 0 0 2px var(--accent)}
+.cart-custom{background:conic-gradient(#c0453a,#d8b43a,#4f9a55,#2f9a92,#3f6fbf,#7b55b5,#c0453a);-webkit-appearance:none;appearance:none}
+.cart-custom::-webkit-color-swatch-wrapper{padding:0}.cart-custom::-webkit-color-swatch{border:0;border-radius:50%;opacity:0}
+.cart-custom::-moz-color-swatch{border:0;opacity:0}
+.cart-swatch[data-color=red]{background:#c0453a}.cart-swatch[data-color=orange]{background:#d9822b}.cart-swatch[data-color=yellow]{background:#d8b43a}
+.cart-swatch[data-color=green]{background:#4f9a55}.cart-swatch[data-color=teal]{background:#2f9a92}.cart-swatch[data-color=blue]{background:#3f6fbf}
+.cart-swatch[data-color=purple]{background:#7b55b5}
+.cart-pic-acts{display:flex;flex-wrap:wrap;gap:4px}.cart-pic-acts button{font-size:11px;padding:2px 8px;min-height:0}
+.cm-cart-head{display:flex;align-items:center;gap:8px}
+.cm-cartname{flex:1;min-width:0;font-weight:700}
+.cm-label{--lab:#8a8880;flex:none;width:34px;height:26px;border-radius:4px;background:var(--lab);overflow:hidden;box-shadow:inset 0 1px 3px #0005}
+.cm-label img{width:100%;height:100%;object-fit:cover;display:block}
+.cm-label[data-color=red]{--lab:#c0453a}.cm-label[data-color=orange]{--lab:#d9822b}.cm-label[data-color=yellow]{--lab:#d8b43a}
+.cm-label[data-color=green]{--lab:#4f9a55}.cm-label[data-color=teal]{--lab:#2f9a92}.cm-label[data-color=blue]{--lab:#3f6fbf}.cm-label[data-color=purple]{--lab:#7b55b5}
+.cm-cart .cart-label-edit{background:color-mix(in srgb,var(--card) 70%,#000);color:inherit}
 .crate-songs{font-size:12px}
 .crate-songs summary{cursor:pointer;font:600 11px var(--font-data);text-transform:uppercase;letter-spacing:.06em;color:var(--plastic-ink)}
 .crate-songs p{margin:2px 0 0;font-size:11px;color:inherit;opacity:.8}

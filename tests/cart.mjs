@@ -71,9 +71,23 @@ assert.match(cart.report, /Friday/);
 /* a cart made here is not a source for matching songs again */
 setLibrary(st, [{id: 'lib1', kind: 'rom', name: 'mine.gb', bytes: rom}, {id: 'cart1', kind: 'rom', name: 'Friday.gb', bytes: cart.rom}], ['cart1']);
 assert.deepEqual(view(st, {plan: 'split'}, 400000).roms.map(r => r.id), ['lib1']);
+/* the LSDj to build with: one the FM-1 knows fully (LSDj 9.3.9: SYNC, play state, rows) before a newer one; the
+   newest when none is; the one chosen always. (Fixtures are no real LSDj: checkRoms finds none fully known.) */
+{
+  const newer = lsdj('9.4.0', [KA]), two = newState();
+  setLibrary(two, [{id: 'old', kind: 'rom', name: 'v939.gb', bytes: rom}, {id: 'new', kind: 'rom', name: 'v940.gb', bytes: newer}]);
+  await addFiles(two, [{name: 'set.sav', bytes: footer}]);
+  assert.ok(two.full.has('old') && two.full.has('new') && !two.full.get('old'), 'each LSDj checked once');
+  assert.equal(view(two, {plan: 'split'}, 400000).baseId, 'new', 'none fully known: the newest');
+  two.full.set('old', true);
+  const vf = view(two, {plan: 'split'}, 400000);
+  assert.equal(vf.baseId, 'old', 'the fully known one before a newer one');
+  assert.deepEqual(vf.roms.map(r => [r.id, r.full]), [['old', true], ['new', false]]);
+  assert.equal(view(two, {plan: 'split', baseId: 'new'}, 400000).baseId, 'new', 'the one chosen');
+}
 /* no LSDj to build with: songs listed, no carts */
 const bare = newState(); await addFiles(bare, [{name: 'proj.lsdprj', bytes: prj('PROJ', sX, [KX])}]);
 const vb = view(bare, {plan: 'split'}, 400000);
 assert.equal(vb.songs.length, 1); assert.equal(vb.plans.length, 0); assert.equal(vb.baseId, null);
 assert.throws(() => build(bare), /Nothing to build/);
-console.log('cart: PASS (.lsdprj with and without kits, a project\'s kit numbers, files in (a save with a footer, .lsdsng, .lsdprj, others skipped), each song\'s kits and status, carts planned, built with only the kits played and songs renumbered, carts made here not sources, no LSDj)');
+console.log('cart: PASS (.lsdprj with and without kits, a project\'s kit numbers, files in (a save with a footer, .lsdsng, .lsdprj, others skipped), each song\'s kits and status, carts planned, built with only the kits played and songs renumbered, carts made here not sources, the fully known LSDj first, no LSDj)');

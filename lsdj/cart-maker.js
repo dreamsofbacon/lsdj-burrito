@@ -5,6 +5,7 @@
 // builds each as an LSDj holding only the kits and samples its songs play, plus a .sav: a crate card, ready to load
 // onto a deck. The work runs in a worker (cart-worker.js), so the decks keep time. Copies only, kept in this browser.
 import {libraryFiles, addToLibrary, hashOf} from './kit-library.js';
+import {labelEditor, paintLabel, shrinkImage} from './cart-label.js';
 
 const el = (tag, props = {}, ...kids) => { const e = Object.assign(document.createElement(tag), props); e.append(...kids.filter(k => k != null)); return e; };
 const btn = (text, onclick, props = {}) => el('button', {type: 'button', textContent: text, onclick, ...props});
@@ -15,7 +16,8 @@ const SHOWN = 300;   /* rows drawn at once (a search finds the rest) */
 const BUILT = 'cart-built';   /* the ids of LSDj files made here: never a source for matching songs */
 
 let worker = null, nextId = 1, pending = new Map(), panel = null, addCart = null, capacity = 502016;
-const ui = {ticked: null, choices: {madeWith: {}, kitPick: {}}, baseId: null, plan: 'split', query: '', prefix: 'Cart', view: null, carts: null, busy: ''};
+const ui = {ticked: null, choices: {madeWith: {}, kitPick: {}}, baseId: null, plan: 'split', query: '', prefix: 'Cart', view: null, carts: null, busy: '',
+  names: [], labels: []};   /* each cart's own name (typed; '' = the Name box's, numbered) and label {color, img (bytes), url} */
 const built = () => { try { return JSON.parse(store.get(BUILT, '[]')) || []; } catch { return []; } };
 
 function call(type, m = {}, transfer = []) {
@@ -104,8 +106,17 @@ function songRow(s) {
     ...ui.view.roms.map(r => new Option(r.name, r.id))) : el('span', {className: 'hint', textContent: s.rule ? 'its own kits' : ''});
   if (made.tagName === 'SELECT') { made.value = ui.choices.madeWith[s.id] ?? ''; made.setAttribute('aria-label', `${s.name}: made with`); }
   return el('tr', {className: isTicked(s.id) ? '' : 'off'}, el('td', {}, t), el('td', {}, el('b', {className: 'mono', textContent: s.name}), el('div', {className: 'hint cm-from', textContent: s.from})),
-    el('td', {}, el('span', {className: `${cls} cm-chip`, textContent: text}), s.rule === 'guess' ? el('div', {className: 'hint', textContent: 'The project has fewer kits than the song plays: check which is which.'}) : null),
+    el('td', {}, el('span', {className: `${cls} cm-chip`, textContent: text}), s.rule === 'guess' ? el('div', {className: 'hint', textContent: 'The project has fewer kits than the song plays: check which is which.'}) : null,
+      versionNote(s)),
     el('td', {}, made), el('td', {}, kits));
+}
+/* a song saved by a newer LSDj than the one chosen (its format): built with another LSDj that opens it, or none can */
+function versionNote(s) {
+  if (!s.needs) return null;
+  const base = ui.view.roms.find(r => r.id === ui.view.baseId), on = ui.view.roms.find(r => r.id === s.on);
+  return s.needs === 'moved'
+    ? el('div', {className: 'warn cm-needs', textContent: `Saved by a newer LSDj than ${base?.version ?? 'the one chosen'}: it goes in a cart with LSDj ${on?.version} (${on?.name}).`})
+    : el('div', {className: 'bad cm-needs', textContent: `Saved by a newer LSDj (song format ${s.format}) than any LSDj here opens: add a newer LSDj, or LSDj ${base?.version ?? ''} won't open it right.`});
 }
 function drawSongs(box) {
   const v = ui.view;
@@ -130,21 +141,40 @@ function drawBuild(box) {
   const v = ui.view;
   box.append(el('h4', {textContent: 'Build'}));
   if (!v?.roms.length) { box.append(el('p', {className: 'warn', textContent: 'Add an LSDj (.gb): the carts are built with its program, and it holds the kits for songs made with it.'})); return; }
-  const base = el('select', {onchange: () => change(() => { ui.baseId = base.value; })}, ...v.roms.map(r => new Option(`${r.name} (LSDj ${r.version}, ${plural(r.kits, 'kit')})`, r.id)));
+  const base = el('select', {onchange: () => change(() => { ui.baseId = base.value; })}, ...v.roms.map(r => new Option(`${r.name} (LSDj ${r.version}, ${plural(r.kits, 'kit')})${r.full ? ' ✓ full FM-1 support' : ''}`, r.id)));
   base.value = v.baseId ?? ''; base.setAttribute('aria-label', 'Build the carts with');
   const plan = (value, label) => el('label', {className: 'cm-plan'}, el('input', {type: 'radio', name: 'cm-plan', checked: ui.plan === value, onchange: () => change(() => { ui.plan = value; })}), ' ', label);
-  const name = el('input', {type: 'text', value: ui.prefix, maxLength: 24, className: 'cm-name', oninput: () => { ui.prefix = name.value.trim() || 'Cart'; titlesOf(v.plans).forEach((t, i) => { const b = panel.querySelectorAll('.cm-cart > b')[i]; if (b) b.textContent = t; }); }});
+  const name = el('input', {type: 'text', value: ui.prefix, maxLength: 24, className: 'cm-name', oninput: () => {
+    ui.prefix = name.value.trim() || 'Cart';
+    titlesOf(v.plans).forEach((t, i) => { const b = panel.querySelectorAll('.cm-cart .cm-cartname')[i]; if (b && !ui.names[i]) b.placeholder = t; });
+  }});
   name.setAttribute('aria-label', 'Cart name');
   box.append(el('label', {className: 'cm-field'}, 'Build with ', base),
     el('p', {className: 'hint', textContent: 'Its program runs the carts. Its kits go in only when a song plays them.'}),
+    /* not the LSDj the FM-1 knows fully: the DJ layout loses SYNC, play state and rows on carts made with it */
+    v.roms.find(r => r.id === v.baseId)?.full === false ? el('p', {className: 'warn cm-notfull', textContent: v.roms.some(r => r.full)
+      ? 'The FM-1 knows LSDj 9.3.9 fully, not this one: carts made with it play, but the DJ layout cannot read their SYNC, what plays or the song rows, and MIDI sync and cues are off. Choose the LSDj 9.3.9 above for those.'
+      : 'The FM-1 knows LSDj 9.3.9 fully, not this one: carts made with it play, but the DJ layout cannot read their SYNC, what plays or the song rows, and MIDI sync and cues are off. Add LSDj 9.3.9 to build with it.'}) : null,
     el('div', {className: 'cm-plans'}, plan('split', 'Every sample (as many carts as it takes)'), plan('most', 'One cart (the kits most songs play)')),
     el('label', {className: 'cm-field'}, 'Name ', name));
   if (!v.plans.length) { box.append(el('p', {className: 'hint', textContent: 'Tick some songs.'})); return; }
   const titles = titlesOf(v.plans);
   for (const [i, p] of v.plans.entries()) {
-    const c = ui.carts?.[i];
+    const c = ui.carts?.[i], lab = ui.labels[i] ??= {color: 'grey', img: null, url: null};
+    /* its own name (empty: the Name box's, numbered) and its label: a colour or a picture, as it shows in the crate */
+    const own = el('input', {type: 'text', className: 'cm-cartname', value: ui.names[i] || '', placeholder: defaultTitle(v.plans, i), maxLength: 60,
+      oninput: () => { ui.names[i] = own.value.trim(); }});
+    own.setAttribute('aria-label', `Cart ${i + 1} name`);
+    const swatch = el('span', {className: 'cm-label' + (lab.url ? ' with-art' : '')}, lab.url ? el('img', {src: lab.url, alt: ''}) : null);
+    paintLabel(swatch, lab.color);
+    const editor = labelEditor({color: lab.color, hasImage: !!lab.img, name: titles[i],
+      onColor: col => { lab.color = col; draw(); },
+      onImage: f => guard(async () => { lab.img = await shrinkImage(f); if (lab.url) URL.revokeObjectURL(lab.url); lab.url = URL.createObjectURL(new Blob([lab.img], {type: 'image/jpeg'})); draw(); }),
+      onNoImage: () => { lab.img = null; if (lab.url) URL.revokeObjectURL(lab.url); lab.url = null; draw(); }});
     const card = el('div', {className: 'cm-cart' + (p.over ? ' over' : '')},
-      el('b', {textContent: titles[i]}), el('span', {className: 'hint', textContent: ` ${plural(p.songs.length, 'song')}, ${plural(p.kits, 'kit')}, ${p.kib} of ${Math.floor(capacity / 1024)} KB, ${p.blocks} of 191 blocks`}),
+      el('div', {className: 'cm-cart-head'}, swatch, own),
+      v.plans.some(x => !x.lsdj.chosen) ? el('p', {className: (p.lsdj.chosen ? 'hint' : 'warn') + ' cm-cartlsdj', textContent: `LSDj ${p.lsdj.version} (${p.lsdj.name})${p.lsdj.chosen ? '' : ': for songs the chosen LSDj can’t open'}${p.lsdj.full ? '' : '; no SYNC, play state or rows in the DJ layout'}`}) : null,
+      editor, el('span', {className: 'hint', textContent: ` ${plural(p.songs.length, 'song')}, ${plural(p.kits, 'kit')}, ${p.kib} of ${Math.floor(capacity / 1024)} KB, ${p.blocks} of 191 blocks`}),
       el('div', {className: 'cm-meter'}, el('i', {style: `width:${Math.min(100, p.kib * 102400 / capacity)}%`})),
       el('p', {className: 'cm-cartsongs', textContent: p.songs.join(', ')}));
     for (const l of p.lost) card.append(el('p', {className: 'warn', textContent: `Loses ${l}`}));
@@ -152,26 +182,27 @@ function drawBuild(box) {
     if (c) {
       for (const w of c.warnings) card.append(el('p', {className: 'warn', textContent: w}));
       card.append(c.added ? el('p', {className: 'ok', textContent: 'In the crate.'})
-        : btn('Add to the crate', () => guard(() => addOne(c)), {className: 'primary', disabled: !c.fits}));
+        : btn('Add to the crate', () => guard(() => addOne(c, i)), {className: 'primary', disabled: !c.fits}));
     }
     box.append(card);
   }
   if (!ui.carts) box.append(btn(v.plans.length > 1 ? `Make the ${v.plans.length} carts` : 'Make the cart', () => guard(() => make(titlesOf(v.plans))), {className: 'primary'}));
-  else if (ui.carts.some(c => !c.added && c.fits)) box.append(btn('Add them all to the crate', () => guard(async () => { for (const c of ui.carts) if (!c.added && c.fits) await addOne(c); })));
+  else if (ui.carts.some(c => !c.added && c.fits)) box.append(btn('Add them all to the crate', () => guard(async () => { for (const [i, c] of ui.carts.entries()) if (!c.added && c.fits) await addOne(c, i); })));
 }
-/* the carts' names: the name typed (as typed now), numbered when there are several */
-const titlesOf = plans => plans.map((_, i) => plans.length > 1 ? `${ui.prefix} ${i + 1}` : ui.prefix);
+/* the carts' names: each one's own, or the Name box's (as typed now), numbered when there are several */
+const defaultTitle = (plans, i) => plans.length > 1 ? `${ui.prefix} ${i + 1}` : ui.prefix;
+const titlesOf = plans => plans.map((_, i) => ui.names[i] || defaultTitle(plans, i));
 async function make(titles) {
   ui.busy = 'Making the carts…'; draw();
   ui.carts = await call('build', {titles});
   ui.busy = ''; say(`${plural(ui.carts.length, 'cart')} made: add ${ui.carts.length > 1 ? 'them' : 'it'} to the crate.`, 'ok'); draw();
 }
-async function addOne(c) {
-  const id = await hashOf(c.rom);
+async function addOne(c, i) {
+  const id = await hashOf(c.rom), name = ui.names[i] || c.title, lab = ui.labels[i] || {};
   store.set(BUILT, JSON.stringify([...new Set([...built(), id])].slice(-500)));
-  await addCart({name: c.title, rom: c.rom, sav: c.sav});
+  await addCart({name, rom: c.rom, sav: c.sav, color: lab.color || 'grey', img: lab.img || null});
   c.added = true; await sendLibrary();
-  say(`${c.title} is in the crate: load it onto a deck.`, 'ok'); draw();
+  say(`${name} is in the crate: load it onto a deck.`, 'ok'); draw();
 }
 function draw() {
   if (!panel) return;

@@ -32,6 +32,23 @@ export function lsdjVersion(rom) {
   return m ? [+m[1], +m[2], +m[3]] : null;
 }
 export const versionText = v => v ? v.join('.') : 'unknown version';
+/* Song formats. A song's last byte (0x7FFF) is its format: the LSDj that last saved it writes its own number there
+   (libLSDJ FORMAT_VERSION_OFFSET). An LSDj opens songs of its format and older (it upgrades them, writing its
+   number), not newer ones: their data is read as its own older layout. Seen: LSDj 9.3.9 writes 22, 5.7.8 writes 4.
+   An LSDj's own number is the one it passes to its save-RAM write for 0xBFFF in RAM bank 3 (the format byte of the
+   working song): ld a,N; push af; inc sp; ld hl,$BFFF; push hl; ld a,3; push af; inc sp; call (found by trapping
+   that write in the emulator: the same code in 5.7.8 and 9.3.9). null: not found (an LSDj written differently). */
+export const songFormat = song => song?.length >= 0x8000 ? song[0x7fff] : null;
+export function lsdjFormat(rom) {
+  for (let i = 0; i + 13 <= rom.length; i++) {
+    if (rom[i] !== 0x3e || rom[i + 2] !== 0xf5 || rom[i + 3] !== 0x33 || rom[i + 4] !== 0x21 || rom[i + 5] !== 0xff || rom[i + 6] !== 0xbf ||
+        rom[i + 7] !== 0xe5 || rom[i + 8] !== 0x3e || rom[i + 9] !== 0x03 || rom[i + 10] !== 0xf5 || rom[i + 11] !== 0x33 || rom[i + 12] !== 0xcd) continue;
+    return rom[i + 1];
+  }
+  return null;
+}
+/* whether an LSDj (its format) opens a song (its format): unknown either way counts as yes (nothing to go on) */
+export const opens = (lsdjFmt, songFmt) => lsdjFmt == null || songFmt == null || songFmt <= lsdjFmt;
 export const compareVersions = (a, b) => { for (let i = 0; i < 3; i++) if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) - (b[i] ?? 0); return 0; };
 /* whether this LSDj wants rotated kit frames (9.2.0 and later); unknown versions follow their own kits */
 export function wantsRotated(rom) {
