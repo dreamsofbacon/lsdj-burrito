@@ -11,6 +11,7 @@ import {libraryFiles, addToLibrary, removeFromLibrary} from './kit-library.js';
 import {listKits, crc32} from './lsdj-rom.js';
 import {withOpenSong, savBody} from './lsdj-sav.js';
 import {openCartMaker} from './cart-maker.js';
+import {logEvent} from './conn-log.js';
 import {loadTemplate, prepareLsdjFirmware} from './lsdj-firmware.js';
 import {installOn, checkPackage} from './install.js';
 import {installing, setInstallTarget} from './install-ui.js';
@@ -71,6 +72,18 @@ async function openFiles(list) {
   }
 }
 
+/* after songs are sent: does that FM-1 hold them once LSDj has started on them? (INFO: its save's checksum, its LSDj
+   and firmware) -> null when it does, else what to say. The page said "has" as soon as the transfer ended before;
+   an FM-1 that kept or changed its songs (another LSDj, older firmware) said nothing. */
+async function checkHeld(key, sav, deck) {
+  await wait(2500);   /* (LSDj restarted on the songs) */
+  let info = null;
+  try { info = await app.info?.(key); } catch (e) { return `couldn't ask that FM-1 what it holds now (${e.message})`; }
+  if (!info || info.saveCrc === crc32(sav)) return null;
+  const what = `${info.title || 'its LSDj'}, firmware ${info.firmware || '?'}`;
+  logEvent(`Deck ${deck}: songs sent, but the FM-1 (${what}) holds different ones (checksum ${info.saveCrc.toString(16)}, sent ${crc32(sav).toString(16)}).`);
+  return `the FM-1 (${what}) doesn't hold the songs sent: its LSDj may have kept or changed them. See the Log`;
+}
 const fm1Decks = () => (dj.decks?.() || []).filter(d => d.kind === 'fm1' && d.key != null);
 async function grab(d, withRom) {
   if (busyDeck >= 0) return;
@@ -126,6 +139,9 @@ export async function loadOnto(id, i, slot = null) {
       dj.stop?.(i);
       show('Sending the songs…');
       await app.sendSave(d.key, sav, label, (n, t) => show('Sending the songs…', n, t));
+      show('Checking the FM-1 holds them…');
+      const bad = await checkHeld(d.key, sav, d.name);
+      if (bad) return say(`Deck ${d.name}: sent "${label}", but ${bad}.`, 'bad');
       loaded(d.key);
       say(`Deck ${d.name} has "${label}".`, 'ok');
       return;
@@ -159,6 +175,9 @@ export async function loadOnto(id, i, slot = null) {
     if (sav) {
       show('Sending the songs…');
       await app.sendSave(back.key, sav, label, (n, t) => show('Sending the songs…', n, t));
+      show('Checking the FM-1 holds them…');
+      const bad = await checkHeld(back.key, sav, d.name);
+      if (bad) return say(`Deck ${d.name}: installed ${r.id} and sent "${label}", but ${bad}.`, 'bad');
       loaded(back.key);
     }
     say(`Deck ${d.name} has "${label}" (${r.id}).`, 'ok');

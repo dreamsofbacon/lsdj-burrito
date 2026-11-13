@@ -64,7 +64,7 @@ function fm1(n, title, fw = 'FM-1_997') {
     if (op === OP.ABORT) { d.importing = null; return send(); }
     if (op === OP.BEGIN) { d.importing = new Uint8Array(0x20000); d.begins++; return send(); }
     if (op === OP.CHUNK) { const off = body[0] | body[1] << 8 | body[2] << 16 | body[3] << 24; d.importing?.set(body.slice(4, 132), off); return send(); }
-    if (op === OP.COMMIT) { if (d.importing) { d.save = d.importing; d.importing = null; } return send(); }
+    if (op === OP.COMMIT) { if (d.importing) { d.save = d.importing; d.importing = null; d.afterCommit?.(d.save); } return send(); }   /* (afterCommit: its LSDj changes them) */
     if (op === OP.FX_GET) return send(fx);
     if (op === OP.FX_SET) { d.fxSets.push(body); fx.splice(0, body.length, ...body); return send(); }   /* (kept, as the FM-1 does: LIVE then reports it) */
     if (op === OP.MUTE_SET) { d.mutes.push(body[0]); d.muteSets++; return send(); }
@@ -674,6 +674,12 @@ export async function runDjUiTests() {
       await until(() => A.begins > heldFrom, 'held: it loads, unasked', 5000);
       assert(!ask(), 'held: no question');
       await until(() => /Deck A has "Friday"/.test(crate.querySelector('.crate-status').textContent) && !document.querySelector('.dj-deck.loading'), 'held: loaded', 20000);
+      /* an FM-1 whose LSDj changes the songs once it starts on them: the crate says it doesn't hold them, and why to look */
+      A.afterCommit = s => s.fill(0x11, 0, 64);
+      cardBtn('Load A').click(); [...card().querySelectorAll('.crate-ask button')].find(b => b.textContent === 'Load A').click();
+      await until(() => /doesn't hold the songs sent/.test(crate.querySelector('.crate-status').textContent) && !document.querySelector('.dj-deck.loading'), `not held: said: ${crate.querySelector('.crate-status').textContent}`, 20000);
+      assert(/LSDj-AAA, firmware FM-1_99\d/.test(crate.querySelector('.crate-status').textContent), 'names its LSDj and firmware');
+      A.afterCommit = null;
       /* Songs: every song; A on ACID asks on the row, then FM-1 A opens on ACID (in its working area, slot 1) */
       [...crate.querySelectorAll('[data-crate-view]')].find(b => b.dataset.crateView === 'songs').click();
       const row = name => [...crate.querySelectorAll('.crate-songview .crate-song')].find(r => r.querySelector('.crate-song-name').textContent === name);
